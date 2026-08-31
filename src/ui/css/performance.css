@@ -1,0 +1,27 @@
+:root { font-family: system-ui, sans-serif; color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { margin: 0; background: Canvas; color: CanvasText; }
+.page-shell { max-width: 1180px; margin: 0 auto; padding: 2rem; }
+.page-header, .card-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+h1,h2,p { margin-top: 0; }
+.eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; opacity: .65; margin-bottom: .3rem; }
+.card { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: .8rem; padding: 1.2rem; margin-bottom: 1rem; }
+.summary-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 1rem; margin: 1rem 0; }
+.summary-grid .card { margin: 0; display: flex; flex-direction: column; gap: .35rem; }
+.summary-grid strong { font-size: 1.35rem; }
+.summary-grid span, .summary-grid small { opacity: .7; }
+.controls { display: flex; flex-wrap: wrap; gap: .8rem; align-items: end; margin: 1rem 0; }
+label { display: flex; flex-direction: column; gap: .35rem; font-size: .85rem; }
+input { min-height: 42px; padding: .55rem .7rem; font-size: 1rem; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); border-radius: .45rem; background: Canvas; color: CanvasText; }
+.button { min-height: 42px; padding: .6rem .9rem; border: 1px solid currentColor; border-radius: .45rem; cursor: pointer; text-decoration: none; background: transparent; color: inherit; }
+.button.primary { font-weight: 700; }
+.button.danger { font-weight: 700; }
+.live-test { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: .7rem; margin: 1rem 0; }
+.live-test > div { padding: .8rem; border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); border-radius: .55rem; display:flex; flex-direction:column; }
+.results { display: grid; gap: .55rem; }
+.result-row { display: grid; grid-template-columns: 1.2fr .5fr .5fr 2fr; gap: .7rem; align-items: center; padding: .7rem; border: 1px solid color-mix(in srgb, CanvasText 15%, transparent); border-radius: .5rem; }
+.result-row p { margin: 0; font-size: .85rem; opacity: .75; }
+.state-badge { padding: .35rem .65rem; border: 1px solid currentColor; border-radius: 99px; }
+.toast { position: fixed; right: 1rem; bottom: 1rem; padding: .8rem 1rem; border: 1px solid currentColor; background: Canvas; border-radius: .5rem; opacity:0; pointer-events:none; transition:opacity .15s; }
+.toast.show { opacity:1; }
+@media(max-width:760px){ .page-shell{padding:1rem}.summary-grid,.live-test{grid-template-columns:1fr 1fr}.result-row{grid-template-columns:1fr 1fr}.result-row p{grid-column:1/-1}.page-header{align-items:flex-start;flex-direction:column} }

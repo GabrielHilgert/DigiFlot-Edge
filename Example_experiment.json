@@ -1,0 +1,106 @@
+{
+    "user_id": null,
+    "group_id": null,
+    "name": "Example_Import",
+    "airflow": 3,
+    "rotor_speed": 1000,
+    "reagents": [
+        {
+            "volume": 1600,
+            "reagent_id": 13,
+            "reagent_name": "NaSH",
+            "concentration": 2
+        },
+        {
+            "volume": 50,
+            "reagent_id": 5,
+            "reagent_name": "CuSO4_5H2O",
+            "concentration": 5
+        }
+    ],
+    "last_modified": "2026-08-25T09:31:00",
+    "cell_id": 1,
+    "id": 5,
+    "pH": 7,
+    "repetitions": 1,
+    "stages": [
+        {
+            "id": 1,
+            "ph": 7,
+            "name": "Stage - 1",
+            "type": "conditioning",
+            "airflow": 0,
+            "duration": 5,
+            "reagent_id": 13,
+            "rotor_speed": 1000,
+            "reagent_name": "NaSH"
+        },
+        {
+            "id": 2,
+            "ph": 7,
+            "name": "Stage - 2",
+            "type": "conditioning",
+            "airflow": 0,
+            "duration": 3,
+            "reagent_id": 5,
+            "rotor_speed": 1000,
+            "reagent_name": "CuSO4_5H2O"
+        },
+        {
+            "id": 3,
+            "ph": 7,
+            "name": "Stage - 3",
+            "type": "flotation",
+            "airflow": 3,
+            "duration": 60,
+            "reagent_id": null,
+            "rotor_speed": 1000,
+            "reagent_name": null
+        },
+        {
+            "id": 4,
+            "ph": 7,
+            "name": "Stage - 4",
+            "type": "flotation",
+            "airflow": 3,
+            "duration": 60,
+            "reagent_id": null,
+            "rotor_speed": 1000,
+            "reagent_name": null
+        },
+        {
+            "id": 5,
+            "ph": 7,
+            "name": "Stage - 5",
+            "type": "flotation",
+            "airflow": 3,
+            "duration": 60,
+            "reagent_id": null,
+            "rotor_speed": 1000,
+            "reagent_name": null
+        },
+        {
+            "id": 6,
+            "ph": 7,
+            "name": "Stage - 6",
+            "type": "flotation",
+            "airflow": 3,
+            "duration": 60,
+            "reagent_id": null,
+            "rotor_speed": 1000,
+            "reagent_name": null
+        },
+        {
+            "id": 7,
+            "ph": 7,
+            "name": "Stage - 7",
+            "type": "flotation",
+            "airflow": 3,
+            "duration": 60,
+            "reagent_id": null,
+            "rotor_speed": 1000,
+            "reagent_name": null
+        }
+    ],
+    "creation_time": "2026-07-30T13:27:33"
+}

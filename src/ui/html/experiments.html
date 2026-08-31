@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>DigiFlot | Experiments</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', path='css/experiments.css') }}?v=4"
+    >
+
+    <script
+        defer
+        src="{{ url_for('static', path='js/experiments.js') }}?v=4"
+    ></script>
+</head>
+
+<body>
+
+    <main class="page-shell experiments-page">
+
+        <header class="page-header">
+
+            <div>
+                <p class="eyebrow">
+                    DigiFlot / Server
+                </p>
+
+                <h1>
+                    Available experiments
+                </h1>
+
+                <p class="page-description">
+                    Experiments available from the server, imported JSON files,
+                    and existing local executions.
+                </p>
+            </div>
+
+            <div class="header-state">
+
+                <span class="status-label">
+                    Server
+                </span>
+
+                <span
+                    id="server_status"
+                    class="state-badge state-muted"
+                >
+                    <span class="state-dot"></span>
+
+                    <span id="server_status_text">
+                        Loading
+                    </span>
+                </span>
+
+            </div>
+
+        </header>
+
+        <section id="active_run_banner" class="active-run-banner" hidden>
+            <div>
+                <span class="active-run-dot"></span>
+                <div>
+                    <strong>Experiment active</strong>
+                    <span id="active_run_name">—</span>
+                </div>
+            </div>
+            <a class="button button-primary" href="/run">Open active run</a>
+        </section>
+
+        <section class="experiments-layout">
+
+            <article class="card experiments-card">
+
+                <div class="card-header">
+
+                    <div>
+
+                        <span class="section-index">
+                            01
+                        </span>
+
+                        <div>
+                            <h2>
+                                Experiments
+                            </h2>
+
+                            <p>
+                                Start a new local experiment or continue an existing one.
+                            </p>
+                        </div>
+
+                    </div>
+
+
+                    <div class="header-actions">
+
+                        <a
+                            href="/performance"
+                            class="button button-secondary"
+                        >
+                            Performance
+                        </a>
+
+                        <button
+                            id="upload_button"
+                            class="button button-secondary"
+                            type="button"
+                        >
+                            Upload Experiment
+                        </button>
+
+                        <input
+                            id="experiment_file"
+                            type="file"
+                            accept=".json,application/json"
+                            hidden
+                        >
+
+                        <button
+                            id="refresh_button"
+                            class="button button-secondary"
+                            type="button"
+                        >
+                            Refresh
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <div class="card-body">
+
+                    <div class="experiment-toolbar">
+
+                        <div class="field-group">
+
+                            <label for="experiment_search">
+                                Search
+                            </label>
+
+                            <input
+                                id="experiment_search"
+                                type="search"
+                                placeholder="Name, ID, source or state"
+                                autocomplete="off"
+                            >
+
+                        </div>
+
+
+                        <div class="experiment-count">
+
+                            <span>
+                                Entries
+                            </span>
+
+                            <strong id="experiment_count">
+                                0
+                            </strong>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-frame">
+
+                        <table class="experiment-table">
+
+                            <thead>
+
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Experiment</th>
+                                    <th>Source</th>
+                                    <th>State</th>
+                                    <th>Modified</th>
+                                    <th></th>
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody id="experiments_body">
+
+                                <tr>
+                                    <td
+                                        colspan="6"
+                                        class="table-message"
+                                    >
+                                        Loading experiments...
+                                    </td>
+                                </tr>
+
+                            </tbody>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+            </article>
+
+
+            <article class="card detail-card">
+
+                <div class="card-header">
+
+                    <div>
+
+                        <span class="section-index">
+                            02
+                        </span>
+
+                        <div>
+                            <h2>
+                                Experiment details
+                            </h2>
+
+                            <p>
+                                Complete experiment configuration.
+                            </p>
+                        </div>
+
+                    </div>
+
+
+                    <div class="detail-header-actions">
+
+                        <span
+                            id="experiment_badge"
+                            class="experiment-badge"
+                            hidden
+                        ></span>
+
+                        <button
+                            id="start_experiment_button"
+                            class="button button-primary"
+                            type="button"
+                            hidden
+                        >
+                            Start Experiment
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <div
+                    id="detail_placeholder"
+                    class="detail-placeholder"
+                >
+
+                    <div class="placeholder-mark">
+                        #
+                    </div>
+
+                    <strong>
+                        No experiment selected
+                    </strong>
+
+                    <p>
+                        Select an experiment from the list to open it.
+                    </p>
+
+                </div>
+
+
+                <div
+                    id="detail_content"
+                    class="detail-content"
+                    hidden
+                >
+
+                    <div class="experiment-heading">
+
+                        <div>
+
+                            <span class="detail-label">
+                                Experiment
+                            </span>
+
+                            <h3 id="detail_name">
+                                —
+                            </h3>
+
+                        </div>
+
+
+                        <div class="experiment-heading-meta">
+
+                            <span>
+                                Created
+
+                                <strong id="detail_created">
+                                    —
+                                </strong>
+                            </span>
+
+                            <span>
+                                Modified
+
+                                <strong id="detail_modified">
+                                    —
+                                </strong>
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="detail-section">
+
+                        <div class="subsection-heading">
+
+                            <div>
+
+                                <h4>
+                                    Operating conditions
+                                </h4>
+
+                                <p>
+                                    General experiment and flotation-cell parameters.
+                                </p>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="parameter-grid">
+
+                            <div class="parameter-item">
+                                <span>Source</span>
+                                <strong id="detail_source">—</strong>
+                            </div>
+
+                            <div class="parameter-item">
+                                <span>State</span>
+                                <strong id="detail_state">—</strong>
+                            </div>
+
+                            <div class="parameter-item">
+                                <span>Cell ID</span>
+                                <strong id="detail_cell">—</strong>
+                            </div>
+
+                            <div class="parameter-item">
+                                <span>User ID</span>
+                                <strong id="detail_user">—</strong>
+                            </div>
+
+                            <div class="parameter-item">
+                                <span>Group ID</span>
+                                <strong id="detail_group">—</strong>
+                            </div>
+
+                            <div class="parameter-item">
+                                <span>Repetitions</span>
+                                <strong id="detail_repetitions">—</strong>
+                            </div>
+
+                            <div class="parameter-item">
+                                <span>pH</span>
+                                <strong id="detail_ph">—</strong>
+                            </div>
+
+                            <div class="parameter-item">
+                                <span>Airflow</span>
+                                <strong id="detail_airflow">—</strong>
+                            </div>
+
+                            <div class="parameter-item">
+                                <span>Rotor speed</span>
+                                <strong id="detail_rotor">—</strong>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="detail-section">
+
+                        <div class="subsection-heading subsection-heading-inline">
+
+                            <div>
+
+                                <h4>
+                                    Reagents
+                                </h4>
+
+                                <p>
+                                    Reagents configured for the experiment.
+                                </p>
+
+                            </div>
+
+                            <span
+                                id="reagent_count"
+                                class="count-pill"
+                            >
+                                0
+                            </span>
+
+                        </div>
+
+
+                        <div
+                            id="reagents_list"
+                            class="reagents-list"
+                        ></div>
+
+                    </div>
+
+
+                    <div class="detail-section detail-section-last">
+
+                        <div class="subsection-heading subsection-heading-inline">
+
+                            <div>
+
+                                <h4>
+                                    Stages
+                                </h4>
+
+                                <p>
+                                    Configured experiment sequence.
+                                </p>
+
+                            </div>
+
+                            <span
+                                id="stage_count"
+                                class="count-pill"
+                            >
+                                0
+                            </span>
+
+                        </div>
+
+
+                        <div
+                            id="stages_list"
+                            class="stages-list"
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+                <div
+                    id="detail_error"
+                    class="detail-error"
+                    hidden
+                >
+                    Unable to load experiment.
+                </div>
+
+            </article>
+
+        </section>
+
+    </main>
+
+</body>
+
+</html>

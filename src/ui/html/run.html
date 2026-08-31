@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DigiFlot | Experiment Run</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=4">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=4"></script>
+</head>
+<body>
+    <main class="page-shell">
+        <header class="page-header">
+            <div>
+                <p class="eyebrow">DigiFlot / Experiment execution</p>
+                <h1 id="experiment_name">Experiment run</h1>
+                <p class="page-description" id="experiment_meta">Loading execution state…</p>
+            </div>
+            <div class="header-state">
+                <span class="status-label">System state</span>
+                <span id="state_badge" class="state-badge state-muted">
+                    <span class="state-dot"></span>
+                    <span id="state_text">{{ digiflot_state }}</span>
+                </span>
+            </div>
+        </header>
+
+        <section class="workflow-card card">
+            <div class="workflow-step" data-step="camera">
+                <span>01</span>
+                <strong>Cameras</strong>
+            </div>
+            <div class="workflow-line"></div>
+            <div class="workflow-step" data-step="sensor">
+                <span>02</span>
+                <strong>Sensors</strong>
+            </div>
+            <div class="workflow-line"></div>
+            <div class="workflow-step" data-step="ready">
+                <span>03</span>
+                <strong>Ready</strong>
+            </div>
+            <div class="workflow-line"></div>
+            <div class="workflow-step" data-step="run">
+                <span>04</span>
+                <strong>Run</strong>
+            </div>
+        </section>
+
+        <section id="operations_panel" class="operations-strip card">
+            <div>
+                <span class="status-label">Devices</span>
+                <div id="device_summary" class="device-summary">Checking…</div>
+            </div>
+            <div>
+                <span class="status-label">Performance</span>
+                <div id="performance_summary" class="performance-summary">Not evaluated</div>
+            </div>
+            <div class="operations-actions">
+                <button id="operations_retry_devices" class="button button-secondary button-small" type="button">Retry devices</button>
+                <a class="button button-secondary button-small" href="/performance">Performance</a>
+            </div>
+        </section>
+
+        <section id="warning_panel" class="warning-panel card" hidden>
+            <strong>Warnings</strong>
+            <div id="warning_list"></div>
+        </section>
+
+        <section id="camera_panel" class="card panel" hidden>
+            <div class="card-header">
+                <div>
+                    <span class="section-index">01</span>
+                    <div>
+                        <h2>Camera calibration</h2>
+                        <p>Calibrate each available camera that you want to use. Any camera can be skipped or left offline without blocking the experiment. Exposure is calibrated automatically when a camera is opened.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="camera_list" class="calibration-grid"></div>
+            </div>
+        </section>
+
+        <section id="sensor_panel" class="card panel" hidden>
+            <div class="card-header">
+                <div>
+                    <span class="section-index">02</span>
+                    <div>
+                        <h2>Sensor calibration</h2>
+                        <p>Monitor all sensors live and perform supported calibration procedures before continuing.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body sensor-calibration-entry">
+                <div>
+                    <div id="sensor_list" class="sensor-summary-list"></div>
+                    <p class="sensor-calibration-note">Sensor calibration can be explicitly skipped. Offline sensors also do not stop the workflow; both cases are recorded in the execution metadata.</p>
+                </div>
+                <a class="button button-primary button-large" href="/sensors?calibration=1">
+                    Open sensor calibration
+                </a>
+            </div>
+        </section>
+
+        <section id="ready_panel" class="card panel" hidden>
+            <div class="card-header">
+                <div>
+                    <span class="section-index">03</span>
+                    <div>
+                        <h2>Ready to start</h2>
+                        <p>The first stage never starts automatically.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body ready-layout">
+                <div id="ready_stage" class="stage-summary"></div>
+                <button id="start_first_stage" class="button button-primary button-large" type="button">
+                    Start Stage 1
+                </button>
+            </div>
+        </section>
+
+        <section id="run_panel" class="card panel run-panel" hidden>
+            <div class="run-topbar">
+                <div>
+                    <span id="stage_type" class="stage-type">STAGE</span>
+                    <h2 id="stage_name">—</h2>
+                </div>
+                <div class="recording-indicators">
+                    <span id="camera_indicator" class="indicator">CAMERAS</span>
+                    <span id="sensor_indicator" class="indicator indicator-on">SENSORS</span>
+                </div>
+            </div>
+
+            <div id="active_view" class="run-body">
+                <div class="timer-block">
+                    <span class="timer-label">Stage remaining</span>
+                    <strong id="stage_timer" class="big-timer">00:00</strong>
+                    <span id="stage_elapsed" class="timer-sub">Elapsed 00:00</span>
+                </div>
+
+                <div id="scraping_box" class="scraping-box" hidden>
+                    <span class="scraping-label">Next scraping</span>
+                    <strong id="scraping_timer">—</strong>
+                    <span>Manual scraping signal every 5 s</span>
+                </div>
+
+                <div id="stage_parameters" class="parameter-grid"></div>
+            </div>
+
+            <div id="transition_view" class="transition-view" hidden>
+                <p class="eyebrow">Next stage</p>
+                <h2 id="next_stage_name">—</h2>
+                <p id="next_stage_message">Prepare the next operation.</p>
+                <div class="transition-countdown">
+                    <span>Automatic start in</span>
+                    <strong id="transition_timer">30</strong>
+                    <span>seconds</span>
+                </div>
+            </div>
+
+            <div class="run-actions">
+                <button id="start_now_button" class="button button-primary" type="button" hidden>Start now</button>
+                <button id="finish_stage_button" class="button button-secondary" type="button">Finish stage now</button>
+                <button id="skip_stage_button" class="button button-danger" type="button">Skip stage</button>
+                <button id="pause_button" class="button button-warning" type="button">Pause</button>
+                <button id="resume_button" class="button button-primary" type="button" hidden>Resume</button>
+            </div>
+        </section>
+
+        <section id="completed_panel" class="card panel completion-panel" hidden>
+            <div class="completion-mark">✓</div>
+            <h2>Experiment completed</h2>
+            <p>All acquisition streams were finalized and the execution metadata was saved.</p>
+            <div class="button-group">
+                <a class="button button-secondary" href="/">Experiments</a>
+                <button id="reset_button" class="button button-primary" type="button">Close run</button>
+            </div>
+        </section>
+
+        <section id="error_panel" class="card panel error-panel" hidden>
+            <h2 id="error_title">Experiment requires attention</h2>
+            <p id="error_message">—</p>
+            <div id="recovery_details" class="recovery-details" hidden></div>
+            <div id="recovery_actions" class="button-group" hidden>
+                <button id="retry_devices_button" class="button button-secondary" type="button">Retry devices</button>
+                <button id="recovery_resume_button" class="button button-primary" type="button">Resume stage</button>
+                <button id="restart_stage_button" class="button button-warning" type="button">Restart stage</button>
+                <button id="recovery_skip_button" class="button button-secondary" type="button">Skip stage</button>
+                <button id="recovery_abort_button" class="button button-danger" type="button">Abort experiment</button>
+            </div>
+            <div id="error_close_actions" class="button-group">
+                <button id="error_reset_button" class="button button-primary" type="button">Close run</button>
+                <a class="button button-secondary" href="/">Experiments</a>
+            </div>
+        </section>
+
+        <div id="abort_bar" class="abort-bar" hidden>
+            <span>Execution data are saved continuously.</span>
+            <button id="abort_button" class="button button-danger" type="button">Abort experiment</button>
+        </div>
+    </main>
+
+    <div id="scrape_signal" class="scrape-signal" aria-live="assertive">
+        <span>SCRAPE NOW</span>
+    </div>
+    <div id="toast" class="toast" role="status"></div>
+</body>
+</html>

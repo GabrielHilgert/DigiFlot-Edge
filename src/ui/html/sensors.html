@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DigiFlot | Sensors</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20260826b">
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20260826b"></script>
+</head>
+<body>
+    <main class="page-shell sensors-page">
+        <header class="page-header">
+            <div>
+                <p class="eyebrow">DigiFlot / Sensors</p>
+                <h1 id="page_title">Sensor monitoring</h1>
+                <p id="page_description" class="page-description">
+                    Live measurements from every configured sensor.
+                </p>
+            </div>
+            <div class="header-state">
+                <span class="status-label">Experiment state</span>
+                <span id="experiment_state" class="state-badge state-muted">
+                    <span class="state-dot"></span>
+                    <span id="experiment_state_text">Loading</span>
+                </span>
+            </div>
+        </header>
+
+        <section id="calibration_banner" class="calibration-banner" hidden>
+            <div>
+                <strong>Sensor calibration</strong>
+                <span>Use the live signals below to verify each sensor. Calibration is optional: you can explicitly skip a sensor, and offline devices do not block the run.</span>
+            </div>
+            <a class="button button-secondary" href="/run">Back to run</a>
+        </section>
+
+        <section id="sensor_grid" class="sensor-grid" aria-live="polite"></section>
+
+        <section id="empty_state" class="empty-state" hidden>
+            <h2>No sensors configured</h2>
+            <p>The DigiFlot configuration does not contain any sensor entries.</p>
+        </section>
+
+        <section id="calibration_footer" class="calibration-footer" hidden>
+            <div>
+                <strong id="calibration_progress">Checking calibration status…</strong>
+                <span id="calibration_hint">Calibrate, check, or explicitly skip each connected sensor before continuing.</span>
+            </div>
+            <button id="finish_calibration" class="button button-primary button-large" type="button">
+                Finish sensor calibration
+            </button>
+        </section>
+    </main>
+
+    <div id="toast" class="toast" role="status"></div>
+</body>
+</html>

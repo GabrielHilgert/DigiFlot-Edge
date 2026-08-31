@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DigiFlot | Performance</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/performance.css') }}?v=2">
+    <script defer src="{{ url_for('static', path='js/performance.js') }}?v=2"></script>
+</head>
+<body>
+<main class="page-shell">
+    <header class="page-header">
+        <div>
+            <p class="eyebrow">DigiFlot / System</p>
+            <h1>Performance</h1>
+            <p>Validate sustainable camera frame rates and inspect system health.</p>
+        </div>
+        <a class="button secondary" href="/">Experiments</a>
+    </header>
+
+    <section class="summary-grid">
+        <article class="card"><span>Profile</span><strong id="profile_status">—</strong><small id="profile_date">No benchmark</small></article>
+        <article class="card"><span>Recommended</span><strong id="recommended_rate">—</strong><small>combined camera configuration</small></article>
+        <article class="card"><span>Temperature</span><strong id="temperature">—</strong><small id="throttle_state">Throttling —</small></article>
+        <article class="card"><span>Disk free</span><strong id="disk_free">—</strong><small id="load_state">Load —</small></article>
+    </section>
+
+    <section class="card benchmark-card">
+        <div class="card-head">
+            <div>
+                <p class="eyebrow">Hardware benchmark</p>
+                <h2 id="benchmark_title">Ready</h2>
+                <p id="benchmark_message">The benchmark records all currently available cameras using the real acquisition pipeline.</p>
+            </div>
+            <span id="benchmark_state" class="state-badge">Idle</span>
+        </div>
+
+        <div class="controls">
+            <label>Frame rates
+                <input id="rates" type="text" value="10, 15, 20, 25, 30">
+            </label>
+            <label>Seconds per rate
+                <input id="duration" type="number" min="5" max="600" step="5" value="30">
+            </label>
+            <button id="start_benchmark" class="button primary" type="button">Run benchmark</button>
+            <button id="abort_benchmark" class="button danger" type="button" hidden>Abort</button>
+        </div>
+
+        <div id="live_test" class="live-test" hidden>
+            <div><span>Current rate</span><strong id="current_rate">—</strong></div>
+            <div><span>Elapsed</span><strong id="elapsed">—</strong></div>
+            <div><span>Temperature</span><strong id="live_temp">—</strong></div>
+            <div><span>Load</span><strong id="live_load">—</strong></div>
+        </div>
+
+        <div id="benchmark_results" class="results"></div>
+    </section>
+
+    <section class="card">
+        <div class="card-head"><div><p class="eyebrow">Saved profile</p><h2>Validated envelope</h2></div></div>
+        <div id="profile_results" class="results"><p>No saved profile.</p></div>
+    </section>
+
+    <div id="toast" class="toast"></div>
+</main>
+</body>
+</html>

@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+    <title>DigiFlot · Camera Configuration</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', path='css/config_camera.css') }}?v=4"
+    >
+</head>
+
+<body data-calibration-mode="{{ 'true' if calibration_mode else 'false' }}">
+    <main class="page-shell">
+        <header class="page-header">
+            <div>
+                <p class="eyebrow">DigiFlot · Device configuration</p>
+                <h1>Camera Configuration</h1>
+                <p class="page-description">
+                    Configure acquisition, crop, preview, exposure and image controls.
+                    Saved settings are used by the acquisition pipeline.
+                </p>
+            </div>
+
+            <div class="header-state">
+                <span class="status-label">System state</span>
+                <span
+                    id="global_state_badge"
+                    class="state-badge state-idle"
+                >
+                    <span class="state-dot"></span>
+                    {{ digiflot_state }}
+                </span>
+            </div>
+        </header>
+
+        {% if calibration_mode %}
+        <section class="card calibration-banner">
+            <div class="card-body">
+                <strong>Experiment camera calibration</strong>
+                <p>Opening a pending camera starts preview and calibrates exposure automatically. Adjust crop and controls, then save and confirm this camera.</p>
+                <a class="button button-secondary" href="/run">Back to experiment</a>
+            </div>
+        </section>
+        {% endif %}
+
+        <section class="card camera-card">
+            <div class="card-header">
+                <div>
+                    <span class="section-index">01</span>
+                    <div>
+                        <h2>Camera</h2>
+                        <p>Select a camera and configure its acquisition settings.</p>
+                    </div>
+                </div>
+
+                <span
+                    id="camera_state_badge"
+                    class="state-badge state-muted"
+                >
+                    <span class="state-dot"></span>
+                    No camera selected
+                </span>
+            </div>
+
+            <div class="card-body">
+                <div class="camera-selector-row">
+                    <div class="field field-wide">
+                        <label for="camera_select">Camera</label>
+                        <select id="camera_select">
+                            <option value="" selected disabled>
+                                Select camera
+                            </option>
+
+                            {% for camera in cameras %}
+                            <option value="{{ camera.id }}">
+                                {{ camera.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <span class="field-help">
+                            Selecting a camera does not start the sensor or preview.
+                        </span>
+                    </div>
+
+                    <div class="camera-identity">
+                        <div class="identity-item">
+                            <span class="identity-label">Hardware ID</span>
+                            <strong id="hardware_id">—</strong>
+                        </div>
+                        <div class="identity-item">
+                            <span class="identity-label">Sensor</span>
+                            <strong id="sensor_model">—</strong>
+                        </div>
+                        <div class="identity-item">
+                            <span class="identity-label">Native resolution</span>
+                            <strong id="sensor_resolution">—</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <div class="subsection-heading">
+                    <div>
+                        <h3>Acquisition</h3>
+                        <p>Settings used when DigiFlot records experiment images.</p>
+                    </div>
+                </div>
+
+                <div class="form-grid form-grid-4">
+                    <div class="field field-span-2">
+                        <label for="camera_name">Camera name</label>
+                        <input
+                            id="camera_name"
+                            class="camera-field"
+                            type="text"
+                            maxlength="64"
+                            placeholder="Camera_1"
+                            disabled
+                        >
+                    </div>
+
+                    <div class="field">
+                        <label for="frame_rate">Frame rate</label>
+                        <div class="input-unit">
+                            <input
+                                id="frame_rate"
+                                class="camera-field"
+                                type="number"
+                                min="1"
+                                step="0.1"
+                                disabled
+                            >
+                            <span>fps</span>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="recording_output_type">Recording output</label>
+                        <select
+                            id="recording_output_type"
+                            class="camera-field"
+                            disabled
+                        >
+                            <option value="mjpeg">MJPEG / AVI (.avi)</option>
+                            <option value="mp4">MJPEG / MP4 (.mp4)</option>
+                        </select>
+                    </div>
+
+                    <div class="field">
+                        <label for="frame_width">Output width</label>
+                        <div class="input-unit">
+                            <input
+                                id="frame_width"
+                                class="camera-field"
+                                type="number"
+                                min="2"
+                                step="2"
+                                disabled
+                            >
+                            <span>px</span>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="frame_height">Output height</label>
+                        <div class="input-unit">
+                            <input
+                                id="frame_height"
+                                class="camera-field"
+                                type="number"
+                                min="2"
+                                step="2"
+                                disabled
+                            >
+                            <span>px</span>
+                        </div>
+                    </div>
+
+                    <div class="field field-wide output-geometry-note">
+                        <p>
+                            Output dimensions follow the selected sensor crop automatically.
+                            No independent output aspect ratio is applied.
+                        </p>
+                    </div>
+
+                    <div class="field">
+                        <label for="pixel_format">Pixel format</label>
+                        <select
+                            id="pixel_format"
+                            class="camera-field"
+                            disabled
+                        ></select>
+                        <span class="field-help">YUV420 is recommended for efficiency.</span>
+                    </div>
+
+                    <div class="field metadata-field">
+                        <label>Camera location</label>
+                        <div class="readonly-value" id="sensor_location">—</div>
+                    </div>
+
+                    <div class="field metadata-field">
+                        <label>Rotation metadata</label>
+                        <div class="readonly-value" id="sensor_rotation">—</div>
+                    </div>
+                </div>
+
+                <div id="performance_guard" class="performance-guard" data-status="UNVALIDATED">
+                    <div>
+                        <span class="identity-label">Combined acquisition performance</span>
+                        <strong id="performance_guard_status">Checking…</strong>
+                        <p id="performance_guard_message">The saved benchmark profile will be checked against both camera configurations.</p>
+                    </div>
+                    <button id="use_recommended_fps" class="button button-secondary button-small" type="button" hidden>Use recommended</button>
+                </div>
+
+                <div class="crop-summary-bar">
+                    <div>
+                        <span class="crop-summary-label">Sensor crop</span>
+                        <strong id="crop_summary">Full sensor</strong>
+                    </div>
+                    <p>
+                        Crop is selected directly on the active preview and stored
+                        in sensor coordinates.
+                    </p>
+                </div>
+
+                <input
+                    id="crop_enabled"
+                    class="camera-field"
+                    type="checkbox"
+                    hidden
+                    disabled
+                >
+                <input id="crop_x" type="hidden">
+                <input id="crop_y" type="hidden">
+                <input id="crop_width" type="hidden">
+                <input id="crop_height" type="hidden">
+            </div>
+        </section>
+
+        <section class="card preview-card">
+            <div class="card-header">
+                <div>
+                    <span class="section-index">02</span>
+                    <div>
+                        <h2>Camera Preview</h2>
+                        <p>
+                            Temporary low-resolution stream for setup and calibration.
+                            Only one camera is previewed at a time.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="preview-actions">
+                    <button
+                        id="start_preview_button"
+                        class="button button-primary"
+                        type="button"
+                        disabled
+                    >
+                        Start preview
+                    </button>
+                    <button
+                        id="stop_preview_button"
+                        class="button button-secondary"
+                        type="button"
+                        disabled
+                    >
+                        Stop preview
+                    </button>
+                </div>
+            </div>
+
+            <div class="card-body preview-body">
+                <div id="preview_stage" class="preview-stage">
+                    <div id="preview_placeholder" class="preview-placeholder">
+                        <div class="preview-placeholder-icon"></div>
+                        <strong>No active preview</strong>
+                        <span>Select a camera and start preview.</span>
+                    </div>
+
+                    <div
+                        id="preview_viewport"
+                        class="preview-viewport"
+                    >
+                        <img
+                            id="preview_image"
+                            alt="Camera preview"
+                            draggable="false"
+                        >
+
+                        <div
+                            id="crop_selection_layer"
+                            class="crop-selection-layer"
+                            aria-hidden="true"
+                        >
+                            <div
+                                id="crop_selection_box"
+                                class="crop-selection-box"
+                            ></div>
+
+                            <div class="crop-selection-instruction">
+                                <strong>Select crop region</strong>
+                                <span>Drag over the full sensor image to define the acquisition area.</span>
+                            </div>
+                        </div>
+
+                        <div class="preview-overlay">
+                            <span id="preview_camera_label">—</span>
+                            <span id="preview_resolution_label">—</span>
+                        </div>
+                    </div>
+                </div>
+
+                <aside class="preview-settings">
+                    <div class="subsection-heading compact">
+                        <div>
+                            <h3>Preview stream</h3>
+                            <p>These settings affect calibration preview only.</p>
+                        </div>
+                    </div>
+
+                    <div class="form-grid form-grid-2">
+                        <div class="field">
+                            <label for="preview_width">Width</label>
+                            <div class="input-unit">
+                                <input
+                                    id="preview_width"
+                                    class="camera-field"
+                                    type="number"
+                                    min="2"
+                                    step="2"
+                                    disabled
+                                >
+                                <span>px</span>
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label for="preview_height">Height</label>
+                            <div class="input-unit">
+                                <input
+                                    id="preview_height"
+                                    class="camera-field"
+                                    type="number"
+                                    min="2"
+                                    step="2"
+                                    readonly
+                                    disabled
+                                >
+                                <span>px</span>
+                            </div>
+                            <span class="field-help">Calculated from the sensor aspect ratio.</span>
+                        </div>
+
+                        <div class="field">
+                            <label for="preview_frame_rate">Preview rate</label>
+                            <div class="input-unit">
+                                <input
+                                    id="preview_frame_rate"
+                                    class="camera-field"
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    disabled
+                                >
+                                <span>fps</span>
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <label for="preview_quality">JPEG quality</label>
+                            <div class="input-unit">
+                                <input
+                                    id="preview_quality"
+                                    class="camera-field"
+                                    type="number"
+                                    min="1"
+                                    max="100"
+                                    step="1"
+                                    disabled
+                                >
+                                <span>%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="info-note">
+                        Preview always uses the complete sensor field of view and its
+                        native aspect ratio. The browser limits the displayed image to
+                        630 px in height; the JPEG stream can stay smaller to save CPU.
+                    </div>
+
+                    <div class="preview-settings-divider"></div>
+
+                    <div class="crop-preview-panel">
+                        <div class="subsection-heading compact">
+                            <div>
+                                <h3>Sensor crop</h3>
+                                <p>Select the acquisition region directly on the image.</p>
+                            </div>
+                        </div>
+
+                        <div class="crop-preview-actions">
+                            <button
+                                id="select_crop_button"
+                                class="button button-primary button-small"
+                                type="button"
+                                disabled
+                            >
+                                Select crop
+                            </button>
+
+                            <button
+                                id="full_sensor_button"
+                                class="button button-secondary button-small"
+                                type="button"
+                                disabled
+                            >
+                                Use full sensor
+                            </button>
+                        </div>
+
+                        <div class="crop-readout">
+                            <div>
+                                <span>X</span>
+                                <strong id="crop_x_display">—</strong>
+                            </div>
+                            <div>
+                                <span>Y</span>
+                                <strong id="crop_y_display">—</strong>
+                            </div>
+                            <div>
+                                <span>Width</span>
+                                <strong id="crop_width_display">—</strong>
+                            </div>
+                            <div>
+                                <span>Height</span>
+                                <strong id="crop_height_display">—</strong>
+                            </div>
+                        </div>
+
+                        <p id="crop_hint" class="crop-preview-hint">
+                            Start preview to select a sensor region with the mouse.
+                        </p>
+                    </div>
+                </aside>
+            </div>
+        </section>
+
+        <section class="card exposure-card">
+            <div class="card-header">
+                <div>
+                    <span class="section-index">03</span>
+                    <div>
+                        <h2>Exposure Calibration</h2>
+                        <p>
+                            Calibrated exposure and analogue gain are stored and reused
+                            with auto exposure disabled during recording.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-body">
+                <div class="form-grid form-grid-4">
+                    <div class="field">
+                        <label for="exposure_time_us">Exposure time</label>
+                        <div class="input-unit">
+                            <input
+                                id="exposure_time_us"
+                                class="camera-field"
+                                type="number"
+                                step="1"
+                                disabled
+                            >
+                            <span>µs</span>
+                        </div>
+                    </div>
+
+                    <div class="field">
+                        <label for="analogue_gain">Analogue gain</label>
+                        <input
+                            id="analogue_gain"
+                            class="camera-field"
+                            type="number"
+                            step="0.01"
+                            disabled
+                        >
+                    </div>
+
+                    <div class="field">
+                        <label for="calibration_frames">Calibration frames</label>
+                        <input
+                            id="calibration_frames"
+                            class="camera-field"
+                            type="number"
+                            min="1"
+                            max="300"
+                            step="1"
+                            disabled
+                        >
+                    </div>
+
+                    <div class="field">
+                        <label for="settle_frames">Settle frames</label>
+                        <input
+                            id="settle_frames"
+                            class="camera-field"
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            disabled
+                        >
+                    </div>
+                </div>
+
+                <div class="section-actions exposure-actions">
+                    <div id="exposure_summary" class="action-summary">
+                        No exposure calibration loaded.
+                    </div>
+
+                    <div class="button-group">
+                        <button
+                            id="apply_exposure_button"
+                            class="button button-secondary"
+                            type="button"
+                            disabled
+                        >
+                            Apply manual exposure
+                        </button>
+
+                        <button
+                            id="calibrate_exposure_button"
+                            class="button button-primary"
+                            type="button"
+                            disabled
+                        >
+                            Calibrate exposure
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="card controls-card">
+            <div class="card-header">
+                <div>
+                    <span class="section-index">04</span>
+                    <div>
+                        <h2>Camera Controls</h2>
+                        <p>
+                            Common image controls only. Limits are read from the
+                            connected camera.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card-body">
+                <div
+                    id="advanced_controls_grid"
+                    class="controls-grid"
+                >
+                    <div class="empty-controls">
+                        Select a camera to load supported controls.
+                    </div>
+                </div>
+
+                <div class="info-note controls-note">
+                    When preview is active, control changes are applied immediately.
+                    Values are also persisted to <code>config.json</code>.
+                </div>
+            </div>
+        </section>
+
+        <div class="save-bar">
+            <div class="save-state">
+                <span
+                    id="unsaved_indicator"
+                    class="unsaved-indicator"
+                ></span>
+                <div>
+                    <strong id="save_state_title">No camera selected</strong>
+                    <span id="save_state_message">
+                        Select a camera to edit its configuration.
+                    </span>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button
+                    id="reset_button"
+                    class="button button-secondary"
+                    type="button"
+                    disabled
+                >
+                    Reset changes
+                </button>
+
+                {% if calibration_mode %}
+                <button
+                    id="confirm_calibration_button"
+                    class="button button-primary"
+                    type="button"
+                    disabled
+                >
+                    Save & confirm calibration
+                </button>
+                {% endif %}
+
+                <button
+                    id="save_button"
+                    class="button button-primary"
+                    type="button"
+                    disabled
+                >
+                    Save configuration
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <div
+        id="toast_container"
+        class="toast-container"
+        aria-live="polite"
+    ></div>
+
+    <script
+        src="{{ url_for('static', path='js/config_cameras.js') }}?v=4"
+    ></script>
+</body>
+</html>

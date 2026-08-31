@@ -1,0 +1,29 @@
+{
+    "output": {},
+    "cameras": [
+        {
+            "id": 0,
+            "name": "C1",
+            "frame_rate": 10,
+            "format": "YUV420",
+            "frame_size": [
+                100,
+                100
+            ],
+            "exposure": {
+                "exposure_time_us": 1000,
+                "analogue_gain": 1
+            },
+            "recording": {
+                "output_type": "mp4"
+            }
+        }
+    ],
+    "sensors": {
+        "scales": []
+    },
+    "orchestration": {
+        "transition_timeout_s": 0.12,
+        "scraping_interval": 0.05
+    }
+}
