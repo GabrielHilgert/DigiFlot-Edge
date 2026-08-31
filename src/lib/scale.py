@@ -13,67 +13,119 @@ _VALUE_PATTERN = re.compile(
 
 
 class Scale:
-    @classmethod
-    def discover_available(cls, configured_ports=None, baudrate=9600, probe_seconds=1.0):
-        """Enumerate serial devices and passively identify likely scales.
+    @staticmethod
+    def _is_weight_unit(unit):
+        unit = str(unit or "").strip().lower().replace("μ", "µ")
+        return unit in {"g", "kg", "mg"}
 
-        Configured ports are never reopened. Unknown ports are observed briefly
-        without sending commands.
+    @classmethod
+    def discover_available(
+        cls,
+        configured_ports=None,
+        runtime_scales=None,
+        baudrate=9600,
+        probe_seconds=1.0,
+    ):
+        """Enumerate serial ports and conservatively identify scales.
+
+        ``serial_detected`` only means that the operating system exposes the
+        serial port. ``scale_detected`` requires actual scale evidence.
+        Configured ports that are already opened by DigiFlot are inspected
+        through their runtime Scale object and are never reopened here.
+        Unknown ports are observed passively; no command is sent.
         """
         configured_ports = {str(value) for value in (configured_ports or [])}
+        runtime_scales = {
+            str(port): scale
+            for port, scale in (runtime_scales or {}).items()
+        }
         devices = []
 
         for port in list_ports.comports():
             device = str(port.device)
+            runtime_scale = runtime_scales.get(device)
             item = {
                 "port": device,
                 "configured": device in configured_ports,
-                "detected": True,
-                "probable_scale": device in configured_ports,
+                "serial_detected": True,
+                "scale_detected": False,
+                # Backward-compatible field: for scales, detected means that
+                # the device was confirmed as a scale, not merely a serial port.
+                "detected": False,
+                "probable_scale": False,
                 "description": port.description,
                 "manufacturer": port.manufacturer,
                 "vid": port.vid,
                 "pid": port.pid,
                 "serial_number": port.serial_number,
                 "sample": None,
+                "runtime_status": None,
+                "evidence": None,
                 "error": None,
             }
 
-            if device not in configured_ports:
-                handle = None
-                numeric_samples = 0
-                weighted_samples = 0
-                deadline = time.monotonic() + max(0.2, float(probe_seconds))
+            if runtime_scale is not None:
                 try:
-                    handle = serial.Serial(
-                        port=device,
-                        baudrate=int(baudrate),
-                        timeout=0.2,
-                    )
-                    while time.monotonic() < deadline and numeric_samples < 4:
-                        raw = handle.readline()
-                        if not raw:
-                            continue
-                        text = raw.decode("ascii", errors="ignore").strip()
-                        if not text:
-                            continue
-                        item["sample"] = text
-                        match = _VALUE_PATTERN.search(text)
-                        if match is None:
-                            continue
-                        numeric_samples += 1
-                        unit = str(match.group("unit") or "").lower().replace("μ", "µ")
-                        if unit in {"g", "kg", "mg"}:
-                            weighted_samples += 1
-                    item["probable_scale"] = weighted_samples > 0 or numeric_samples >= 2
+                    snapshot = runtime_scale.snapshot()
+                    item["runtime_status"] = snapshot.get("status")
+                    item["sample"] = snapshot.get("raw")
+                    unit = snapshot.get("unit")
+                    if snapshot.get("value") is not None and cls._is_weight_unit(unit):
+                        item["scale_detected"] = True
+                        item["probable_scale"] = True
+                        item["detected"] = True
+                        item["evidence"] = f"Live weight data ({unit})"
+                    elif snapshot.get("status") in {"offline", "error"}:
+                        item["error"] = snapshot.get("error")
+                    else:
+                        item["evidence"] = "Serial port is open, but no weight-formatted sample has been received yet."
                 except Exception as error:
                     item["error"] = str(error)
-                finally:
-                    if handle is not None:
-                        try:
-                            handle.close()
-                        except Exception:
-                            pass
+
+                devices.append(item)
+                continue
+
+            handle = None
+            weighted_samples = 0
+            deadline = time.monotonic() + max(0.2, float(probe_seconds))
+            try:
+                handle = serial.Serial(
+                    port=device,
+                    baudrate=int(baudrate),
+                    timeout=0.2,
+                )
+                while time.monotonic() < deadline and weighted_samples < 2:
+                    raw = handle.readline()
+                    if not raw:
+                        continue
+                    text = raw.decode("ascii", errors="ignore").strip()
+                    if not text:
+                        continue
+                    item["sample"] = text
+                    match = _VALUE_PATTERN.search(text)
+                    if match is None:
+                        continue
+                    unit = match.group("unit")
+                    if cls._is_weight_unit(unit):
+                        weighted_samples += 1
+
+                # Be deliberately conservative. A random serial stream that
+                # contains plain numbers is not enough to call it a scale.
+                item["scale_detected"] = weighted_samples >= 2
+                item["probable_scale"] = item["scale_detected"]
+                item["detected"] = item["scale_detected"]
+                if item["scale_detected"]:
+                    item["evidence"] = f"{weighted_samples} weight-formatted samples"
+                else:
+                    item["evidence"] = "Serial device detected; no confirmed weight stream."
+            except Exception as error:
+                item["error"] = str(error)
+            finally:
+                if handle is not None:
+                    try:
+                        handle.close()
+                    except Exception:
+                        pass
 
             devices.append(item)
 

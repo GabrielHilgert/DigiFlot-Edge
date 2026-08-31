@@ -288,26 +288,45 @@ def discover_devices(request: Request):
             })
 
     try:
-        result["scales"] = Scale.discover_available(configured_ports)
-        detected_ports = {str(item["port"]) for item in result["scales"]}
+        runtime_scales_by_port = {
+            str(scale.port): scale
+            for scale in digiflot.scales.values()
+        }
+        result["scales"] = Scale.discover_available(
+            configured_ports,
+            runtime_scales=runtime_scales_by_port,
+        )
+        serial_ports = {str(item["port"]) for item in result["scales"]}
         for item in result["scales"]:
             item["config"] = configured_scale_by_port.get(str(item["port"]))
         for port, config in configured_scale_by_port.items():
-            if port not in detected_ports:
+            if port not in serial_ports:
                 result["scales"].append({
                     "port": port,
                     "configured": True,
+                    "serial_detected": False,
+                    "scale_detected": False,
                     "detected": False,
-                    "probable_scale": True,
+                    "probable_scale": False,
+                    "runtime_status": "offline",
+                    "evidence": "Configured port is not present.",
                     "config": config,
-                    "error": "Configured serial device was not detected.",
+                    "error": "Configured serial port was not detected.",
                 })
     except Exception as error:
         result["errors"].append({"source": "scales", "error": str(error)})
         for port, config in configured_scale_by_port.items():
             result["scales"].append({
-                "port": port, "configured": True, "detected": False,
-                "probable_scale": True, "config": config, "error": str(error),
+                "port": port,
+                "configured": True,
+                "serial_detected": False,
+                "scale_detected": False,
+                "detected": False,
+                "probable_scale": False,
+                "runtime_status": "error",
+                "evidence": None,
+                "config": config,
+                "error": str(error),
             })
 
     try:
@@ -338,6 +357,26 @@ def discover_devices(request: Request):
                 "name": config.get("name"), "configured": True,
                 "detected": False, "config": config, "error": str(error),
             })
+
+    print("[DigiFlot] Device discovery complete")
+    print(
+        "[DigiFlot] Cameras: "
+        f"{sum(bool(item.get('detected')) for item in result['cameras'])} detected, "
+        f"{sum(bool(item.get('configured')) for item in result['cameras'])} configured"
+    )
+    print(
+        "[DigiFlot] Scales: "
+        f"{sum(bool(item.get('scale_detected')) for item in result['scales'])} confirmed, "
+        f"{sum(bool(item.get('serial_detected')) for item in result['scales'])} serial ports present, "
+        f"{sum(bool(item.get('configured')) for item in result['scales'])} configured"
+    )
+    print(
+        "[DigiFlot] Atlas: "
+        f"{sum(bool(item.get('detected')) for item in result['atlas'])} detected, "
+        f"{sum(bool(item.get('configured')) for item in result['atlas'])} configured"
+    )
+    if result["errors"]:
+        print(f"[DigiFlot] Discovery completed with {len(result['errors'])} warning(s)")
 
     return result
 

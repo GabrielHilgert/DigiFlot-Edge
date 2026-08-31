@@ -2232,6 +2232,12 @@ class DigiFlot:
                 port = str(item["port"])
                 if port in existing_ports:
                     continue
+                if not bool(item.get("scale_detected")):
+                    print(
+                        f"[DigiFlot] Ignoring serial device {port}: "
+                        "it was not confirmed as a scale."
+                    )
+                    continue
                 while f"scale_{next_scale}" in existing_scale_ids:
                     next_scale += 1
                 sensor_id = f"scale_{next_scale}"
@@ -2266,6 +2272,16 @@ class DigiFlot:
 
             changed = any(added.values())
             paths = self.save_config() if changed else []
+            if changed:
+                print(
+                    "[DigiFlot] Hardware configuration updated: "
+                    f"{len(added['cameras'])} camera(s), "
+                    f"{len(added['scales'])} scale(s), "
+                    f"{len(added['atlas'])} Atlas sensor(s) added."
+                )
+                print("[DigiFlot] Restart required to activate newly added hardware.")
+            else:
+                print("[DigiFlot] Hardware configuration already up to date; no restart required.")
             return {
                 "added": added,
                 "changed": changed,
