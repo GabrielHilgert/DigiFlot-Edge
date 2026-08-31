@@ -8,6 +8,7 @@
     >
     <title>DigiFlot · Camera Configuration</title>
 
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260831b">
     <link
         rel="stylesheet"
         href="{{ url_for('static', path='css/config_camera.css') }}?v=5"
@@ -15,6 +16,7 @@
 </head>
 
 <body data-calibration-mode="{{ 'true' if calibration_mode else 'false' }}">
+    {% include "_navbar.html" %}
     <main class="page-shell">
         <header class="page-header">
             <div>

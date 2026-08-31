@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Performance</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260831b">
     <link rel="stylesheet" href="{{ url_for('static', path='css/performance.css') }}?v=3">
     <script defer src="{{ url_for('static', path='js/performance.js') }}?v=3"></script>
 </head>
 <body>
+    {% include "_navbar.html" %}
 <main class="page-shell">
     <header class="page-header">
         <div>

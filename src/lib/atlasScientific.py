@@ -175,6 +175,64 @@ class AtlasScientific:
             "value": value,
         }
 
+    def discover_available(self, addresses=None):
+        """Identify Atlas EZO circuits at known/configured addresses.
+
+        The scan uses the same I²C lock as live monitoring, so it does not mix
+        identification replies with measurement replies. It does not modify the
+        configured sensor list.
+        """
+        if addresses is None:
+            addresses = [item["address"] for item in self.DEFAULT_SENSORS]
+            addresses.extend(item["address"] for item in self.sensors)
+        addresses = sorted({int(address) for address in addresses})
+
+        configured_addresses = {int(sensor["address"]) for sensor in self.sensors}
+        found = []
+        self.open()
+
+        for address in addresses:
+            try:
+                with self.io_lock:
+                    self._write(address, "i")
+                    time.sleep(0.3)
+                    code, response = self._read(address)
+            except OSError:
+                continue
+
+            if code != 1 or not response.lower().startswith("?i,"):
+                continue
+
+            parts = response.split(",")
+            sensor_type = parts[1] if len(parts) > 1 else "EZO"
+            found.append({
+                "address": address,
+                "type": sensor_type,
+                "name": sensor_type,
+                "configured": address in configured_addresses,
+                "detected": True,
+                "response": response,
+            })
+
+        return found
+
+    @classmethod
+    def discover_bus(cls, bus=1, addresses=None):
+        probe = cls(bus=bus, sensors=cls.DEFAULT_SENSORS)
+        try:
+            return probe.discover_available(addresses=addresses)
+        finally:
+            probe.close()
+
+    @staticmethod
+    def sensor_config_from_detection(item):
+        sensor_type = str(item.get("type") or "EZO")
+        return {
+            "name": sensor_type,
+            "type": sensor_type,
+            "address": int(item["address"]),
+        }
+
     def detect(self):
         self.open()
         found = []

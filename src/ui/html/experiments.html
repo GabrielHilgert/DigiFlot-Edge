@@ -11,6 +11,7 @@
 
     <title>DigiFlot | Experiments</title>
 
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260831b">
     <link
         rel="stylesheet"
         href="{{ url_for('static', path='css/experiments.css') }}?v=5"
@@ -23,6 +24,7 @@
 </head>
 
 <body>
+    {% include "_navbar.html" %}
 
     <main class="page-shell experiments-page">
 

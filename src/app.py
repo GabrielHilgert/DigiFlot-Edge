@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -67,6 +67,35 @@ app.include_router(sensor_router)
 app.include_router(digiflot_router)
 
 
+LOCKED_PAGE_PATHS = {"/", "/cameras", "/sensors", "/performance", "/settings"}
+LOCKED_API_PREFIXES = (
+    "/api/cameras",
+    "/api/sensors",
+    "/api/server",
+    "/api/local",
+    "/api/digiflot/performance",
+    "/api/digiflot/settings",
+    "/api/digiflot/devices",
+)
+
+
+@app.middleware("http")
+async def active_execution_guard(request: Request, call_next):
+    digiflot = getattr(request.app.state, "digiflot", None)
+    if digiflot is not None and digiflot.execution_locked:
+        path = request.url.path
+        if path in LOCKED_PAGE_PATHS:
+            return RedirectResponse(url="/run", status_code=303)
+        if any(path.startswith(prefix) for prefix in LOCKED_API_PREFIXES):
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "detail": "An experiment is active. Only the run interface is available until the execution is finished or aborted."
+                },
+            )
+    return await call_next(request)
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse(
@@ -114,6 +143,15 @@ def performance(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="performance.html",
+        context={},
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="settings.html",
         context={},
     )
 

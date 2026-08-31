@@ -79,6 +79,8 @@ class DigiFlot:
     STAGE_ACTIVE = "Active"
     STAGE_TRANSITION = "Transition"
 
+    EXECUTION_LOCK_STATES = {RUNNING, PAUSED, RECOVERY_REQUIRED}
+
     STAGE_POLICIES = {
         "conditioning": {
             "camera": False,
@@ -103,6 +105,9 @@ class DigiFlot:
         self.output_directory = Path(config.get("output_directory", "./output"))
 
         orchestration = config.setdefault("orchestration", {})
+        self.auto_advance_enabled = bool(
+            orchestration.get("auto_advance_enabled", True)
+        )
         self.transition_timeout_s = float(
             orchestration.get("transition_timeout_s", 30.0)
         )
@@ -317,6 +322,10 @@ class DigiFlot:
     # ------------------------------------------------------------------
 
     @property
+    def execution_locked(self):
+        return self.state in self.EXECUTION_LOCK_STATES
+
+    @property
     def recording(self):
         return any(camera.recording for camera in self.cameras.values())
 
@@ -380,6 +389,13 @@ class DigiFlot:
             "revision": self.revision,
             "state": self.state,
             "stage_state": self.stage_state,
+            "navigation_locked": self.execution_locked,
+            "orchestration": {
+                "auto_advance_enabled": self.auto_advance_enabled,
+                "transition_timeout_s": self.transition_timeout_s,
+                "scraping_interval": self.scraping_interval_s,
+                "scraping_method": self.scraping_method,
+            },
             "storage_id": self.storage_id,
             "run_directory": str(self.run_directory) if self.run_directory else None,
             "experiment": self._experiment_summary_unlocked(),
@@ -1389,13 +1405,18 @@ class DigiFlot:
         self.stage_state = self.STAGE_TRANSITION
         self.transition_started_monotonic = now
         self.transition_started_at = _utc_now()
-        self.transition_deadline = now + self.transition_timeout_s
+        self.transition_deadline = (
+            now + self.transition_timeout_s
+            if self.auto_advance_enabled
+            else None
+        )
         self._touch_unlocked(
             "TRANSITION_STARTED",
             {
                 "from_stage_id": stage.get("id"),
                 "to_stage_id": next_stage.get("id"),
-                "timeout_s": self.transition_timeout_s,
+                "timeout_s": (self.transition_timeout_s if self.auto_advance_enabled else None),
+                "automatic_advance": self.auto_advance_enabled,
                 "camera_continues": keep_camera,
                 "previous_stage_skipped": skipped,
                 "previous_stage_finished_early": early,
@@ -1660,12 +1681,15 @@ class DigiFlot:
 
             if previous_stage_state == self.STAGE_TRANSITION:
                 remaining = context.get("transition_remaining_s")
-                if remaining is None:
-                    remaining = self.transition_timeout_s
                 self.stage_state = self.STAGE_TRANSITION
                 self.transition_started_monotonic = now
                 self.transition_started_at = _utc_now()
-                self.transition_deadline = now + max(0.0, float(remaining))
+                if self.auto_advance_enabled:
+                    if remaining is None:
+                        remaining = self.transition_timeout_s
+                    self.transition_deadline = now + max(0.0, float(remaining))
+                else:
+                    self.transition_deadline = None
                 if self._camera_required(self.current_stage) and self._camera_required(self.next_stage):
                     self._start_camera_recording_unlocked(self.current_stage)
             else:
@@ -2119,6 +2143,135 @@ class DigiFlot:
                 overrides=rate_overrides,
                 config_overrides=config_overrides,
             )
+
+    # ------------------------------------------------------------------
+    # System settings and persistent hardware configuration
+    # ------------------------------------------------------------------
+
+    def settings_payload(self):
+        with self.lock:
+            return {
+                "state": self.state,
+                "restart_required": False,
+                "orchestration": {
+                    "auto_advance_enabled": self.auto_advance_enabled,
+                    "transition_timeout_s": self.transition_timeout_s,
+                    "scraping_interval": self.scraping_interval_s,
+                    "scraping_method": self.scraping_method,
+                },
+                "configured": {
+                    "cameras": deepcopy(self.config.get("cameras", [])),
+                    "scales": deepcopy(self.config.get("sensors", {}).get("scales", [])),
+                    "atlas_scientific": deepcopy(self.config.get("sensors", {}).get("atlas_scientific")),
+                },
+            }
+
+    def update_system_settings(self, payload: dict):
+        with self.lock:
+            if self.state != self.IDLE:
+                raise RuntimeError("System settings can only be changed while DigiFlot is idle.")
+
+            orchestration = self.config.setdefault("orchestration", {})
+            if "auto_advance_enabled" in payload:
+                self.auto_advance_enabled = bool(payload["auto_advance_enabled"])
+            if "transition_timeout_s" in payload:
+                value = float(payload["transition_timeout_s"])
+                if value < 0:
+                    raise ValueError("transition_timeout_s must be greater than or equal to zero.")
+                self.transition_timeout_s = value
+            if "scraping_interval" in payload:
+                value = float(payload["scraping_interval"])
+                if value <= 0:
+                    raise ValueError("scraping_interval must be greater than zero.")
+                self.scraping_interval_s = value
+            if "scraping_method" in payload:
+                method = str(payload["scraping_method"]).strip().lower()
+                if method not in {"audio", "gpio"}:
+                    raise ValueError("scraping_method must be 'audio' or 'gpio'.")
+                self.scraping_method = method
+
+            orchestration["auto_advance_enabled"] = self.auto_advance_enabled
+            orchestration["transition_timeout_s"] = self.transition_timeout_s
+            orchestration["scraping_interval"] = self.scraping_interval_s
+            orchestration["scraping_method"] = self.scraping_method
+            paths = self.save_config()
+            return {"orchestration": deepcopy(orchestration), "saved_to": paths}
+
+    def save_discovered_devices(self, payload: dict):
+        """Persist explicitly selected detected hardware. Activation occurs after restart."""
+        with self.lock:
+            if self.state != self.IDLE:
+                raise RuntimeError("Hardware configuration can only be changed while DigiFlot is idle.")
+
+            added = {"cameras": [], "scales": [], "atlas": []}
+            config_cameras = self.config.setdefault("cameras", [])
+            existing_camera_ids = {int(item["id"]) for item in config_cameras}
+            existing_names = {str(item.get("name", "")) for item in config_cameras}
+
+            for item in payload.get("cameras", []) or []:
+                camera_id = int(item["id"])
+                if camera_id in existing_camera_ids:
+                    continue
+                name = f"Camera_{camera_id + 1}"
+                suffix = 2
+                while name in existing_names:
+                    name = f"Camera_{camera_id + 1}_{suffix}"
+                    suffix += 1
+                camera_config = Camera.config_from_detection(item, name=name)
+                config_cameras.append(camera_config)
+                existing_camera_ids.add(camera_id)
+                existing_names.add(name)
+                added["cameras"].append(camera_config)
+
+            sensors = self.config.setdefault("sensors", {})
+            scale_configs = sensors.setdefault("scales", [])
+            existing_ports = {str(item.get("port")) for item in scale_configs}
+            existing_scale_ids = {str(item.get("id")) for item in scale_configs}
+            next_scale = 1
+            for item in payload.get("scales", []) or []:
+                port = str(item["port"])
+                if port in existing_ports:
+                    continue
+                while f"scale_{next_scale}" in existing_scale_ids:
+                    next_scale += 1
+                sensor_id = f"scale_{next_scale}"
+                scale_config = Scale.config_from_detection(item, sensor_id=sensor_id, name=f"Scale {next_scale}")
+                scale_configs.append(scale_config)
+                existing_ports.add(port)
+                existing_scale_ids.add(sensor_id)
+                next_scale += 1
+                added["scales"].append(scale_config)
+
+            atlas_items = payload.get("atlas", []) or []
+            if atlas_items:
+                atlas_config = sensors.setdefault("atlas_scientific", {
+                    "bus": int(payload.get("atlas_bus", 1)),
+                    "name": "Atlas",
+                    "sensors": [],
+                    "sample_interval": 1.0,
+                    "output_dir": "./data/atlas",
+                    "buffer_size": 100,
+                    "flush_interval": 5.0,
+                })
+                configured_sensors = atlas_config.setdefault("sensors", [])
+                existing_addresses = {int(item["address"]) for item in configured_sensors}
+                for item in atlas_items:
+                    address = int(item["address"])
+                    if address in existing_addresses:
+                        continue
+                    sensor_config = AtlasScientific.sensor_config_from_detection(item)
+                    configured_sensors.append(sensor_config)
+                    existing_addresses.add(address)
+                    added["atlas"].append(sensor_config)
+
+            changed = any(added.values())
+            paths = self.save_config() if changed else []
+            return {
+                "added": added,
+                "changed": changed,
+                "restart_required": changed,
+                "saved_to": paths,
+            }
 
     # ------------------------------------------------------------------
     # Cameras and camera configuration

@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260831b">
     <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20260831">
     <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20260826b"></script>
 </head>
 <body>
+    {% include "_navbar.html" %}
     <main class="page-shell sensors-page">
         <header class="page-header">
             <div>

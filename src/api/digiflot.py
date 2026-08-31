@@ -3,6 +3,10 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from lib.atlasScientific import AtlasScientific
+from lib.camera import Camera
+from lib.scale import Scale
+
 
 router = APIRouter(
     prefix="/api/digiflot",
@@ -205,6 +209,143 @@ def restart_stage(request: Request, payload: dict | None = None):
     try:
         reason = (payload or {}).get("reason", "Operator restarted stage")
         return get_digiflot(request).restart_current_stage(reason)
+    except Exception as error:
+        raise api_error(error) from error
+
+
+@router.get("/settings")
+def settings(request: Request):
+    return get_digiflot(request).settings_payload()
+
+
+@router.patch("/settings")
+def update_settings(request: Request, payload: dict | None = None):
+    try:
+        return get_digiflot(request).update_system_settings(payload or {})
+    except Exception as error:
+        raise api_error(error) from error
+
+
+@router.post("/devices/discover")
+def discover_devices(request: Request):
+    digiflot = get_digiflot(request)
+    if digiflot.state != digiflot.IDLE:
+        raise HTTPException(
+            status_code=409,
+            detail="Device discovery is only available while DigiFlot is idle.",
+        )
+
+    configured_cameras = digiflot.config.get("cameras", [])
+    configured_camera_ids = {int(item["id"]) for item in configured_cameras}
+    configured_camera_by_id = {int(item["id"]): item for item in configured_cameras}
+
+    sensor_config = digiflot.config.get("sensors", {})
+    configured_scales = sensor_config.get("scales", [])
+    configured_ports = {str(item.get("port")) for item in configured_scales}
+    configured_scale_by_port = {str(item.get("port")): item for item in configured_scales}
+
+    atlas_config = sensor_config.get("atlas_scientific") or {}
+    atlas_bus = int(atlas_config.get("bus", 1))
+    configured_atlas = atlas_config.get("sensors", [])
+    configured_atlas_by_address = {int(item["address"]): item for item in configured_atlas}
+
+    result = {
+        "cameras": [],
+        "scales": [],
+        "atlas": [],
+        "atlas_bus": atlas_bus,
+        "errors": [],
+    }
+
+    try:
+        result["cameras"] = Camera.discover_available(configured_camera_ids)
+        detected_ids = {int(item["id"]) for item in result["cameras"]}
+        for item in result["cameras"]:
+            camera_id = int(item["id"])
+            item["config"] = configured_camera_by_id.get(camera_id)
+            runtime_camera = digiflot.cameras.get(camera_id)
+            if runtime_camera is not None:
+                item["sensor_resolution"] = list(runtime_camera.picam2.sensor_resolution)
+                item["max_fps"] = runtime_camera.max_sensor_fps()
+        for camera_id, config in configured_camera_by_id.items():
+            if camera_id not in detected_ids:
+                result["cameras"].append({
+                    "id": camera_id,
+                    "model": None,
+                    "configured": True,
+                    "detected": False,
+                    "sensor_resolution": None,
+                    "max_fps": None,
+                    "config": config,
+                    "error": "Configured camera was not detected.",
+                })
+    except Exception as error:
+        result["errors"].append({"source": "cameras", "error": str(error)})
+        for camera_id, config in configured_camera_by_id.items():
+            result["cameras"].append({
+                "id": camera_id, "configured": True, "detected": False,
+                "config": config, "error": str(error),
+            })
+
+    try:
+        result["scales"] = Scale.discover_available(configured_ports)
+        detected_ports = {str(item["port"]) for item in result["scales"]}
+        for item in result["scales"]:
+            item["config"] = configured_scale_by_port.get(str(item["port"]))
+        for port, config in configured_scale_by_port.items():
+            if port not in detected_ports:
+                result["scales"].append({
+                    "port": port,
+                    "configured": True,
+                    "detected": False,
+                    "probable_scale": True,
+                    "config": config,
+                    "error": "Configured serial device was not detected.",
+                })
+    except Exception as error:
+        result["errors"].append({"source": "scales", "error": str(error)})
+        for port, config in configured_scale_by_port.items():
+            result["scales"].append({
+                "port": port, "configured": True, "detected": False,
+                "probable_scale": True, "config": config, "error": str(error),
+            })
+
+    try:
+        if digiflot.atlas is not None:
+            atlas_found = digiflot.atlas.discover_available()
+        else:
+            atlas_found = AtlasScientific.discover_bus(bus=atlas_bus)
+        result["atlas"] = atlas_found
+        detected_addresses = {int(item["address"]) for item in atlas_found}
+        for item in result["atlas"]:
+            item["config"] = configured_atlas_by_address.get(int(item["address"]))
+        for address, config in configured_atlas_by_address.items():
+            if address not in detected_addresses:
+                result["atlas"].append({
+                    "address": address,
+                    "type": config.get("type"),
+                    "name": config.get("name"),
+                    "configured": True,
+                    "detected": False,
+                    "config": config,
+                    "error": "Configured Atlas sensor was not detected.",
+                })
+    except Exception as error:
+        result["errors"].append({"source": "atlas", "error": str(error)})
+        for address, config in configured_atlas_by_address.items():
+            result["atlas"].append({
+                "address": address, "type": config.get("type"),
+                "name": config.get("name"), "configured": True,
+                "detected": False, "config": config, "error": str(error),
+            })
+
+    return result
+
+
+@router.post("/devices/save")
+def save_devices(request: Request, payload: dict | None = None):
+    try:
+        return get_digiflot(request).save_discovered_devices(payload or {})
     except Exception as error:
         raise api_error(error) from error
 

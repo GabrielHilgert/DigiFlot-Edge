@@ -1,0 +1,63 @@
+<nav class="app-navbar" aria-label="Main navigation">
+    <a class="app-brand" href="/" aria-label="DigiFlot Edge home">
+        <img src="{{ url_for('static', path='img/DigiFlotEdge.png') }}" alt="DigiFlot Edge" class="app-logo" onerror="this.hidden=true">
+        <span class="app-brand-text">DigiFlot Edge</span>
+    </a>
+
+    <div id="app_nav_links" class="app-nav-links">
+        <a data-nav="experiments" href="/">Experiments</a>
+        <a data-nav="cameras" href="/cameras">Cameras</a>
+        <a data-nav="sensors" href="/sensors">Sensors</a>
+        <a data-nav="performance" href="/performance">Performance</a>
+        <a data-nav="settings" href="/settings">Settings</a>
+        <a data-nav="run" href="/run" class="run-link">Run</a>
+    </div>
+
+    <a id="app_runtime_status" class="app-runtime-status" href="/run" data-state="loading">
+        <span class="app-runtime-dot"></span>
+        <span id="app_runtime_status_text">Loading</span>
+    </a>
+</nav>
+<script>
+(() => {
+    const links = document.getElementById("app_nav_links");
+    const badge = document.getElementById("app_runtime_status");
+    const text = document.getElementById("app_runtime_status_text");
+    if (!links || !badge || !text) return;
+
+    const path = window.location.pathname;
+    const navName = path === "/" ? "experiments" : path.slice(1).split("/")[0];
+    links.querySelector(`[data-nav="${navName}"]`)?.classList.add("active");
+
+    function applyState(state) {
+        if (!state) return;
+        const locked = Boolean(state.navigation_locked);
+        const hasRun = Boolean(state.storage_id) && !["Idle", "Completed", "Aborted"].includes(state.state);
+        badge.dataset.state = String(state.state || "unknown").toLowerCase();
+        links.classList.toggle("execution-locked", locked);
+        if (locked) {
+            text.textContent = "Experiment active";
+            badge.setAttribute("href", "/run");
+            if (path !== "/run") window.location.replace("/run");
+        } else if (hasRun) {
+            text.textContent = "Experiment setup";
+            badge.setAttribute("href", "/run");
+        } else {
+            text.textContent = state.state || "Idle";
+            badge.setAttribute("href", "/");
+        }
+    }
+
+    fetch("/api/digiflot/state", {cache: "no-store"})
+        .then(response => response.ok ? response.json() : null)
+        .then(applyState)
+        .catch(() => { text.textContent = "State unavailable"; });
+
+    try {
+        const source = new EventSource("/api/digiflot/stream");
+        source.addEventListener("state", event => {
+            try { applyState(JSON.parse(event.data)); } catch (_) {}
+        });
+    } catch (_) {}
+})();
+</script>

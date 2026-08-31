@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 
 import serial
+from serial.tools import list_ports
 
 
 _VALUE_PATTERN = re.compile(
@@ -12,6 +13,86 @@ _VALUE_PATTERN = re.compile(
 
 
 class Scale:
+    @classmethod
+    def discover_available(cls, configured_ports=None, baudrate=9600, probe_seconds=1.0):
+        """Enumerate serial devices and passively identify likely scales.
+
+        Configured ports are never reopened. Unknown ports are observed briefly
+        without sending commands.
+        """
+        configured_ports = {str(value) for value in (configured_ports or [])}
+        devices = []
+
+        for port in list_ports.comports():
+            device = str(port.device)
+            item = {
+                "port": device,
+                "configured": device in configured_ports,
+                "detected": True,
+                "probable_scale": device in configured_ports,
+                "description": port.description,
+                "manufacturer": port.manufacturer,
+                "vid": port.vid,
+                "pid": port.pid,
+                "serial_number": port.serial_number,
+                "sample": None,
+                "error": None,
+            }
+
+            if device not in configured_ports:
+                handle = None
+                numeric_samples = 0
+                weighted_samples = 0
+                deadline = time.monotonic() + max(0.2, float(probe_seconds))
+                try:
+                    handle = serial.Serial(
+                        port=device,
+                        baudrate=int(baudrate),
+                        timeout=0.2,
+                    )
+                    while time.monotonic() < deadline and numeric_samples < 4:
+                        raw = handle.readline()
+                        if not raw:
+                            continue
+                        text = raw.decode("ascii", errors="ignore").strip()
+                        if not text:
+                            continue
+                        item["sample"] = text
+                        match = _VALUE_PATTERN.search(text)
+                        if match is None:
+                            continue
+                        numeric_samples += 1
+                        unit = str(match.group("unit") or "").lower().replace("μ", "µ")
+                        if unit in {"g", "kg", "mg"}:
+                            weighted_samples += 1
+                    item["probable_scale"] = weighted_samples > 0 or numeric_samples >= 2
+                except Exception as error:
+                    item["error"] = str(error)
+                finally:
+                    if handle is not None:
+                        try:
+                            handle.close()
+                        except Exception:
+                            pass
+
+            devices.append(item)
+
+        return devices
+
+    @staticmethod
+    def config_from_detection(item, sensor_id, name=None):
+        return {
+            "id": str(sensor_id),
+            "name": str(name or sensor_id),
+            "port": str(item["port"]),
+            "baudrate": 9600,
+            "timeout": 1.0,
+            "encoding": "ascii",
+            "output_dir": "./data/scales",
+            "buffer_size": 100,
+            "flush_interval": 5.0,
+        }
+
     def __init__(
         self,
         port,

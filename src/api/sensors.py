@@ -126,6 +126,40 @@ def sensor_stream(sensor_id: str, request: Request):
     )
 
 
+@router.post("/{sensor_id}/calibrate")
+def standalone_sensor_calibration(sensor_id: str, request: Request, payload: dict | None = None):
+    """Calibrate a supported sensor outside an experiment workflow."""
+    digiflot = request.app.state.digiflot
+    if digiflot.state != digiflot.IDLE:
+        raise HTTPException(
+            status_code=409,
+            detail="Standalone sensor calibration is only available while DigiFlot is idle.",
+        )
+
+    kind, source = get_sensor(request, sensor_id)
+    if kind != "atlas":
+        raise HTTPException(
+            status_code=400,
+            detail="This sensor does not support software calibration.",
+        )
+
+    payload = payload or {}
+    point = str(payload.get("point", "")).strip().lower()
+    try:
+        value = float(payload.get("value"))
+        result = source.calibrate_ph(sensor_id, point, value)
+        return {
+            "calibration": result,
+            "sensor": source.snapshot(sensor_id),
+        }
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error).strip("'")) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
 # Backward-compatible scale routes.
 @router.get("/scales/{sensor_id}", include_in_schema=False)
 def old_scale_status(sensor_id: str, request: Request):

@@ -95,6 +95,106 @@ class Camera:
     PREVIEW = "Preview"
     RECORDING = "Recording"
 
+    @classmethod
+    def discover_available(cls, configured_ids=None):
+        """Return cameras currently reported by libcamera without changing configuration.
+
+        Unconfigured cameras are opened briefly only to read sensor geometry and
+        supported frame rates. Configured cameras are not reopened because a
+        DigiFlot Camera instance may already own them.
+        """
+        configured_ids = {int(value) for value in (configured_ids or [])}
+        discovered = []
+
+        for raw in Picamera2.global_camera_info():
+            camera_id = int(raw.get("Num"))
+            item = {
+                "id": camera_id,
+                "model": raw.get("Model") or raw.get("model") or "Camera",
+                "location": cls._normalise_value(raw.get("Location")),
+                "rotation": cls._normalise_value(raw.get("Rotation")),
+                "configured": camera_id in configured_ids,
+                "detected": True,
+                "sensor_resolution": None,
+                "max_fps": None,
+                "error": None,
+            }
+
+            if camera_id not in configured_ids:
+                probe = None
+                try:
+                    probe = Picamera2(camera_id)
+                    item["sensor_resolution"] = [int(value) for value in probe.sensor_resolution]
+                    rates = [
+                        float(mode["fps"])
+                        for mode in probe.sensor_modes
+                        if mode.get("fps") is not None
+                    ]
+                    item["max_fps"] = max(rates) if rates else None
+                except Exception as error:
+                    item["error"] = str(error)
+                finally:
+                    if probe is not None:
+                        try:
+                            probe.close()
+                        except Exception:
+                            pass
+
+            discovered.append(item)
+
+        return discovered
+
+    @staticmethod
+    def config_from_detection(item, name=None):
+        camera_id = int(item["id"])
+        resolution = item.get("sensor_resolution") or [640, 480]
+        width, height = (max(2, int(resolution[0])), max(2, int(resolution[1])))
+        width -= width % 2
+        height -= height % 2
+
+        preview_width = min(640, width)
+        preview_width -= preview_width % 2
+        preview_height = round(preview_width * height / width)
+        preview_height += preview_height % 2
+        if preview_height > height:
+            preview_height = height - (height % 2)
+            preview_width = round(preview_height * width / height)
+            preview_width -= preview_width % 2
+
+        max_fps = item.get("max_fps")
+        frame_rate = min(30.0, float(max_fps)) if max_fps else 30.0
+        preview_rate = min(10.0, float(max_fps)) if max_fps else 10.0
+
+        return {
+            "id": camera_id,
+            "name": str(name or f"Camera_{camera_id + 1}"),
+            "frame_size": [width, height],
+            "frame_rate": frame_rate,
+            "format": "YUV420",
+            "crop_region": None,
+            "recording": {"output_type": "mp4"},
+            "preview": {
+                "size": [preview_width, preview_height],
+                "frame_rate": preview_rate,
+                "quality": 75,
+                "encoder_threads": 1,
+            },
+            "exposure": {
+                "exposure_time_us": None,
+                "analogue_gain": None,
+                "calibration_frames": 30,
+                "settle_frames": 5,
+            },
+            "controls": {
+                "Brightness": 0,
+                "Contrast": 1,
+                "Saturation": 1,
+                "Sharpness": 1,
+                "AwbEnable": False,
+                "AwbMode": 0,
+            },
+        }
+
     def __init__(
         self,
         config: dict,

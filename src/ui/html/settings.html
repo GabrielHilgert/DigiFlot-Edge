@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DigiFlot Edge | Settings</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260831b">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20260831b">
+    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20260831b"></script>
+</head>
+<body>
+    {% include "_navbar.html" %}
+    <main class="page-shell settings-page">
+        <header class="page-header">
+            <div>
+                <p class="eyebrow">DigiFlot / System</p>
+                <h1>Settings</h1>
+                <p class="page-description">Configure orchestration behavior and discover hardware connected to this DigiFlot unit.</p>
+            </div>
+            <span id="settings_state" class="state-badge">Loading</span>
+        </header>
+
+        <section class="card">
+            <div class="card-head">
+                <div><p class="eyebrow">Orchestration</p><h2>Experiment behavior</h2></div>
+                <button id="save_settings" class="button button-primary" type="button">Save settings</button>
+            </div>
+            <div class="settings-grid">
+                <label class="switch-field">
+                    <span><strong>Automatic stage advance</strong><small>Start the next stage automatically after the transition delay.</small></span>
+                    <input id="auto_advance_enabled" type="checkbox">
+                </label>
+                <label>Transition delay
+                    <span class="input-unit"><input id="transition_timeout_s" type="number" min="0" step="1"><span>s</span></span>
+                </label>
+                <label>Scraping interval
+                    <span class="input-unit"><input id="scraping_interval" type="number" min="0.1" step="0.1"><span>s</span></span>
+                </label>
+                <label>Scraping method
+                    <select id="scraping_method"><option value="audio">Audio</option><option value="gpio">GPIO</option></select>
+                </label>
+            </div>
+            <p id="auto_advance_hint" class="field-help"></p>
+        </section>
+
+        <section class="card">
+            <div class="card-head hardware-head">
+                <div>
+                    <p class="eyebrow">Hardware</p>
+                    <h2>Device discovery</h2>
+                    <p>Detection is a preview only. DigiFlot does not use a new device until you explicitly select it and save the configuration.</p>
+                </div>
+                <div class="button-group">
+                    <button id="autodetect" class="button button-secondary" type="button">Auto-detect devices</button>
+                    <button id="save_devices" class="button button-primary" type="button" disabled>Save selected devices</button>
+                </div>
+            </div>
+            <div id="discovery_errors" class="warning-box" hidden></div>
+            <div class="device-columns">
+                <section><h3>Cameras</h3><div id="camera_devices" class="device-list"><p class="muted">Run auto-detect to scan cameras.</p></div></section>
+                <section><h3>Scales / serial</h3><div id="scale_devices" class="device-list"><p class="muted">Run auto-detect to scan serial devices.</p></div></section>
+                <section><h3>Atlas Scientific</h3><div id="atlas_devices" class="device-list"><p class="muted">Run auto-detect to scan known EZO addresses.</p></div></section>
+            </div>
+            <div id="restart_notice" class="restart-notice" hidden>Configuration saved. Restart DigiFlot to activate newly added hardware.</div>
+        </section>
+    </main>
+    <div id="toast" class="toast" role="status"></div>
+</body>
+</html>

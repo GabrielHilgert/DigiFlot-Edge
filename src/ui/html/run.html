@@ -4,10 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260831b">
     <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=5">
     <script defer src="{{ url_for('static', path='js/run.js') }}?v=4"></script>
 </head>
 <body>
+    {% include "_navbar.html" %}
     <main class="page-shell">
         <header class="page-header">
             <div>
@@ -57,7 +59,7 @@
             </div>
             <div class="operations-actions">
                 <button id="operations_retry_devices" class="button button-secondary button-small" type="button">Retry devices</button>
-                <a class="button button-secondary button-small" href="/performance">Performance</a>
+                <a id="run_performance_link" class="button button-secondary button-small" href="/performance">Performance</a>
             </div>
         </section>
 
@@ -152,7 +154,7 @@
                 <p class="eyebrow">Next stage</p>
                 <h2 id="next_stage_name">—</h2>
                 <p id="next_stage_message">Prepare the next operation.</p>
-                <div class="transition-countdown">
+                <div id="transition_countdown" class="transition-countdown">
                     <span>Automatic start in</span>
                     <strong id="transition_timer">30</strong>
                     <span>seconds</span>

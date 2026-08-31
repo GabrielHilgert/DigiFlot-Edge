@@ -7,6 +7,8 @@ const state = {
     timestamps: new Map(),
     digiflot: null,
     calibrationMode: false,
+    maintenanceMode: false,
+    standaloneCalibration: new Map(),
 };
 
 const el = {
@@ -77,8 +79,27 @@ function calibrationItem(sensorId) {
     return state.digiflot?.calibration?.sensors?.[String(sensorId)] || null;
 }
 
+function standaloneCalibrationMarkup(snapshot) {
+    if (!state.maintenanceMode || snapshot.status !== "connected" || String(snapshot.type || "").toLowerCase() !== "ph") return "";
+    const progress = state.standaloneCalibration.get(String(snapshot.id)) || {mid:false, low:false};
+    return `
+        <div class="calibration-block ph-calibration">
+            <div class="calibration-heading"><div><strong>Two-point pH calibration</strong><span>Maintenance mode. Calibrate pH 7 first, rinse the probe, then calibrate pH 4.</span></div></div>
+            <div class="calibration-points">
+                <div class="calibration-point ${progress.mid ? "done" : ""}">
+                    <div><span class="point-index">1</span><div><strong>Midpoint</strong><small>Place the probe in the pH 7 buffer and wait for a stable live signal.</small></div></div>
+                    <div class="point-action"><input class="buffer-value" data-point-value="mid" type="number" step="0.01" value="7.00"><button class="button ${progress.mid ? "button-secondary" : "button-primary"} standalone-ph-calibrate" data-sensor-id="${escapeHtml(snapshot.id)}" data-point="mid" type="button" ${progress.mid ? "disabled" : ""}>${progress.mid ? "Calibrated" : "Calibrate midpoint"}</button></div>
+                </div>
+                <div class="calibration-point ${progress.low ? "done" : ""}">
+                    <div><span class="point-index">2</span><div><strong>Low point</strong><small>Rinse the probe, place it in the pH 4 buffer, and wait for stabilization.</small></div></div>
+                    <div class="point-action"><input class="buffer-value" data-point-value="low" type="number" step="0.01" value="4.00" ${!progress.mid ? "disabled" : ""}><button class="button ${progress.low ? "button-secondary" : "button-primary"} standalone-ph-calibrate" data-sensor-id="${escapeHtml(snapshot.id)}" data-point="low" type="button" ${(!progress.mid || progress.low) ? "disabled" : ""}>${progress.low ? "Calibrated" : "Calibrate low point"}</button></div>
+                </div>
+            </div>
+        </div>`;
+}
+
 function calibrationMarkup(snapshot) {
-    if (!state.calibrationMode) return "";
+    if (!state.calibrationMode) return standaloneCalibrationMarkup(snapshot);
 
     const calibration = calibrationItem(snapshot.id);
     if (!calibration) {
@@ -379,14 +400,15 @@ function drawChart(sensorId) {
 async function refreshDigiFlotState() {
     state.digiflot = await requestJson("/api/digiflot/state");
     state.calibrationMode = state.digiflot.state === "SensorCalibration";
+    state.maintenanceMode = state.digiflot.state === "Idle";
     setExperimentState(state.digiflot.state);
 
     el.calibrationBanner.hidden = !state.calibrationMode;
     el.calibrationFooter.hidden = !state.calibrationMode;
-    el.pageTitle.textContent = state.calibrationMode ? "Sensor calibration" : "Sensor monitoring";
+    el.pageTitle.textContent = state.calibrationMode ? "Sensor calibration" : "Sensor monitoring & calibration";
     el.pageDescription.textContent = state.calibrationMode
         ? "All configured sensors are monitored simultaneously. Calibrate supported devices while observing their live signals."
-        : "Live measurements from every configured sensor.";
+        : "Live measurements from every configured sensor. Supported sensors can be calibrated here without creating an experiment.";
 }
 
 function bindCalibrationControls(root = document) {
@@ -446,6 +468,34 @@ function bindCalibrationControls(root = document) {
                     body: JSON.stringify({ point, value }),
                 });
                 renderCards();
+            } catch (error) {
+                button.disabled = false;
+                button.textContent = point === "mid" ? "Calibrate midpoint" : "Calibrate low point";
+                showToast(error.message);
+            }
+        });
+    });
+
+    root.querySelectorAll(".standalone-ph-calibrate").forEach(button => {
+        if (button.dataset.bound) return;
+        button.dataset.bound = "1";
+        button.addEventListener("click", async () => {
+            const card = button.closest(".sensor-card");
+            const point = button.dataset.point;
+            const input = card.querySelector(`[data-point-value="${point}"]`);
+            const value = Number(input.value);
+            if (!Number.isFinite(value)) { showToast("Enter a valid calibration buffer value."); return; }
+            button.disabled = true;
+            button.textContent = "Calibrating…";
+            try {
+                await requestJson(`/api/sensors/${encodeURIComponent(button.dataset.sensorId)}/calibrate`, {
+                    method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({point, value})
+                });
+                const progress = state.standaloneCalibration.get(String(button.dataset.sensorId)) || {mid:false, low:false};
+                progress[point] = true;
+                state.standaloneCalibration.set(String(button.dataset.sensorId), progress);
+                renderCards();
+                showToast(`${point === "mid" ? "Midpoint" : "Low point"} calibration completed.`);
             } catch (error) {
                 button.disabled = false;
                 button.textContent = point === "mid" ? "Calibrate midpoint" : "Calibrate low point";

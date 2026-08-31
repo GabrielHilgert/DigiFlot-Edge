@@ -17,7 +17,7 @@ function cacheUi() {
         "reset_button", "error_panel", "error_title", "error_message",
         "error_reset_button", "abort_bar", "abort_button", "scrape_signal", "toast",
         "device_summary", "performance_summary", "warning_panel", "warning_list",
-        "finish_stage_button", "skip_stage_button", "recovery_details",
+        "finish_stage_button", "skip_stage_button", "recovery_details", "transition_countdown", "run_performance_link",
         "recovery_actions", "error_close_actions", "retry_devices_button",
         "recovery_resume_button", "restart_stage_button", "recovery_skip_button",
         "recovery_abort_button", "operations_retry_devices"
@@ -243,8 +243,15 @@ function renderRun(state) {
         ui.next_stage_message.textContent = next
             ? `${next.type || "Stage"} · ${next.duration ?? "—"} s`
             : "No next stage";
-        ui.transition_timer.textContent = Math.max(0, Math.ceil(Number(state.transition_remaining_s || 0)));
+        const automatic = state.orchestration?.auto_advance_enabled !== false;
+        if (automatic) {
+            ui.transition_countdown.innerHTML = `<span>Automatic start in</span><strong id="transition_timer">${Math.max(0, Math.ceil(Number(state.transition_remaining_s || 0)))}</strong><span>seconds</span>`;
+            ui.transition_timer = document.getElementById("transition_timer");
+        } else {
+            ui.transition_countdown.innerHTML = `<span>Automatic advance disabled</span><strong>Waiting</strong><span>Start the next stage when ready.</span>`;
+        }
     }
+    if (ui.run_performance_link) ui.run_performance_link.hidden = Boolean(state.navigation_locked);
 }
 
 function renderCompleted(state) {
