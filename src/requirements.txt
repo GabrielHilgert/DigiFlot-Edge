@@ -1,0 +1,26 @@
+# Web application
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+
+# HTTP / API
+requests
+
+# Data validation
+pydantic
+
+# Numerical processing
+numpy
+scipy
+
+# Image processing
+opencv-python-headless
+Pillow
+
+# Hardware / sensors
+pyserial
+smbus2
+
+# Utilities
+python-dotenv
