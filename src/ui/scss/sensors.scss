@@ -1,26 +1,33 @@
 :root {
-  --bg: #f4f6f8;
-  --surface: #ffffff;
-  --surface-soft: #f8fafc;
-  --border: #dce3ea;
-  --border-strong: #c8d2dc;
-  --text: #17202a;
-  --text-soft: #657282;
-  --text-faint: #8a96a3;
-  --accent: #2f6fed;
-  --accent-soft: #edf3ff;
-  --success: #18845b;
-  --success-soft: #eaf7f1;
-  --warning: #a46709;
-  --warning-soft: #fff6e6;
-  --danger: #c74242;
-  --danger-soft: #fceded;
-  --chart-grid: #e7edf2;
-  --shadow-soft: 0 6px 20px rgba(28,39,51,.05);
-  --radius-lg: 18px;
-  --radius-md: 12px;
-  --radius-sm: 8px;
+    color-scheme: light dark;
+    --bg: Canvas;
+    --surface: Canvas;
+    --surface-soft: color-mix(in srgb, CanvasText 5%, Canvas);
+    --surface-strong: color-mix(in srgb, CanvasText 9%, Canvas);
+    --border: color-mix(in srgb, CanvasText 18%, transparent);
+    --border-strong: color-mix(in srgb, CanvasText 28%, transparent);
+    --text: CanvasText;
+    --text-soft: color-mix(in srgb, CanvasText 68%, transparent);
+    --text-faint: color-mix(in srgb, CanvasText 50%, transparent);
+    --accent: #2f6fed;
+    --accent-hover: #255ed0;
+    --accent-soft: color-mix(in srgb, #2f6fed 18%, Canvas);
+    --success: #18845b;
+    --success-soft: color-mix(in srgb, #18845b 16%, Canvas);
+    --warning: #c47a12;
+    --warning-soft: color-mix(in srgb, #c47a12 17%, Canvas);
+    --danger: #c74242;
+    --danger-soft: color-mix(in srgb, #c74242 16%, Canvas);
+    --preview: #7254d8;
+    --preview-soft: color-mix(in srgb, #7254d8 18%, Canvas);
+    --chart-grid: color-mix(in srgb, CanvasText 12%, transparent);
+    --shadow: 0 14px 42px color-mix(in srgb, CanvasText 8%, transparent);
+    --shadow-soft: 0 6px 20px color-mix(in srgb, CanvasText 6%, transparent);
+    --radius-lg: 18px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
 }
+
 * { box-sizing: border-box; }
 html { background: var(--bg); }
 body {
@@ -54,7 +61,7 @@ a { color: inherit; text-decoration: none; }
 .calibration-banner span, .calibration-footer span { color:var(--text-soft); font-size:.86rem; }
 .sensor-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(420px,1fr)); gap:20px; align-items:start; }
 .sensor-card { min-width:0; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-soft); }
-.sensor-card-header { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px solid var(--border); padding:19px 21px; background:linear-gradient(180deg,#fff,#fcfdfe); }
+.sensor-card-header { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; border-bottom:1px solid var(--border); padding:19px 21px; background:linear-gradient(180deg,var(--surface),var(--surface-soft)); }
 .sensor-card-header h2 { margin:2px 0 2px; font-size:1.18rem; }
 .sensor-type { color:var(--accent); font-size:.69rem; font-weight:800; text-transform:uppercase; letter-spacing:.09em; }
 .sensor-device { color:var(--text-faint); font-size:.75rem; }
@@ -67,7 +74,7 @@ a { color: inherit; text-decoration: none; }
 .reading-details div + div { border-left:1px solid var(--border); }
 .reading-details span { color:var(--text-faint); font-size:.65rem; font-weight:700; text-transform:uppercase; }
 .reading-details strong { overflow:hidden; text-overflow:ellipsis; font-size:.82rem; font-variant-numeric:tabular-nums; }
-.chart-frame { position:relative; margin:0 20px; min-height:180px; border:1px solid var(--border); border-radius:var(--radius-md); background:linear-gradient(180deg,#fbfcfe,#fff); }
+.chart-frame { position:relative; margin:0 20px; min-height:180px; border:1px solid var(--border); border-radius:var(--radius-md); background:linear-gradient(180deg,var(--surface-soft),var(--surface)); }
 .sensor-chart { display:block; width:100%; height:190px; }
 .chart-empty { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:20px; color:var(--text-faint); font-size:.82rem; text-align:center; pointer-events:none; }
 .chart-empty[hidden] { display:none; }
@@ -80,7 +87,7 @@ a { color: inherit; text-decoration: none; }
 .calibration-block span { color:var(--text-soft); font-size:.8rem; }
 .complete-block { background:var(--success-soft); }
 .skipped-block { background:var(--warning-soft); }
-.offline-block { background:#f6f7f8; }
+.offline-block { background:var(--surface-soft); }
 .ph-calibration { display:block; }
 .calibration-heading { display:flex; flex-direction:row !important; justify-content:space-between; gap:14px; align-items:flex-start; }
 .calibration-heading > div { display:flex; flex-direction:column; gap:2px; }

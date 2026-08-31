@@ -45,7 +45,14 @@ class PerformanceManager:
         self.profile_path = self.base_dir / "profile.json"
         self.history_dir = self.base_dir / "benchmarks"
 
-        self.rates = [float(v) for v in self.config.get("rates", [10, 15, 20, 25, 30])]
+        self.rates = sorted({
+            float(value)
+            for value in self.config.get(
+                "rates",
+                [10, 15, 20, 25, 30],
+            )
+            if float(value) > 0
+        })
         self.quick_duration_s = float(self.config.get("quick_duration_s", 30.0))
         self.stability_duration_s = float(self.config.get("stability_duration_s", 120.0))
         self.sample_interval_s = max(0.25, float(self.config.get("sample_interval_s", 1.0)))
@@ -259,10 +266,14 @@ class PerformanceManager:
 
             if exact:
                 classification = exact.get("classification")
-                if classification == "FAIL":
+                if classification in {"FAIL", "NOT_TESTED"}:
                     return {
                         "status": "DANGEROUS",
-                        "reason": exact.get("reason") or "This exact configuration failed the benchmark.",
+                        "reason": exact.get("reason") or (
+                            "This configuration is above a frame rate that failed the benchmark."
+                            if classification == "NOT_TESTED"
+                            else "This exact configuration failed the benchmark."
+                        ),
                         "camera_rates": rates,
                         "recommended": profile.get("recommended_camera_rates"),
                         "benchmark_result": exact,
@@ -350,7 +361,16 @@ class PerformanceManager:
             if not digiflot.cameras:
                 raise RuntimeError("No cameras are currently available for benchmarking.")
 
-            test_rates = [float(v) for v in (rates or self.rates)]
+            test_rates = sorted({
+                float(value)
+                for value in (rates or self.rates)
+                if float(value) > 0
+            })
+            if not test_rates:
+                raise ValueError(
+                    "At least one positive frame rate is required."
+                )
+
             self.state = self.RUNNING
             self.current_rate = None
             self.current_result = None
@@ -393,18 +413,46 @@ class PerformanceManager:
             self.base_dir.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(prefix="benchmark_", dir=self.base_dir) as temporary:
                 temporary = Path(temporary)
-                for rate in rates:
+                for index, rate in enumerate(rates):
                     if self.abort_event.is_set():
                         break
-                    result = self._run_rate_test(digiflot, rate, duration_s, temporary)
+
+                    result = self._run_rate_test(
+                        digiflot,
+                        rate,
+                        duration_s,
+                        temporary,
+                    )
                     all_results.append(result)
+
+                    if result.get("classification") == "FAIL":
+                        reason = (
+                            f"Not tested because {rate:g} fps failed. "
+                            "Higher rates are outside the discovered stable envelope."
+                        )
+                        for skipped_rate in rates[index + 1:]:
+                            all_results.append({
+                                "rate": skipped_rate,
+                                "camera_rates": {
+                                    str(camera.id): float(skipped_rate)
+                                    for camera in digiflot.cameras.values()
+                                },
+                                "classification": "NOT_TESTED",
+                                "reason": reason,
+                                "duration_s": 0.0,
+                                "samples": [],
+                                "safety_abort": False,
+                            })
+
                     with self.lock:
                         self.results = deepcopy(all_results)
                         self.current_result = deepcopy(result)
                         self._touch()
-                    if result.get("classification") == "ABORTED":
-                        break
-                    if result.get("classification") == "FAIL" and result.get("safety_abort"):
+
+                    if result.get("classification") in {
+                        "ABORTED",
+                        "FAIL",
+                    }:
                         break
 
             if self.abort_event.is_set():
@@ -488,11 +536,11 @@ class PerformanceManager:
         last_camera_metrics = {}
 
         for camera in digiflot.cameras.values():
+            camera_rates[str(camera.id)] = float(rate)
             try:
                 camera.config["frame_rate"] = float(rate)
                 camera.refresh_from_config()
                 camera.validate_config(camera.config)
-                camera_rates[str(camera.id)] = float(rate)
             except Exception as error:
                 errors.append(f"{camera.name}: {error}")
 
@@ -509,7 +557,11 @@ class PerformanceManager:
 
         try:
             for camera in digiflot.cameras.values():
-                output = temporary / f"{int(rate)}fps_{camera.id}_{str(camera.name).replace('/', '_')}"
+                rate_label = f"{rate:g}".replace(".", "p")
+                output = temporary / (
+                    f"{rate_label}fps_{camera.id}_"
+                    f"{str(camera.name).replace('/', '_')}"
+                )
                 camera.start_recording(output)
                 started.append(camera)
 

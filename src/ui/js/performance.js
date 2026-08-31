@@ -34,12 +34,31 @@ function ratesText(rates) {
 }
 
 function resultRow(item) {
-    return `<div class="result-row result-${String(item.classification || "unknown").toLowerCase()}">
+    const classification = String(
+        item.classification || "UNKNOWN"
+    );
+    const className = classification
+        .toLowerCase()
+        .replaceAll("_", "-");
+
+    return `<div class="result-row result-${className}">
         <strong>${ratesText(item.camera_rates)}</strong>
-        <span>${item.classification || "—"}</span>
+        <span>${classification.replaceAll("_", " ")}</span>
         <span>${fmt(item.max_temperature_c,1," °C")}</span>
         <p>${item.reason || ""}</p>
     </div>`;
+}
+
+function benchmarkSummary(results) {
+    const failed = (results || []).find(
+        item => item.classification === "FAIL"
+    );
+
+    if (!failed) {
+        return "All requested frame rates completed.";
+    }
+
+    return `Stopped after ${Number(failed.rate)} fps failed. Higher frame rates were not tested.`;
 }
 
 function render(status) {
@@ -68,12 +87,22 @@ function render(status) {
         el.live_temp.textContent = fmt(system.temperature_c,1," °C");
         el.live_load.textContent = fmt(system.load1,2);
     } else {
-        if (status.state === "Completed") el.benchmark_title.textContent = "Benchmark complete";
-        else if (status.state === "Aborted") el.benchmark_title.textContent = "Benchmark aborted";
-        else if (status.state === "Failed") el.benchmark_title.textContent = "Benchmark failed";
-        else el.benchmark_title.textContent = "Ready";
+        if (status.state === "Completed") {
+            el.benchmark_title.textContent = "Benchmark complete";
+            el.benchmark_message.textContent = benchmarkSummary(
+                status.results || []
+            );
+        } else if (status.state === "Aborted") {
+            el.benchmark_title.textContent = "Benchmark aborted";
+        } else if (status.state === "Failed") {
+            el.benchmark_title.textContent = "Benchmark failed";
+        } else {
+            el.benchmark_title.textContent = "Ready";
+        }
     }
-    if (status.last_error) el.benchmark_message.textContent = status.last_error;
+    if (status.last_error) {
+        el.benchmark_message.textContent = status.last_error;
+    }
 
     el.benchmark_results.innerHTML = (status.results || []).map(resultRow).join("");
     el.profile_results.innerHTML = profile?.results?.length

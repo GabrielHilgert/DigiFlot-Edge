@@ -165,7 +165,7 @@ class Camera:
         self.preview_frame_rate = float(
             preview.get(
                 "frame_rate",
-                min(10.0, self.frame_rate),
+                min(10.0, self.max_sensor_fps()),
             )
         )
         self.preview_quality = int(
@@ -305,7 +305,13 @@ class Camera:
         self,
         crop_region=None,
         require_full_fov=False,
+        frame_rate=None,
     ):
+        target_frame_rate = (
+            self.frame_rate
+            if frame_rate is None
+            else float(frame_rate)
+        )
         target_crop = (
             self.full_sensor_crop()
             if crop_region is None
@@ -321,7 +327,7 @@ class Camera:
                 if fps is None or size is None or bit_depth is None:
                     continue
 
-                if float(fps) + 0.01 < self.frame_rate:
+                if float(fps) + 0.01 < target_frame_rate:
                     continue
 
                 if require_full_fov:
@@ -347,7 +353,7 @@ class Camera:
             )
             raise RuntimeError(
                 f"No {mode_type} sensor mode supports "
-                f"{self.frame_rate:g} fps for {self.name}."
+                f"{target_frame_rate:g} fps for {self.name}."
             )
 
         # Prefer the smallest sensor output that still covers the requested
@@ -600,11 +606,15 @@ class Camera:
             )
 
         preview_rate = float(
-            preview.get("frame_rate", min(10.0, frame_rate))
+            preview.get("frame_rate", min(10.0, self.max_sensor_fps()))
         )
-        if preview_rate <= 0 or preview_rate > frame_rate:
+        if preview_rate <= 0:
             raise ValueError(
-                "preview.frame_rate must be > 0 and <= frame_rate."
+                "preview.frame_rate must be greater than zero."
+            )
+        if preview_rate > self.max_sensor_fps() + 0.01:
+            raise ValueError(
+                "preview.frame_rate exceeds the maximum reported sensor rate."
             )
 
         quality = int(preview.get("quality", 75))
@@ -912,7 +922,8 @@ class Camera:
 
     def create_preview_configuration(self):
         mode = self.select_sensor_mode(
-            require_full_fov=True
+            require_full_fov=True,
+            frame_rate=self.preview_frame_rate,
         )
 
         return self.picam2.create_video_configuration(
@@ -925,7 +936,7 @@ class Camera:
                 "format": "YUV420",
             },
             controls={
-                "FrameRate": self.frame_rate,
+                "FrameRate": self.preview_frame_rate,
             },
             sensor=self._sensor_config_from_mode(mode),
             display=None,
@@ -936,6 +947,7 @@ class Camera:
         mode = self.select_sensor_mode(
             crop_region=self.crop_region,
             require_full_fov=(self.crop_region is None),
+            frame_rate=self.frame_rate,
         )
 
         return self.picam2.create_video_configuration(
@@ -953,9 +965,9 @@ class Camera:
             encode="main",
         )
 
-    def _base_runtime_controls(self):
+    def _base_runtime_controls(self, frame_rate):
         controls = {
-            "FrameRate": self.frame_rate,
+            "FrameRate": float(frame_rate),
         }
 
         for name, value in self.controls.items():
@@ -965,12 +977,16 @@ class Camera:
         return controls
 
     def apply_preview_controls(self):
-        controls = self._base_runtime_controls()
+        controls = self._base_runtime_controls(
+            self.preview_frame_rate
+        )
         controls["ScalerCrop"] = self.full_sensor_crop()
         self.picam2.set_controls(controls)
 
     def apply_recording_controls(self):
-        controls = self._base_runtime_controls()
+        controls = self._base_runtime_controls(
+            self.frame_rate
+        )
 
         if self.crop_region is not None:
             controls["ScalerCrop"] = self.crop_region
@@ -1028,13 +1044,10 @@ class Camera:
                 q=self.preview_quality,
             )
 
-            preview_encoder.frame_skip_count = max(
-                1,
-                round(
-                    self.frame_rate
-                    / self.preview_frame_rate
-                ),
-            )
+            # Preview has its own sensor frame rate. It is independent from
+            # the acquisition frame rate, so the encoder must not skip frames
+            # based on self.frame_rate.
+            preview_encoder.frame_skip_count = 1
 
             try:
                 self.picam2.configure(
