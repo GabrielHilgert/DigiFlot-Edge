@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Digiflot Edge
+Comment=Digiflot Edge Launcher
+Exec=bash -c 'cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && ./launch.sh'
+Icon=digiflot-edge-icon
+Terminal=true
+Categories=Science;Education;
+Name[en_US]=digiflot-edge.desktop
