@@ -30,7 +30,10 @@ class AtlasScientific:
     ):
         self.bus = int(bus)
         self.name = name
-        self.sensors = [dict(sensor) for sensor in (sensors or self.DEFAULT_SENSORS)]
+        self.sensors = [
+            dict(sensor)
+            for sensor in (self.DEFAULT_SENSORS if sensors is None else sensors)
+        ]
         self.sample_interval = float(sample_interval)
         self.output_dir = Path(output_dir)
         self.buffer_size = int(buffer_size)
@@ -218,7 +221,9 @@ class AtlasScientific:
 
     @classmethod
     def discover_bus(cls, bus=1, addresses=None):
-        probe = cls(bus=bus, sensors=cls.DEFAULT_SENSORS)
+        # An unconfigured bus scan must not mark the default EZO addresses as
+        # configured. The caller decides configuration from config.json.
+        probe = cls(bus=bus, sensors=[])
         try:
             return probe.discover_available(addresses=addresses)
         finally:

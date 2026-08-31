@@ -337,7 +337,14 @@ def discover_devices(request: Request):
         result["atlas"] = atlas_found
         detected_addresses = {int(item["address"]) for item in atlas_found}
         for item in result["atlas"]:
-            item["config"] = configured_atlas_by_address.get(int(item["address"]))
+            address = int(item["address"])
+            config = configured_atlas_by_address.get(address)
+            # config.json is the only source of truth for whether a discovered
+            # Atlas sensor is configured. The Atlas probe may run through the
+            # live runtime object, whose sensor list must not leak into the UI
+            # as persisted configuration state.
+            item["config"] = config
+            item["configured"] = config is not None
         for address, config in configured_atlas_by_address.items():
             if address not in detected_addresses:
                 result["atlas"].append({
