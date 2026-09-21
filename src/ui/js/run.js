@@ -367,7 +367,7 @@ function renderMeasurementTables() {
 
     ui.measurement_summary_body.innerHTML = variables.length
         ? variables.map((item) => `
-            <tr>
+            <tr class="measurement-variable-row" data-variable-id="${escapeHtml(item.id)}" tabindex="0" role="button" aria-label="Use ${escapeHtml(item.name)} for the next measurement">
                 <td><strong>${escapeHtml(item.name)}</strong></td>
                 <td>${escapeHtml(measurementValueText(item.latest))}</td>
                 <td>${escapeHtml(item.points)}</td>
@@ -388,6 +388,27 @@ function renderMeasurementTables() {
             </tr>`;
         }).join("")
         : '<tr><td colspan="5" class="empty-cell">No points captured yet.</td></tr>';
+}
+
+function selectMeasurementVariable(variableId) {
+    const variable = (measurementData.variables || []).find((item) => String(item.id) === String(variableId));
+    if (!variable) return;
+
+    ui.measurement_variable_name.value = variable.name || "";
+    const latest = variable.latest || {};
+
+    if (latest.source_type === "sensor" && latest.sensor_id) {
+        const option = [...ui.measurement_source.options].find(
+            (item) => item.value === String(latest.sensor_id) && !item.disabled
+        );
+        ui.measurement_source.value = option ? option.value : "manual";
+    } else {
+        ui.measurement_source.value = "manual";
+        ui.measurement_manual_unit.value = latest.unit || "";
+    }
+
+    updateMeasurementSourcePreview();
+    ui.measurement_variable_name.focus();
 }
 
 function currentMeasurementSource() {
@@ -709,6 +730,20 @@ function bindActions() {
             lastSensorPlotTimestamp.delete(sensorId);
         }
         if (latestState) renderLiveSensors(latestState);
+    });
+
+    const chooseMeasurementVariable = (event) => {
+        const row = event.target.closest("[data-variable-id]");
+        if (!row) return;
+        selectMeasurementVariable(row.dataset.variableId);
+    };
+    ui.measurement_summary_body.addEventListener("click", chooseMeasurementVariable);
+    ui.measurement_summary_body.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        const row = event.target.closest("[data-variable-id]");
+        if (!row) return;
+        event.preventDefault();
+        selectMeasurementVariable(row.dataset.variableId);
     });
 
     ui.measurement_source.addEventListener("change", updateMeasurementSourcePreview);
