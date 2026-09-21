@@ -1,4 +1,14 @@
 DigiFlot Edge shared system installer v3
+
+
+
+Install;
+
+curl -fsSL https://raw.githubusercontent.com/GabrielHilgert/DigiFlot-Edge/main/src/install.sh -o install.sh
+chmod +x install.sh
+./install.sh
+
+
 ========================================
 
 Installation layout
