@@ -225,3 +225,47 @@ a { color: inherit; text-decoration: none; }
     gap: .5rem;
     flex-wrap: wrap;
 }
+
+/* Live sensor telemetry and operator measurements */
+.compact-card-header { min-height:auto; padding-top:18px; padding-bottom:18px; }
+.live-sensor-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:12px; }
+.live-sensor-card { min-width:0; border:1px solid var(--border); border-radius:var(--radius-md); padding:14px; background:var(--surface-soft); }
+.live-sensor-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+.live-sensor-head h3 { margin:0; font-size:.92rem; }
+.live-sensor-status { display:inline-flex; align-items:center; gap:5px; margin-top:3px; color:var(--text-faint); font-size:.7rem; font-weight:760; text-transform:capitalize; }
+.live-sensor-status::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; }
+.live-sensor-status.online { color:var(--success); }
+.live-sensor-status.offline { color:var(--text-faint); }
+.plot-toggle { flex:0 0 auto; border:0; background:transparent; color:var(--text-soft); padding:3px 5px; font:inherit; font-size:.7rem; cursor:pointer; }
+.plot-toggle:hover { color:var(--accent); }
+.live-sensor-reading { margin-top:12px; color:var(--text); font-size:1.65rem; line-height:1; font-weight:800; font-variant-numeric:tabular-nums; }
+.live-sensor-age { margin-top:6px; color:var(--text-faint); font-size:.72rem; }
+.sensor-sparkline-wrap { height:54px; margin-top:10px; border-top:1px solid var(--border); padding-top:8px; }
+.sensor-sparkline { display:block; width:100%; height:46px; }
+.empty-note { grid-column:1/-1; margin:0; color:var(--text-soft); }
+.measurement-layout { display:grid; grid-template-columns:minmax(240px,.72fr) minmax(0,1.6fr); gap:24px; align-items:start; }
+.measurement-form { display:grid; gap:14px; position:sticky; top:92px; border:1px solid var(--border); border-radius:var(--radius-md); padding:16px; background:var(--surface-soft); }
+.form-field { display:grid; gap:6px; }
+.form-field label { color:var(--text-soft); font-size:.76rem; font-weight:760; }
+.form-field label span { color:var(--text-faint); font-weight:500; }
+.form-field input, .form-field select { width:100%; min-height:42px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); padding:8px 10px; background:var(--surface); color:var(--text); font:inherit; }
+.form-field input:focus, .form-field select:focus { outline:2px solid color-mix(in srgb,var(--accent) 30%,transparent); outline-offset:1px; border-color:var(--accent); }
+.manual-measurement-fields { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.measurement-source-preview { border:1px solid var(--border); border-radius:var(--radius-sm); padding:11px 12px; background:var(--surface); }
+.measurement-source-preview > span, .measurement-source-preview > small { display:block; color:var(--text-faint); font-size:.7rem; }
+.measurement-source-preview strong { display:block; margin:4px 0; font-size:1.35rem; font-variant-numeric:tabular-nums; }
+.measurement-source-preview.stale { border-color:color-mix(in srgb,var(--warning) 50%,var(--border)); background:var(--warning-soft); }
+.measurement-form-hint { margin:0; color:var(--text-faint); font-size:.74rem; line-height:1.4; }
+.measurement-data { display:grid; gap:22px; min-width:0; }
+.measurement-table-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:8px; }
+.measurement-table-heading h3 { margin:0; font-size:.95rem; }
+.measurement-table-heading span { color:var(--text-faint); font-size:.72rem; }
+.table-scroll { width:100%; overflow-x:auto; border:1px solid var(--border); border-radius:var(--radius-md); }
+.measurement-table { width:100%; border-collapse:collapse; background:var(--surface); font-size:.78rem; }
+.measurement-table th, .measurement-table td { padding:9px 11px; border-bottom:1px solid var(--border); text-align:left; vertical-align:middle; white-space:nowrap; }
+.measurement-table tr:last-child td { border-bottom:0; }
+.measurement-table th { background:var(--surface-soft); color:var(--text-faint); font-size:.68rem; text-transform:uppercase; letter-spacing:.04em; }
+.measurement-history-table td:last-child { max-width:220px; overflow:hidden; text-overflow:ellipsis; }
+.empty-cell { color:var(--text-faint); text-align:center !important; padding:18px !important; }
+@media (max-width:900px) { .measurement-layout { grid-template-columns:1fr; } .measurement-form { position:static; } }
+@media (max-width:520px) { .manual-measurement-fields { grid-template-columns:1fr; } .live-sensor-grid { grid-template-columns:1fr; } }

@@ -3,6 +3,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -184,6 +185,13 @@ class DigiFlot:
         self.revision = 0
         self.event_sequence = 0
         self.last_error = None
+
+        # Operator-captured measurements are intentionally lightweight.
+        # The JSONL file is append-only; these in-memory structures avoid
+        # rereading it for every UI refresh.
+        self.measurements = []
+        self.measurement_variables = {}
+        self.measurement_revision = 0
 
     # ------------------------------------------------------------------
     # Startup / shutdown
@@ -436,6 +444,7 @@ class DigiFlot:
             "warnings": deepcopy(self.warnings[-50:]),
             "devices": self._device_status_unlocked(),
             "performance": self._performance_summary_unlocked(),
+            "measurements": self._measurement_summary_unlocked(),
             "last_error": self.last_error,
         }
 
@@ -502,6 +511,231 @@ class DigiFlot:
             "scales": scales,
             "atlas": atlas,
         }
+
+    @staticmethod
+    def _measurement_variable_id(value):
+        value = unicodedata.normalize("NFKD", str(value or ""))
+        value = value.encode("ascii", "ignore").decode("ascii").strip().lower()
+        value = re.sub(r"[^a-z0-9]+", "_", value).strip("_")
+        return value or "measurement"
+
+    @staticmethod
+    def _measurement_unit(value):
+        value = str(value or "").strip()
+        return value or None
+
+    def _measurement_summary_unlocked(self):
+        variables = []
+        for item in self.measurement_variables.values():
+            variables.append({
+                "id": item["id"],
+                "name": item["name"],
+                "points": item["points"],
+                "latest": deepcopy(item.get("latest")),
+            })
+        variables.sort(key=lambda item: item["name"].lower())
+        return {
+            "revision": self.measurement_revision,
+            "count": len(self.measurements),
+            "variables": variables,
+        }
+
+    def _rebuild_measurement_variables_unlocked(self):
+        self.measurement_variables = {}
+        for record in self.measurements:
+            variable_id = str(record.get("variable_id") or "")
+            if not variable_id:
+                continue
+            current = self.measurement_variables.get(variable_id)
+            if current is None:
+                current = {
+                    "id": variable_id,
+                    "name": record.get("variable_name") or variable_id,
+                    "points": 0,
+                    "latest": None,
+                }
+                self.measurement_variables[variable_id] = current
+            current["name"] = record.get("variable_name") or current["name"]
+            current["points"] += 1
+            current["latest"] = record
+        self.measurement_revision = len(self.measurements)
+
+    def _load_measurements_unlocked(self):
+        self.measurements = []
+        self.measurement_variables = {}
+        self.measurement_revision = 0
+        if self.run_directory is None:
+            return
+
+        path = self.run_directory / "measurements.jsonl"
+        if not path.is_file():
+            return
+
+        try:
+            with path.open("r", encoding="utf-8") as file:
+                for line in file:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        # A partially written final line must not make an
+                        # otherwise usable experiment unreadable.
+                        continue
+                    if isinstance(record, dict):
+                        self.measurements.append(record)
+        finally:
+            self._rebuild_measurement_variables_unlocked()
+
+    def _measurement_sensor_snapshot_unlocked(self, sensor_id):
+        sensor_id = str(sensor_id)
+        scale = self.scales.get(sensor_id)
+        if scale is not None:
+            return scale.snapshot()
+
+        if self.atlas is not None:
+            for snapshot in self.atlas.sensor_snapshots():
+                if str(snapshot.get("id")) == sensor_id:
+                    return snapshot
+        raise KeyError(f"Sensor not found: {sensor_id}")
+
+    def measurements_payload(self):
+        with self.lock:
+            return {
+                **self._measurement_summary_unlocked(),
+                "observations": deepcopy(self.measurements),
+            }
+
+    def capture_measurement(
+        self,
+        variable_name,
+        source_id="manual",
+        value=None,
+        unit=None,
+        variable_id=None,
+    ):
+        with self.lock:
+            if self.run_directory is None or self.experiment is None:
+                raise RuntimeError("Select an experiment before capturing measurements.")
+
+            name = str(variable_name or "").strip()
+            if not name:
+                raise ValueError("Variable name is required.")
+
+            requested_id = variable_id if variable_id is not None else name
+            normalized_id = self._measurement_variable_id(requested_id)
+            existing = self.measurement_variables.get(normalized_id)
+            if existing is not None:
+                # Keep the first display name stable when subsequent points use
+                # different capitalization or whitespace.
+                name = existing["name"]
+
+            source_id = str(source_id or "manual").strip()
+            source_type = "manual" if source_id.lower() == "manual" else "sensor"
+            sensor_name = None
+            sensor_type = None
+            sensor_status = None
+            sensor_timestamp_ns = None
+            sensor_timestamp_ms = None
+            raw_value = None
+
+            if source_type == "manual":
+                if value is None or str(value).strip() == "":
+                    raise ValueError("A manual value is required.")
+                try:
+                    captured_value = float(str(value).replace(",", "."))
+                except (TypeError, ValueError):
+                    raise ValueError("Manual value must be numeric.")
+                captured_unit = self._measurement_unit(unit)
+            else:
+                snapshot = self._measurement_sensor_snapshot_unlocked(source_id)
+                captured_value = snapshot.get("value")
+                if captured_value is None:
+                    raise RuntimeError(
+                        f"Sensor '{snapshot.get('name', source_id)}' has no value to capture."
+                    )
+                try:
+                    captured_value = float(captured_value)
+                except (TypeError, ValueError):
+                    raise RuntimeError(
+                        f"Sensor '{snapshot.get('name', source_id)}' does not provide a numeric value."
+                    )
+                captured_unit = self._measurement_unit(snapshot.get("unit"))
+                sensor_name = snapshot.get("name")
+                sensor_type = snapshot.get("type")
+                sensor_status = snapshot.get("status")
+                sensor_timestamp_ns = snapshot.get("timestamp_ns")
+                sensor_timestamp_ms = snapshot.get("timestamp_ms")
+                raw_value = snapshot.get("raw")
+
+            stage = (
+                self.current_stage
+                if self.state in {self.RUNNING, self.PAUSED, self.RECOVERY_REQUIRED}
+                else None
+            )
+            record = {
+                "measurement_id": f"m-{time.time_ns()}",
+                "variable_id": normalized_id,
+                "variable_name": name,
+                "value": captured_value,
+                "unit": captured_unit,
+                "source_type": source_type,
+                "sensor_id": None if source_type == "manual" else source_id,
+                "sensor_name": sensor_name,
+                "sensor_type": sensor_type,
+                "sensor_status": sensor_status,
+                "sensor_timestamp_ns": sensor_timestamp_ns,
+                "sensor_timestamp_ms": sensor_timestamp_ms,
+                "sensor_raw": raw_value,
+                "captured_at": _utc_now(),
+                "captured_timestamp_ns": time.time_ns(),
+                "captured_monotonic_ns": time.monotonic_ns(),
+                "run_elapsed_s": self._run_elapsed_unlocked(),
+                "state": self.state,
+                "stage_state": self.stage_state,
+                "stage_id": stage.get("id") if stage else None,
+                "stage_name": stage.get("name") if stage else None,
+                "stage_type": stage.get("type") if stage else None,
+                "stage_attempt": self.stage_attempt or None,
+            }
+
+            path = self.run_directory / "measurements.jsonl"
+            with path.open("a", encoding="utf-8") as file:
+                file.write(json.dumps(record, ensure_ascii=False) + "\n")
+                file.flush()
+                os.fsync(file.fileno())
+
+            self.measurements.append(record)
+            variable = self.measurement_variables.get(normalized_id)
+            if variable is None:
+                variable = {
+                    "id": normalized_id,
+                    "name": name,
+                    "points": 0,
+                    "latest": None,
+                }
+                self.measurement_variables[normalized_id] = variable
+            variable["points"] += 1
+            variable["latest"] = record
+            self.measurement_revision += 1
+
+            self._touch_unlocked(
+                "MEASUREMENT_CAPTURED",
+                {
+                    "measurement_id": record["measurement_id"],
+                    "variable_id": normalized_id,
+                    "variable_name": name,
+                    "value": captured_value,
+                    "unit": captured_unit,
+                    "source_type": source_type,
+                    "sensor_id": record["sensor_id"],
+                },
+            )
+            return {
+                "record": deepcopy(record),
+                "measurements": self._measurement_summary_unlocked(),
+            }
 
     def _performance_summary_unlocked(self):
         if self.performance is None:
@@ -730,6 +964,7 @@ class DigiFlot:
             self.storage_id = storage_id
             self.run_directory = directory
             self.experiment = experiment
+            self._load_measurements_unlocked()
             self.state = self.CAMERA_CALIBRATION
             self.stage_state = self.STAGE_NONE
             self._initialise_calibration_state_unlocked()
@@ -749,6 +984,7 @@ class DigiFlot:
         self.storage_id = directory.name
         self.run_directory = directory
         self.experiment = experiment
+        self._load_measurements_unlocked()
         self.current_stage_index = runtime.get("current_stage_index")
         self.stage_state = runtime.get("stage_state", self.STAGE_NONE)
         self.run_started_at = runtime.get("run_started_at")
@@ -879,6 +1115,9 @@ class DigiFlot:
         self.device_failure_keys = set()
         self.event_sequence = 0
         self.last_error = None
+        self.measurements = []
+        self.measurement_variables = {}
+        self.measurement_revision = 0
         self.state = self.IDLE
 
     def _initialise_calibration_state_unlocked(self):

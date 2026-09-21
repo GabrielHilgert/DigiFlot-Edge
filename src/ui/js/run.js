@@ -3,6 +3,12 @@ let latestState = null;
 let lastScrapingSequence = null;
 let audioContext = null;
 let scrapeFlashTimer = null;
+const sensorPlotHistory = new Map();
+const hiddenSensorPlots = new Set();
+const lastSensorPlotTimestamp = new Map();
+let measurementData = { revision: 0, count: 0, variables: [], observations: [] };
+let measurementFetchInFlight = false;
+let measurementSourceSignature = null;
 
 function cacheUi() {
     [
@@ -20,7 +26,13 @@ function cacheUi() {
         "finish_stage_button", "skip_stage_button", "recovery_details", "transition_countdown", "run_performance_link",
         "recovery_actions", "error_close_actions", "retry_devices_button",
         "recovery_resume_button", "restart_stage_button", "recovery_skip_button",
-        "recovery_abort_button", "operations_retry_devices"
+        "recovery_abort_button", "operations_retry_devices",
+        "live_sensor_panel", "live_sensor_grid", "measurement_panel",
+        "measurement_form", "measurement_variable_name", "measurement_variable_names",
+        "measurement_source", "measurement_sensor_value", "measurement_sensor_value_text",
+        "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value",
+        "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint",
+        "measurement_count", "measurement_summary_body", "measurement_history_body"
     ].forEach((id) => { ui[id] = document.getElementById(id); });
     ui.workflowSteps = [...document.querySelectorAll(".workflow-step")];
 }
@@ -188,6 +200,274 @@ function renderOperations(state) {
         </div>`).join("");
 }
 
+function sensorSnapshots(state) {
+    return [
+        ...(state.scales || []),
+        ...(state.atlas || []),
+    ].filter((item) => item && item.id != null);
+}
+
+function sensorIsOnline(sensor) {
+    return sensor?.status === "connected";
+}
+
+function sensorDisplayValue(sensor) {
+    const raw = sensor?.value;
+    if (raw == null || raw === "" || !Number.isFinite(Number(raw))) return "—";
+    const decimals = Number.isFinite(Number(sensor?.decimals)) ? Number(sensor.decimals) : null;
+    const value = decimals == null
+        ? Number(raw).toLocaleString(undefined, { maximumFractionDigits: 4 })
+        : Number(raw).toFixed(Math.max(0, Math.min(6, decimals)));
+    return `${value}${sensor?.unit ? ` ${sensor.unit}` : ""}`;
+}
+
+function sensorAgeText(sensor) {
+    const timestamp = Number(sensor?.timestamp_ms);
+    if (!Number.isFinite(timestamp)) return "No sample received";
+    const age = Math.max(0, (Date.now() - timestamp) / 1000);
+    if (age < 1) return "Updated <1 s ago";
+    return `Updated ${age.toFixed(age < 10 ? 1 : 0)} s ago`;
+}
+
+function shouldStorePlotSample(sensor) {
+    if (hiddenSensorPlots.has(String(sensor.id))) return false;
+    const timestamp = Number(sensor.timestamp_ms);
+    if (!Number.isFinite(timestamp) || !Number.isFinite(Number(sensor.value))) return false;
+    const previous = lastSensorPlotTimestamp.get(String(sensor.id));
+    if (previous != null && timestamp - previous < 900) return false;
+    lastSensorPlotTimestamp.set(String(sensor.id), timestamp);
+    return true;
+}
+
+function appendSensorPlotSample(sensor) {
+    if (!shouldStorePlotSample(sensor)) return;
+    const key = String(sensor.id);
+    const history = sensorPlotHistory.get(key) || [];
+    history.push({ timestamp: Number(sensor.timestamp_ms), value: Number(sensor.value) });
+    while (history.length > 60) history.shift();
+    sensorPlotHistory.set(key, history);
+}
+
+function drawSensorPlot(canvas, sensorId) {
+    if (!canvas || hiddenSensorPlots.has(String(sensorId))) return;
+    const history = sensorPlotHistory.get(String(sensorId)) || [];
+    const rect = canvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const ratio = Math.min(2, window.devicePixelRatio || 1);
+    const width = Math.max(1, Math.round(rect.width * ratio));
+    const height = Math.max(1, Math.round(rect.height * ratio));
+    if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+    }
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, width, height);
+    if (history.length < 2) return;
+    const values = history.map((item) => item.value);
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+    if (max === min) {
+        const pad = Math.max(Math.abs(max) * 0.01, 0.1);
+        min -= pad;
+        max += pad;
+    }
+    const pad = 4 * ratio;
+    const color = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#2f6fed";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.6 * ratio;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    history.forEach((item, index) => {
+        const x = pad + (index / Math.max(1, history.length - 1)) * (width - 2 * pad);
+        const y = height - pad - ((item.value - min) / (max - min)) * (height - 2 * pad);
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+}
+
+function ensureSensorCard(sensor) {
+    const key = String(sensor.id);
+    let card = ui.live_sensor_grid.querySelector(`[data-live-sensor="${CSS.escape(key)}"]`);
+    if (card) return card;
+    card = document.createElement("article");
+    card.className = "live-sensor-card";
+    card.dataset.liveSensor = key;
+    card.innerHTML = `
+        <div class="live-sensor-head">
+            <div>
+                <h3></h3>
+                <span class="live-sensor-status"></span>
+            </div>
+            <button class="plot-toggle" type="button" data-plot-toggle="${escapeHtml(key)}">Hide plot</button>
+        </div>
+        <div class="live-sensor-reading">—</div>
+        <div class="live-sensor-age">—</div>
+        <div class="sensor-sparkline-wrap"><canvas class="sensor-sparkline" aria-label="Recent sensor values"></canvas></div>`;
+    ui.live_sensor_grid.appendChild(card);
+    return card;
+}
+
+function renderLiveSensors(state) {
+    const visible = ["Ready", "Running", "Paused", "Completed", "RecoveryRequired"].includes(state.state);
+    ui.live_sensor_panel.hidden = !visible;
+    if (!visible) return;
+
+    const sensors = sensorSnapshots(state);
+    if (sensors.length > 0) ui.live_sensor_grid.querySelector(".empty-note")?.remove();
+    const activeKeys = new Set(sensors.map((item) => String(item.id)));
+    [...ui.live_sensor_grid.querySelectorAll("[data-live-sensor]")].forEach((card) => {
+        if (!activeKeys.has(card.dataset.liveSensor)) card.remove();
+    });
+
+    sensors.forEach((sensor) => {
+        appendSensorPlotSample(sensor);
+        const card = ensureSensorCard(sensor);
+        const hidden = hiddenSensorPlots.has(String(sensor.id));
+        card.querySelector("h3").textContent = sensor.name || sensor.id;
+        const status = card.querySelector(".live-sensor-status");
+        status.textContent = sensor.status || "unknown";
+        status.className = `live-sensor-status ${sensorIsOnline(sensor) ? "online" : "offline"}`;
+        card.querySelector(".live-sensor-reading").textContent = sensorDisplayValue(sensor);
+        card.querySelector(".live-sensor-age").textContent = sensorAgeText(sensor);
+        const wrap = card.querySelector(".sensor-sparkline-wrap");
+        const toggle = card.querySelector(".plot-toggle");
+        wrap.hidden = hidden;
+        toggle.textContent = hidden ? "Show plot" : "Hide plot";
+        if (!hidden) drawSensorPlot(card.querySelector("canvas"), sensor.id);
+    });
+
+    if (sensors.length === 0) {
+        ui.live_sensor_grid.innerHTML = '<p class="empty-note">No sensors configured.</p>';
+    }
+}
+
+function measurementValueText(record) {
+    if (!record || record.value == null) return "—";
+    const value = Number(record.value).toLocaleString(undefined, { maximumFractionDigits: 6 });
+    return `${value}${record.unit ? ` ${record.unit}` : ""}`;
+}
+
+function measurementContext(record) {
+    if (!record) return "—";
+    if (record.stage_name) {
+        const state = record.stage_state && record.stage_state !== "None" ? ` / ${record.stage_state}` : "";
+        return `${record.stage_name}${state}`;
+    }
+    return record.state || "—";
+}
+
+function renderMeasurementTables() {
+    const variables = measurementData.variables || [];
+    const observations = measurementData.observations || [];
+    ui.measurement_count.textContent = `${measurementData.count || observations.length} point${(measurementData.count || observations.length) === 1 ? "" : "s"}`;
+    ui.measurement_variable_names.innerHTML = variables
+        .map((item) => `<option value="${escapeHtml(item.name)}"></option>`).join("");
+
+    ui.measurement_summary_body.innerHTML = variables.length
+        ? variables.map((item) => `
+            <tr>
+                <td><strong>${escapeHtml(item.name)}</strong></td>
+                <td>${escapeHtml(measurementValueText(item.latest))}</td>
+                <td>${escapeHtml(item.points)}</td>
+            </tr>`).join("")
+        : '<tr><td colspan="3" class="empty-cell">No measurements captured yet.</td></tr>';
+
+    const recent = observations.slice(-20).reverse();
+    ui.measurement_history_body.innerHTML = recent.length
+        ? recent.map((item) => {
+            const source = item.source_type === "manual" ? "Manual" : (item.sensor_name || item.sensor_id || "Sensor");
+            const time = item.captured_at ? new Date(item.captured_at).toLocaleTimeString() : "—";
+            return `<tr>
+                <td>${escapeHtml(item.variable_name)}</td>
+                <td><strong>${escapeHtml(measurementValueText(item))}</strong></td>
+                <td>${escapeHtml(source)}</td>
+                <td>${escapeHtml(time)}</td>
+                <td>${escapeHtml(measurementContext(item))}</td>
+            </tr>`;
+        }).join("")
+        : '<tr><td colspan="5" class="empty-cell">No points captured yet.</td></tr>';
+}
+
+function currentMeasurementSource() {
+    return sensorSnapshots(latestState || {}).find((item) => String(item.id) === String(ui.measurement_source.value));
+}
+
+function updateMeasurementSourcePreview() {
+    const manual = ui.measurement_source.value === "manual";
+    ui.measurement_manual_fields.hidden = !manual;
+    ui.measurement_sensor_value.hidden = manual;
+    if (manual) {
+        ui.measurement_form_hint.textContent = "Manual unit is optional. Experiment state and stage are stored automatically.";
+        return;
+    }
+    const sensor = currentMeasurementSource();
+    ui.measurement_sensor_value_text.textContent = sensorDisplayValue(sensor);
+    ui.measurement_sensor_age.textContent = sensorAgeText(sensor);
+    const timestamp = Number(sensor?.timestamp_ms);
+    const stale = !Number.isFinite(timestamp) || Date.now() - timestamp > 5000;
+    ui.measurement_sensor_value.classList.toggle("stale", stale);
+    ui.measurement_form_hint.textContent = stale
+        ? "This sensor value is stale. You can still capture it; its original sensor timestamp will be stored."
+        : "The latest in-memory sensor value will be captured without an extra hardware read.";
+}
+
+function updateMeasurementSources(state) {
+    const sensors = sensorSnapshots(state);
+    const signature = JSON.stringify(sensors.map((sensor) => [
+        String(sensor.id), sensor.name, sensor.type, sensor.status,
+        sensor.value == null ? null : true, sensor.unit || null,
+    ]));
+
+    if (signature !== measurementSourceSignature) {
+        const previous = ui.measurement_source.value;
+        const onlineScale = sensors.find((item) => item.type === "scale" && sensorIsOnline(item) && item.value != null);
+        const options = sensors.map((sensor) => {
+            const enabled = sensorIsOnline(sensor) && sensor.value != null;
+            const label = `${sensor.name || sensor.id}${sensor.unit ? ` (${sensor.unit})` : ""}${enabled ? "" : " — unavailable"}`;
+            return `<option value="${escapeHtml(sensor.id)}" ${enabled ? "" : "disabled"}>${escapeHtml(label)}</option>`;
+        });
+        options.push('<option value="manual">Manual entry</option>');
+        ui.measurement_source.innerHTML = options.join("");
+
+        const previousOption = [...ui.measurement_source.options].find((option) => option.value === previous && !option.disabled);
+        if (previousOption) ui.measurement_source.value = previous;
+        else if (onlineScale) ui.measurement_source.value = String(onlineScale.id);
+        else ui.measurement_source.value = "manual";
+        measurementSourceSignature = signature;
+    }
+    updateMeasurementSourcePreview();
+}
+
+async function loadMeasurements() {
+    if (measurementFetchInFlight) return;
+    measurementFetchInFlight = true;
+    try {
+        const payload = await requestJson("/api/digiflot/measurements");
+        measurementData = {
+            revision: payload.revision || 0,
+            count: payload.count || 0,
+            variables: payload.variables || [],
+            observations: payload.observations || [],
+        };
+        renderMeasurementTables();
+    } catch (error) {
+        console.error(error);
+    } finally {
+        measurementFetchInFlight = false;
+    }
+}
+
+function renderMeasurements(state) {
+    const visible = ["Ready", "Running", "Paused", "Completed", "RecoveryRequired"].includes(state.state);
+    ui.measurement_panel.hidden = !visible;
+    if (!visible) return;
+    updateMeasurementSources(state);
+    const remoteRevision = Number(state.measurements?.revision || 0);
+    if (remoteRevision !== Number(measurementData.revision || 0)) loadMeasurements();
+}
+
 function renderReady(state) {
     ui.ready_panel.hidden = false;
     const stage = state.next_stage;
@@ -310,6 +590,8 @@ function render(state) {
     }
 
     ui.abort_bar.hidden = !["CameraCalibration", "SensorCalibration", "Ready", "Running", "Paused", "RecoveryRequired"].includes(state.state);
+    renderLiveSensors(state);
+    renderMeasurements(state);
     handleScrapingSignal(state);
 }
 
@@ -412,6 +694,65 @@ function bindActions() {
         if (!confirmed) return;
         await action("/api/digiflot/abort", { reason: "Operator aborted experiment" });
     });
+
+    ui.live_sensor_grid.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-plot-toggle]");
+        if (!button) return;
+        const sensorId = String(button.dataset.plotToggle);
+        if (hiddenSensorPlots.has(sensorId)) {
+            hiddenSensorPlots.delete(sensorId);
+            sensorPlotHistory.delete(sensorId);
+            lastSensorPlotTimestamp.delete(sensorId);
+        } else {
+            hiddenSensorPlots.add(sensorId);
+            sensorPlotHistory.delete(sensorId);
+            lastSensorPlotTimestamp.delete(sensorId);
+        }
+        if (latestState) renderLiveSensors(latestState);
+    });
+
+    ui.measurement_source.addEventListener("change", updateMeasurementSourcePreview);
+    ui.measurement_form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const variableName = ui.measurement_variable_name.value.trim();
+        if (!variableName) {
+            showToast("Enter a variable name.");
+            return;
+        }
+        const sourceId = ui.measurement_source.value || "manual";
+        const payload = {
+            variable_name: variableName,
+            source_id: sourceId,
+        };
+        if (sourceId === "manual") {
+            if (ui.measurement_manual_value.value.trim() === "") {
+                showToast("Enter a manual value.");
+                return;
+            }
+            payload.value = ui.measurement_manual_value.value;
+            payload.unit = ui.measurement_manual_unit.value.trim() || null;
+        }
+
+        ui.capture_measurement_button.disabled = true;
+        try {
+            const result = await requestJson("/api/digiflot/measurements", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+            measurementData.observations = [...(measurementData.observations || []), result.record];
+            measurementData.revision = result.measurements?.revision || measurementData.revision;
+            measurementData.count = result.measurements?.count || measurementData.observations.length;
+            measurementData.variables = result.measurements?.variables || measurementData.variables;
+            renderMeasurementTables();
+            ui.measurement_manual_value.value = "";
+            showToast(`Captured ${result.record.variable_name}: ${measurementValueText(result.record)}`);
+        } catch (error) {
+            showToast(error.message);
+        } finally {
+            ui.capture_measurement_button.disabled = false;
+        }
+    });
 }
 
 function connectStateStream() {
@@ -433,6 +774,7 @@ async function initialise() {
     bindActions();
     try {
         render(await requestJson("/api/digiflot/state"));
+        await loadMeasurements();
     } catch (error) {
         showToast(error.message);
     }

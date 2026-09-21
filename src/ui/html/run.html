@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260831b">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=5">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=4"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=6">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=5"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -167,6 +167,99 @@
                 <button id="skip_stage_button" class="button button-danger" type="button">Skip stage</button>
                 <button id="pause_button" class="button button-warning" type="button">Pause</button>
                 <button id="resume_button" class="button button-primary" type="button" hidden>Resume</button>
+            </div>
+        </section>
+
+        <section id="live_sensor_panel" class="card panel live-sensor-panel" hidden>
+            <div class="card-header compact-card-header">
+                <div>
+                    <span class="section-index">LIVE</span>
+                    <div>
+                        <h2>Live sensors</h2>
+                        <p>Latest values only. Mini-plots are generated in this browser and can be disabled individually.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div id="live_sensor_grid" class="live-sensor-grid"></div>
+            </div>
+        </section>
+
+        <section id="measurement_panel" class="card panel measurement-panel" hidden>
+            <div class="card-header compact-card-header">
+                <div>
+                    <span class="section-index">DATA</span>
+                    <div>
+                        <h2>Operator measurements</h2>
+                        <p>Capture named values from the latest sensor reading or enter a value manually. Existing variables receive a new time-stamped point.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body measurement-layout">
+                <form id="measurement_form" class="measurement-form">
+                    <div class="form-field">
+                        <label for="measurement_variable_name">Variable name</label>
+                        <input id="measurement_variable_name" name="variable_name" type="text" list="measurement_variable_names" autocomplete="off" placeholder="e.g. Feed mass" required>
+                        <datalist id="measurement_variable_names"></datalist>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="measurement_source">Source</label>
+                        <select id="measurement_source" name="source_id"></select>
+                    </div>
+
+                    <div id="measurement_sensor_value" class="measurement-source-preview" hidden>
+                        <span>Latest sensor value</span>
+                        <strong id="measurement_sensor_value_text">—</strong>
+                        <small id="measurement_sensor_age">—</small>
+                    </div>
+
+                    <div id="measurement_manual_fields" class="manual-measurement-fields">
+                        <div class="form-field">
+                            <label for="measurement_manual_value">Value</label>
+                            <input id="measurement_manual_value" name="value" type="number" step="any" inputmode="decimal" placeholder="e.g. 4.02">
+                        </div>
+                        <div class="form-field">
+                            <label for="measurement_manual_unit">Unit <span>(optional)</span></label>
+                            <input id="measurement_manual_unit" name="unit" type="text" autocomplete="off" placeholder="g, °C, mL… or blank">
+                        </div>
+                    </div>
+
+                    <button id="capture_measurement_button" class="button button-primary" type="submit">Capture measurement</button>
+                    <p id="measurement_form_hint" class="measurement-form-hint">The current experiment state and stage are stored automatically.</p>
+                </form>
+
+                <div class="measurement-data">
+                    <div>
+                        <div class="measurement-table-heading">
+                            <h3>Variables</h3>
+                            <span id="measurement_count">0 points</span>
+                        </div>
+                        <div class="table-scroll">
+                            <table class="measurement-table">
+                                <thead>
+                                    <tr><th>Variable</th><th>Latest</th><th>Points</th></tr>
+                                </thead>
+                                <tbody id="measurement_summary_body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="measurement-table-heading">
+                            <h3>Recent points</h3>
+                            <span>Newest first</span>
+                        </div>
+                        <div class="table-scroll">
+                            <table class="measurement-table measurement-history-table">
+                                <thead>
+                                    <tr><th>Variable</th><th>Value</th><th>Source</th><th>Time</th><th>Context</th></tr>
+                                </thead>
+                                <tbody id="measurement_history_body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
 

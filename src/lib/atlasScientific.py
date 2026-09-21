@@ -9,7 +9,7 @@ from pathlib import Path
 class AtlasScientific:
     I2C_SLAVE = 0x0703
     READ_DELAY = {"pH": 0.9, "ORP": 0.9, "EC": 0.6, "RTD": 0.6}
-    DEFAULT_UNIT = {"pH": "pH", "ORP": "mV", "EC": "µS/cm", "RTD": "°C"}
+    DEFAULT_UNIT = {"pH": "", "ORP": "mV", "EC": "µS/cm", "RTD": "°C"}
     DEFAULT_DECIMALS = {"pH": 3, "ORP": 1, "EC": 1, "RTD": 2}
     DEFAULT_SENSORS = [
         {"name": "ORP", "type": "ORP", "address": 98},

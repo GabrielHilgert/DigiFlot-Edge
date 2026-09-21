@@ -396,6 +396,29 @@ def save_devices(request: Request, payload: dict | None = None):
         raise api_error(error) from error
 
 
+@router.get("/measurements")
+def measurements(request: Request):
+    try:
+        return get_digiflot(request).measurements_payload()
+    except Exception as error:
+        raise api_error(error) from error
+
+
+@router.post("/measurements")
+def capture_measurement(request: Request, payload: dict | None = None):
+    payload = payload or {}
+    try:
+        return get_digiflot(request).capture_measurement(
+            variable_name=payload.get("variable_name"),
+            variable_id=payload.get("variable_id"),
+            source_id=payload.get("source_id", "manual"),
+            value=payload.get("value"),
+            unit=payload.get("unit"),
+        )
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.get("/performance")
 def performance_status(request: Request):
     manager = get_digiflot(request).performance
