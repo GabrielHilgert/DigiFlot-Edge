@@ -106,6 +106,9 @@ wait_for_http() {
     return 1
 }
 
+cd /opt/digiflot-edge
+sudo git update-index --skip-worktree src/config.json
+
 printf '\n========================================\n'
 printf '    DigiFlot Edge Shared Installer\n'
 printf '========================================\n\n'
