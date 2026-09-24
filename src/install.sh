@@ -462,8 +462,8 @@ EOF_UPDATE
 # -----------------------------------------------------------------------------
 ICON_SOURCE=""
 for candidate in \
-    "$SRC_DIR/ui/img/DigiFlotEdge.png" \
     "$SRC_DIR/ui/img/squarelogo.png" \
+    "$SRC_DIR/ui/img/DigiFlotEdge.png" \
     "$SRC_DIR/ui/img/squarelogo.ico"; do
     if [[ -f "$candidate" ]]; then
         ICON_SOURCE="$candidate"
