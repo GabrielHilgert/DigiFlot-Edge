@@ -8,6 +8,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Condition, RLock
+from urllib.parse import urlparse
 
 from picamera2 import Picamera2
 
@@ -229,6 +230,12 @@ class DigiFlot:
             self.config.get("scales", []),
         )
         for scale_config in scale_configs:
+            if not bool(scale_config.get("enabled", True)):
+                print(
+                    f"[DigiFlot] Scale {scale_config.get('id') or scale_config.get('port')} "
+                    "is disabled in config. Skipping."
+                )
+                continue
             scale = Scale.from_config(scale_config)
             scale.set_context_provider(self.acquisition_context)
             self.scales[scale.id] = scale
@@ -238,8 +245,17 @@ class DigiFlot:
             self.config.get("atlas_scientific"),
         )
         if atlas_config:
-            self.atlas = AtlasScientific.from_config(atlas_config)
-            self.atlas.set_context_provider(self.acquisition_context)
+            runtime_atlas_config = deepcopy(atlas_config)
+            runtime_atlas_config["sensors"] = [
+                deepcopy(sensor)
+                for sensor in atlas_config.get("sensors", [])
+                if bool(sensor.get("enabled", True))
+            ]
+            if runtime_atlas_config["sensors"]:
+                self.atlas = AtlasScientific.from_config(runtime_atlas_config)
+                self.atlas.set_context_provider(self.acquisition_context)
+            elif atlas_config.get("sensors"):
+                print("[DigiFlot] All configured Atlas sensors are disabled. Skipping Atlas runtime.")
 
     def start(self):
         for scale in self.scales.values():
@@ -2389,14 +2405,48 @@ class DigiFlot:
 
     def settings_payload(self):
         with self.lock:
+            server = self.config.get("server") or {}
+            sensor_config = self.config.get("sensors", {})
+            desired_scale_ids = {
+                str(item.get("id"))
+                for item in sensor_config.get("scales", [])
+                if bool(item.get("enabled", True)) and item.get("id") is not None
+            }
+            runtime_scale_ids = {str(sensor_id) for sensor_id in self.scales}
+
+            atlas_config = sensor_config.get("atlas_scientific") or {}
+            desired_atlas_addresses = {
+                int(item["address"])
+                for item in atlas_config.get("sensors", [])
+                if bool(item.get("enabled", True)) and item.get("address") is not None
+            }
+            runtime_atlas_addresses = {
+                int(item["address"])
+                for item in (self.atlas.sensors if self.atlas is not None else [])
+                if item.get("address") is not None
+            }
+            hardware_restart_required = (
+                desired_scale_ids != runtime_scale_ids
+                or desired_atlas_addresses != runtime_atlas_addresses
+            )
+
             return {
                 "state": self.state,
-                "restart_required": False,
+                "restart_required": hardware_restart_required,
+                "hardware_restart_required": hardware_restart_required,
                 "orchestration": {
                     "auto_advance_enabled": self.auto_advance_enabled,
                     "transition_timeout_s": self.transition_timeout_s,
                     "scraping_interval": self.scraping_interval_s,
                     "scraping_method": self.scraping_method,
+                },
+                "server": {
+                    "ip": str(server.get("ip", "")),
+                    "id": server.get("id", ""),
+                    "name": str(server.get("name", "")),
+                    # Never expose the configured token through the local API.
+                    # An empty token field in the UI means "keep the current token".
+                    "token_configured": bool(server.get("token")),
                 },
                 "configured": {
                     "cameras": deepcopy(self.config.get("cameras", [])),
@@ -2433,16 +2483,77 @@ class DigiFlot:
             orchestration["transition_timeout_s"] = self.transition_timeout_s
             orchestration["scraping_interval"] = self.scraping_interval_s
             orchestration["scraping_method"] = self.scraping_method
+
+            server_changed = False
+            if "server" in payload:
+                requested = payload["server"]
+                if not isinstance(requested, dict):
+                    raise ValueError("server must be an object.")
+
+                server = self.config.setdefault("server", {})
+
+                if "ip" in requested:
+                    value = str(requested["ip"]).strip().rstrip("/")
+                    parsed = urlparse(value)
+                    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                        raise ValueError("Server URL must be a valid http:// or https:// URL.")
+                    if server.get("ip") != value:
+                        server["ip"] = value
+                        server_changed = True
+
+                if "id" in requested:
+                    value = int(requested["id"])
+                    if value < 0:
+                        raise ValueError("Server ID must be greater than or equal to zero.")
+                    if server.get("id") != value:
+                        server["id"] = value
+                        server_changed = True
+
+                if "name" in requested:
+                    value = str(requested["name"]).strip()
+                    if not value:
+                        raise ValueError("Server device name cannot be empty.")
+                    if server.get("name") != value:
+                        server["name"] = value
+                        server_changed = True
+
+                # Blank means "leave the existing token unchanged". This keeps
+                # the secret out of GET /settings while still allowing replacement.
+                if "token" in requested:
+                    value = str(requested.get("token") or "").strip()
+                    if value and server.get("token") != value:
+                        server["token"] = value
+                        server_changed = True
+
             paths = self.save_config()
-            return {"orchestration": deepcopy(orchestration), "saved_to": paths}
+            server = self.config.get("server") or {}
+            return {
+                "orchestration": deepcopy(orchestration),
+                "server": {
+                    "ip": str(server.get("ip", "")),
+                    "id": server.get("id", ""),
+                    "name": str(server.get("name", "")),
+                    "token_configured": bool(server.get("token")),
+                },
+                "server_changed": server_changed,
+                "restart_required": server_changed,
+                "saved_to": paths,
+            }
 
     def save_discovered_devices(self, payload: dict):
-        """Persist explicitly selected detected hardware. Activation occurs after restart."""
+        """Persist selected hardware and sensor enable/disable state.
+
+        Hardware additions and sensor activation changes become effective after
+        a DigiFlot restart. Disabled sensors remain in config.json so they can
+        be re-enabled later without rediscovery.
+        """
         with self.lock:
             if self.state != self.IDLE:
                 raise RuntimeError("Hardware configuration can only be changed while DigiFlot is idle.")
 
             added = {"cameras": [], "scales": [], "atlas": []}
+            updated = {"scales": [], "atlas": []}
+
             config_cameras = self.config.setdefault("cameras", [])
             existing_camera_ids = {int(item["id"]) for item in config_cameras}
             existing_names = {str(item.get("name", "")) for item in config_cameras}
@@ -2467,6 +2578,7 @@ class DigiFlot:
             existing_ports = {str(item.get("port")) for item in scale_configs}
             existing_scale_ids = {str(item.get("id")) for item in scale_configs}
             next_scale = 1
+
             for item in payload.get("scales", []) or []:
                 port = str(item["port"])
                 if port in existing_ports:
@@ -2480,7 +2592,12 @@ class DigiFlot:
                 while f"scale_{next_scale}" in existing_scale_ids:
                     next_scale += 1
                 sensor_id = f"scale_{next_scale}"
-                scale_config = Scale.config_from_detection(item, sensor_id=sensor_id, name=f"Scale {next_scale}")
+                scale_config = Scale.config_from_detection(
+                    item,
+                    sensor_id=sensor_id,
+                    name=f"Scale {next_scale}",
+                )
+                scale_config["enabled"] = True
                 scale_configs.append(scale_config)
                 existing_ports.add(port)
                 existing_scale_ids.add(sensor_id)
@@ -2488,6 +2605,7 @@ class DigiFlot:
                 added["scales"].append(scale_config)
 
             atlas_items = payload.get("atlas", []) or []
+            atlas_config = sensors.get("atlas_scientific")
             if atlas_items:
                 atlas_config = sensors.setdefault("atlas_scientific", {
                     "bus": int(payload.get("atlas_bus", 1)),
@@ -2505,24 +2623,78 @@ class DigiFlot:
                     if address in existing_addresses:
                         continue
                     sensor_config = AtlasScientific.sensor_config_from_detection(item)
+                    sensor_config["enabled"] = True
                     configured_sensors.append(sensor_config)
                     existing_addresses.add(address)
                     added["atlas"].append(sensor_config)
 
-            changed = any(added.values())
+            enabled_changes = payload.get("sensor_enabled") or {}
+            scale_by_id = {
+                str(item.get("id")): item
+                for item in scale_configs
+                if item.get("id") is not None
+            }
+            scale_by_port = {
+                str(item.get("port")): item
+                for item in scale_configs
+                if item.get("port") is not None
+            }
+            for change in enabled_changes.get("scales", []) or []:
+                target = None
+                if change.get("id") is not None:
+                    target = scale_by_id.get(str(change["id"]))
+                if target is None and change.get("port") is not None:
+                    target = scale_by_port.get(str(change["port"]))
+                if target is None:
+                    continue
+                enabled = bool(change.get("enabled", True))
+                previous = bool(target.get("enabled", True))
+                if previous != enabled:
+                    target["enabled"] = enabled
+                    updated["scales"].append({
+                        "id": target.get("id"),
+                        "port": target.get("port"),
+                        "enabled": enabled,
+                    })
+
+            atlas_config = sensors.get("atlas_scientific") or {}
+            atlas_sensors = atlas_config.get("sensors", [])
+            atlas_by_address = {
+                int(item["address"]): item
+                for item in atlas_sensors
+                if item.get("address") is not None
+            }
+            for change in enabled_changes.get("atlas", []) or []:
+                if change.get("address") is None:
+                    continue
+                target = atlas_by_address.get(int(change["address"]))
+                if target is None:
+                    continue
+                enabled = bool(change.get("enabled", True))
+                previous = bool(target.get("enabled", True))
+                if previous != enabled:
+                    target["enabled"] = enabled
+                    updated["atlas"].append({
+                        "address": int(target["address"]),
+                        "enabled": enabled,
+                    })
+
+            changed = any(added.values()) or any(updated.values())
             paths = self.save_config() if changed else []
             if changed:
                 print(
                     "[DigiFlot] Hardware configuration updated: "
                     f"{len(added['cameras'])} camera(s), "
                     f"{len(added['scales'])} scale(s), "
-                    f"{len(added['atlas'])} Atlas sensor(s) added."
+                    f"{len(added['atlas'])} Atlas sensor(s) added; "
+                    f"{len(updated['scales']) + len(updated['atlas'])} sensor state change(s)."
                 )
-                print("[DigiFlot] Restart required to activate newly added hardware.")
+                print("[DigiFlot] Restart required to apply hardware configuration changes.")
             else:
                 print("[DigiFlot] Hardware configuration already up to date; no restart required.")
             return {
                 "added": added,
+                "updated": updated,
                 "changed": changed,
                 "restart_required": changed,
                 "saved_to": paths,

@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot Edge | Settings</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260831c">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20260831c">
-    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20260831c"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260922a">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20260922a">
+    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20260922a"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -15,7 +15,7 @@
             <div>
                 <p class="eyebrow">DigiFlot / System</p>
                 <h1>Settings</h1>
-                <p class="page-description">Configure orchestration behavior and discover hardware connected to this DigiFlot unit.</p>
+                <p class="page-description">Configure experiment behavior, central server access, local hardware and the DigiFlot runtime.</p>
             </div>
             <span id="settings_state" class="state-badge">Loading</span>
         </header>
@@ -44,24 +44,67 @@
         </section>
 
         <section class="card">
+            <div class="card-head">
+                <div>
+                    <p class="eyebrow">Central server</p>
+                    <h2>Connection</h2>
+                    <p>Configure the DigiFlot server used to authenticate this cell and retrieve experiments.</p>
+                </div>
+                <div class="button-group">
+                    <span id="server_status" class="state-badge">Unknown</span>
+                    <button id="save_server" class="button button-primary" type="button">Save server</button>
+                </div>
+            </div>
+            <div class="server-grid">
+                <label>Server URL
+                    <input id="server_ip" type="url" inputmode="url" placeholder="http://149.220.222.248:8000" autocomplete="off">
+                </label>
+                <label>Cell ID
+                    <input id="server_id" type="number" min="0" step="1">
+                </label>
+                <label>Cell name
+                    <input id="server_name" type="text" autocomplete="off">
+                </label>
+                <label>Token
+                    <input id="server_token" type="password" autocomplete="new-password" placeholder="Leave blank to keep current token">
+                </label>
+            </div>
+            <p class="field-help">The current token is never returned by the local API. Leave the token field empty to keep it unchanged.</p>
+            <div id="server_runtime_error" class="warning-box" hidden></div>
+            <div id="server_restart_notice" class="restart-notice" hidden>Server configuration saved. Restart DigiFlot to use the new server properties.</div>
+        </section>
+
+        <section class="card">
             <div class="card-head hardware-head">
                 <div>
                     <p class="eyebrow">Hardware</p>
-                    <h2>Device discovery</h2>
-                    <p>Detection is a preview only. DigiFlot does not use a new device until you explicitly select it and save the configuration.</p>
+                    <h2>Devices and sensors</h2>
+                    <p>Configured sensors are shown immediately. Disable or re-enable them here. Auto-detect only scans for additional hardware and never changes the configuration by itself.</p>
                 </div>
                 <div class="button-group">
                     <button id="autodetect" class="button button-secondary" type="button">Auto-detect devices</button>
-                    <button id="save_devices" class="button button-primary" type="button" disabled>Save selected devices</button>
+                    <button id="save_devices" class="button button-primary" type="button" disabled>Save hardware</button>
                 </div>
             </div>
             <div id="discovery_errors" class="warning-box" hidden></div>
             <div class="device-columns">
-                <section><h3>Cameras</h3><div id="camera_devices" class="device-list"><p class="muted">Run auto-detect to scan cameras.</p></div></section>
-                <section><h3>Scales / serial</h3><div id="scale_devices" class="device-list"><p class="muted">Run auto-detect to scan serial devices.</p></div></section>
-                <section><h3>Atlas Scientific</h3><div id="atlas_devices" class="device-list"><p class="muted">Run auto-detect to scan known EZO addresses.</p></div></section>
+                <section><h3>Cameras</h3><div id="camera_devices" class="device-list"><p class="muted">Loading configured cameras…</p></div></section>
+                <section><h3>Scales / serial</h3><div id="scale_devices" class="device-list"><p class="muted">Loading configured scales…</p></div></section>
+                <section><h3>Atlas Scientific</h3><div id="atlas_devices" class="device-list"><p class="muted">Loading configured Atlas sensors…</p></div></section>
             </div>
-            <div id="restart_notice" class="restart-notice" hidden>Configuration saved. Restart DigiFlot to activate newly added hardware.</div>
+            <div id="restart_notice" class="restart-notice" hidden>Hardware configuration saved. Restart DigiFlot to apply sensor or device changes.</div>
+        </section>
+
+        <section class="card runtime-card">
+            <div class="card-head">
+                <div>
+                    <p class="eyebrow">Local runtime</p>
+                    <h2>Restart DigiFlot</h2>
+                    <p>Restart the local FastAPI process through systemd. Restart is blocked while an experiment or calibration state is active.</p>
+                </div>
+                <button id="restart_program" class="button button-danger" type="button">Restart DigiFlot</button>
+            </div>
+            <p id="restart_status" class="field-help"></p>
         </section>
     </main>
     <div id="toast" class="toast" role="status"></div>

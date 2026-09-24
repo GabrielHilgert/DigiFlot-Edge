@@ -38,13 +38,20 @@ async def lifespan(app: FastAPI):
     app.state.scales = digiflot.scales
     app.state.atlas = digiflot.atlas
 
+    server_config = config.get("server") or {}
     app.state.server = Server(
-        ip=config["server"]["ip"],
-        id=config["server"]["id"],
-        name=config["server"]["name"],
-        token=config["server"]["token"],
+        ip=server_config.get("ip", ""),
+        id=server_config.get("id"),
+        name=server_config.get("name", ""),
+        token=server_config.get("token", ""),
     )
-    app.state.server.login()
+    try:
+        app.state.server.login()
+    except Exception as error:
+        # The central server must not prevent the local DigiFlot interface from
+        # starting. Settings remains available so the operator can correct the
+        # endpoint, cell ID, name or token and then restart locally.
+        print(f"[DigiFlot] Central server unavailable during startup: {error}")
 
     try:
         yield

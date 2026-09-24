@@ -1,6 +1,8 @@
 import json
+import os
+import time
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from lib.atlasScientific import AtlasScientific
@@ -26,6 +28,43 @@ def api_error(error: Exception):
     if isinstance(error, RuntimeError):
         return HTTPException(status_code=409, detail=str(error))
     return HTTPException(status_code=500, detail=str(error))
+
+
+def _settings_payload(request: Request):
+    digiflot = get_digiflot(request)
+    payload = digiflot.settings_payload()
+
+    configured = digiflot.config.get("server") or {}
+    runtime = getattr(request.app.state, "server", None)
+    restart_required = False
+    runtime_status = "Unavailable"
+    runtime_error = None
+
+    if runtime is not None:
+        runtime_status = getattr(runtime, "status", "Disconnected")
+        runtime_error = getattr(runtime, "last_error", None)
+        restart_required = any((
+            str(configured.get("ip", "")).rstrip("/") != str(getattr(runtime, "ip", "")).rstrip("/"),
+            configured.get("id") != getattr(runtime, "id", None),
+            str(configured.get("name", "")) != str(getattr(runtime, "name", "")),
+            str(configured.get("token", "")) != str(getattr(runtime, "token", "")),
+        ))
+
+    payload.setdefault("server", {}).update({
+        "runtime_status": runtime_status,
+        "runtime_error": runtime_error,
+        "restart_required": restart_required,
+    })
+    payload["restart_required"] = bool(payload.get("restart_required") or restart_required)
+    payload["restart_supported"] = bool(os.environ.get("INVOCATION_ID"))
+    return payload
+
+
+def _exit_for_systemd_restart():
+    # The service is installed with Restart=on-failure. Exit with a non-zero
+    # status after the HTTP response is sent so systemd starts a fresh process.
+    time.sleep(0.75)
+    os._exit(75)
 
 
 @router.post("/experiments/{storage_id}/start")
@@ -215,7 +254,7 @@ def restart_stage(request: Request, payload: dict | None = None):
 
 @router.get("/settings")
 def settings(request: Request):
-    return get_digiflot(request).settings_payload()
+    return _settings_payload(request)
 
 
 @router.patch("/settings")
@@ -224,6 +263,25 @@ def update_settings(request: Request, payload: dict | None = None):
         return get_digiflot(request).update_system_settings(payload or {})
     except Exception as error:
         raise api_error(error) from error
+
+
+@router.post("/restart", status_code=202)
+def restart_local(request: Request, background_tasks: BackgroundTasks):
+    digiflot = get_digiflot(request)
+    if digiflot.state != digiflot.IDLE:
+        raise HTTPException(
+            status_code=409,
+            detail="DigiFlot can only be restarted from Settings while it is idle.",
+        )
+    if not os.environ.get("INVOCATION_ID"):
+        raise HTTPException(
+            status_code=503,
+            detail="Local restart is only available when DigiFlot is running as the systemd service.",
+        )
+
+    print("[DigiFlot] Local restart requested from Settings.")
+    background_tasks.add_task(_exit_for_systemd_restart)
+    return {"accepted": True, "message": "DigiFlot restart requested."}
 
 
 @router.post("/devices/discover")

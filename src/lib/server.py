@@ -3,7 +3,7 @@ import requests
 
 class Server:
     def __init__(self, ip, id, name, token):
-        self.ip = ip.rstrip("/")
+        self.ip = str(ip).rstrip("/")
         self.id = id
         self.name = name
         self.token = token
@@ -11,22 +11,27 @@ class Server:
         self.session = requests.Session()
 
         self.status = "Disconnected"
-
+        self.last_error = None
         self.experiments = None
 
     def login(self):
-        response = self.session.post(
-            f"{self.ip}/devices/login",
-            data={
-                "cell_id": self.id,
-                "token": self.token,
-            },
-            timeout=10,
-        )
+        try:
+            response = self.session.post(
+                f"{self.ip}/devices/login",
+                data={
+                    "cell_id": self.id,
+                    "token": self.token,
+                },
+                timeout=10,
+            )
+            response.raise_for_status()
+        except Exception as error:
+            self.status = "Disconnected"
+            self.last_error = str(error)
+            raise
 
-        response.raise_for_status()
         self.status = "Connected"
-
+        self.last_error = None
         return response.json()
 
     def get_available_experiments(self):
@@ -40,7 +45,6 @@ class Server:
         response.raise_for_status()
 
         self.experiments = response.json()
-        
         return response.json()
 
     def get_experiment(self, experiment_id):
