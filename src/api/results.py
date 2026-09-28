@@ -252,11 +252,29 @@ def _probe_video(path: Path):
     return result
 
 
+def _results_cache_directory(directory: Path):
+    return directory.parent / ".results_cache" / directory.name
+
+
+def _cache_size_bytes(directory: Path):
+    cache_dir = _results_cache_directory(directory)
+    if not cache_dir.is_dir():
+        return 0
+    total = 0
+    for path in cache_dir.rglob("*"):
+        if path.is_file():
+            try:
+                total += path.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
 def _browser_video_cache_path(directory: Path, file_path: Path):
     stat = file_path.stat()
     relative = _relative(directory, file_path)
     digest = hashlib.sha256(f"{relative}|{stat.st_size}|{stat.st_mtime_ns}".encode("utf-8")).hexdigest()[:20]
-    cache_dir = directory.parent / ".results_cache" / directory.name
+    cache_dir = _results_cache_directory(directory)
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / f"{digest}.browser.mp4"
 
@@ -668,6 +686,7 @@ def _overview(directory: Path):
             "videos": len(videos),
             "files": len(files),
             "size_bytes": total_size,
+            "video_cache_bytes": _cache_size_bytes(directory),
         },
         "sensors": sensors,
         "measurement_variables": _measurement_summary(measurements),
@@ -884,6 +903,20 @@ def get_system_metrics(
         rows = sampled
 
     return {"columns": columns, "rows": rows}
+
+
+@router.delete("/{storage_id}/cache")
+def clear_results_cache(storage_id: str):
+    directory = get_local_directory(storage_id)
+    cache_dir = _results_cache_directory(directory)
+    removed_bytes = _cache_size_bytes(directory)
+    if cache_dir.is_dir():
+        shutil.rmtree(cache_dir)
+    return {
+        "storage_id": storage_id,
+        "removed_bytes": removed_bytes,
+        "message": "Browser video cache cleared.",
+    }
 
 
 @router.get("/{storage_id}/video")

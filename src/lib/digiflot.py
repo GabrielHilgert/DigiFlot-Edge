@@ -423,6 +423,10 @@ class DigiFlot:
             "storage_id": self.storage_id,
             "run_directory": str(self.run_directory) if self.run_directory else None,
             "experiment": self._experiment_summary_unlocked(),
+            "stages": [
+                self._stage_view_unlocked(stage)
+                for stage in ((self.experiment or {}).get("stages", []))
+            ],
             "current_stage_index": self.current_stage_index,
             "current_stage": self._stage_view_unlocked(self.current_stage),
             "next_stage": self._stage_view_unlocked(self.next_stage),
@@ -1196,13 +1200,18 @@ class DigiFlot:
 
         self.sensor_calibration = sensor_calibration
 
+    def _sensor_calibration_resolved_unlocked(self):
+        return all(
+            item.get("status") in {"passed", "skipped"}
+            for item in self.sensor_calibration.values()
+        )
+
     def _advance_from_camera_calibration_unlocked(self):
         """Advance once every configured camera is resolved.
 
-        An empty camera configuration is valid: DigiFlot can run without
-        cameras, so the workflow must not get stuck in CameraCalibration.
-        Offline configured cameras remain visible until the operator skips
-        them or retries the device.
+        Calibration may be reopened before the first stage starts. Existing
+        sensor decisions are preserved, so returning from a camera edit goes
+        back to SensorCalibration only when a sensor still needs attention.
         """
         if self.state != self.CAMERA_CALIBRATION:
             return
@@ -1214,13 +1223,44 @@ class DigiFlot:
             return
 
         self._touch_unlocked("CAMERA_CALIBRATION_COMPLETED")
-        if self.sensor_calibration:
+        if self.sensor_calibration and not self._sensor_calibration_resolved_unlocked():
             self.state = self.SENSOR_CALIBRATION
             self._touch_unlocked("SENSOR_CALIBRATION_STARTED")
         else:
             self.state = self.READY
             self.stage_state = self.STAGE_WAITING
-            self._touch_unlocked("SENSOR_CALIBRATION_COMPLETED")
+            if self.sensor_calibration:
+                self._touch_unlocked("SENSOR_CALIBRATION_COMPLETED")
+
+    def reopen_camera_calibration(self, camera_id: int):
+        with self.lock:
+            if self.state not in {
+                self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION, self.READY
+            }:
+                raise RuntimeError("Camera calibration can only be edited before the run starts.")
+
+            key = str(int(camera_id))
+            if key not in self.camera_calibration:
+                raise KeyError(f"Camera '{camera_id}' is not configured.")
+
+            item = self.camera_calibration[key]
+            if item.get("available") is False:
+                raise RuntimeError(item.get("error") or "Camera is not available.")
+
+            if self.preview_camera_id is not None and self.preview_camera_id != int(camera_id):
+                try:
+                    self.stop_preview()
+                except Exception:
+                    pass
+
+            item["status"] = "pending"
+            item["confirmed_at"] = None
+            item.pop("skip_reason", None)
+            item.pop("error", None)
+            self.state = self.CAMERA_CALIBRATION
+            self.stage_state = self.STAGE_WAITING
+            self._touch_unlocked("CAMERA_CALIBRATION_REOPENED", {"camera_id": int(camera_id)})
+            return self.status
 
     def start_camera_calibration(self, camera_id: int):
         with self.lock:
@@ -1304,6 +1344,31 @@ class DigiFlot:
 
             self._advance_from_camera_calibration_unlocked()
 
+            return self.status
+
+    def reopen_sensor_calibration(self, sensor_id: str):
+        with self.lock:
+            if self.state not in {self.SENSOR_CALIBRATION, self.READY}:
+                raise RuntimeError("Sensor calibration can only be edited before the run starts.")
+
+            sensor_id = str(sensor_id)
+            if sensor_id not in self.sensor_calibration:
+                raise KeyError(f"Sensor '{sensor_id}' is not part of this calibration.")
+
+            item = self.sensor_calibration[sensor_id]
+            item["status"] = "pending"
+            item["confirmed_at"] = None
+            item.pop("skip_reason", None)
+            item.pop("error", None)
+            if item.get("mode") == "two_point":
+                for point in (item.get("points") or {}).values():
+                    point["status"] = "pending"
+                    point["calibrated_at"] = None
+                    point.pop("error", None)
+
+            self.state = self.SENSOR_CALIBRATION
+            self.stage_state = self.STAGE_WAITING
+            self._touch_unlocked("SENSOR_CALIBRATION_REOPENED", {"sensor_id": sensor_id})
             return self.status
 
     def confirm_sensor_calibration(self, sensor_id: str):

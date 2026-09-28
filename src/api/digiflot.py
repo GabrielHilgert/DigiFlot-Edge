@@ -109,6 +109,14 @@ def stream(request: Request):
     )
 
 
+@router.post("/calibration/cameras/{camera_id}/reopen")
+def reopen_camera_calibration(camera_id: int, request: Request):
+    try:
+        return get_digiflot(request).reopen_camera_calibration(camera_id)
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.post("/calibration/cameras/{camera_id}/start")
 def start_camera_calibration(camera_id: int, request: Request):
     try:
@@ -134,6 +142,14 @@ def skip_camera_calibration(camera_id: int, request: Request, payload: dict | No
     try:
         reason = (payload or {}).get("reason", "Operator skipped calibration")
         return get_digiflot(request).skip_camera_calibration(camera_id, reason=reason)
+    except Exception as error:
+        raise api_error(error) from error
+
+
+@router.post("/calibration/sensors/{sensor_id}/reopen")
+def reopen_sensor_calibration(sensor_id: str, request: Request):
+    try:
+        return get_digiflot(request).reopen_sensor_calibration(sensor_id)
     except Exception as error:
         raise api_error(error) from error
 

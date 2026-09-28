@@ -222,10 +222,16 @@ button:disabled {
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 38px;
   border-radius: var(--radius-sm);
   padding: 0 14px;
   font-weight: 700;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
   transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
 }
 
@@ -394,7 +400,7 @@ button:disabled {
 }
 
 .experiment-row:hover {
-  background: #fbfcff;
+  background: var(--surface-soft);
 }
 
 .experiment-row.selected {
@@ -414,7 +420,7 @@ button:disabled {
 }
 
 .table-action {
-  width: 82px;
+  min-width: 210px;
   text-align: right !important;
 }
 
@@ -853,14 +859,36 @@ button:disabled {
   font-weight: 700;
 }
 
-.local-run-row {
-  background: rgba(0, 0, 0, 0.025);
+.experiment-group-row {
+  background: color-mix(in srgb, var(--surface-strong) 42%, var(--surface));
 }
-.local-run-row td {
-  border-top-style: dashed;
+.experiment-group-row td {
+  border-top: 1px solid var(--border-strong);
 }
-.local-run-row td:nth-child(2) {
-  padding-left: 1.5rem;
+.local-run-row,
+.experiment-run-row {
+  background: var(--surface-soft);
+}
+.local-run-row td,
+.experiment-run-row td {
+  border-top: 1px dashed var(--border);
+}
+.local-run-row td:nth-child(2),
+.experiment-run-row td:nth-child(2) {
+  padding-left: 2.35rem;
+}
+.experiment-run-row td:nth-child(2)::before {
+  content: "Run";
+  display: inline-flex;
+  margin-right: .55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .16rem .42rem;
+  color: var(--text-faint);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
 }
 
 .local-run-marker {
@@ -886,7 +914,11 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.5rem;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.row-actions .button {
+  min-width: 76px;
 }
 
 .local-count {

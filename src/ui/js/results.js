@@ -16,6 +16,10 @@ const state = {
     selectedVideo: null,
     activeVideoTrackKey: null,
     refreshTimer: null,
+    detailSensor: null,
+    detailSensorOffset: 0,
+    detailEventFilter: "all",
+    focusedEvent: null,
 };
 
 const elements = {
@@ -23,6 +27,7 @@ const elements = {
     status: document.getElementById("result_status"),
     meta: document.getElementById("result_meta"),
     refresh: document.getElementById("refresh_results"),
+    clearVideoCache: document.getElementById("clear_video_cache"),
     error: document.getElementById("results_error"),
     globalLoading: document.getElementById("global_loading"),
     summary: document.getElementById("summary_cards"),
@@ -55,6 +60,27 @@ const elements = {
     videoLoadingText: document.getElementById("video_loading_text"),
     videoError: document.getElementById("video_error"),
     videoClose: document.getElementById("video_close"),
+    detailSensorCards: document.getElementById("detail_sensor_cards"),
+    detailSensorViewer: document.getElementById("detail_sensor_viewer"),
+    detailSensorSource: document.getElementById("detail_sensor_source"),
+    detailSensorTitle: document.getElementById("detail_sensor_title"),
+    detailSensorStats: document.getElementById("detail_sensor_stats"),
+    detailSensorTableInfo: document.getElementById("detail_sensor_table_info"),
+    detailSensorTableHead: document.getElementById("detail_sensor_table_head"),
+    detailSensorTableBody: document.getElementById("detail_sensor_table_body"),
+    detailSensorPrev: document.getElementById("detail_sensor_prev"),
+    detailSensorNext: document.getElementById("detail_sensor_next"),
+    detailMeasurementsLoading: document.getElementById("detail_measurements_loading"),
+    detailMeasurementCards: document.getElementById("detail_measurement_cards"),
+    detailMeasurementTable: document.getElementById("detail_measurement_table"),
+    detailEventFilters: document.getElementById("detail_event_filters"),
+    detailEventsLoading: document.getElementById("detail_events_loading"),
+    detailEventsList: document.getElementById("detail_events_list"),
+    detailVideoCards: document.getElementById("detail_video_cards"),
+    detailSystemLoading: document.getElementById("detail_system_loading"),
+    detailSystemInfo: document.getElementById("detail_system_info"),
+    detailSystemHead: document.getElementById("detail_system_head"),
+    detailSystemBody: document.getElementById("detail_system_body"),
     fileSearch: document.getElementById("file_search"),
     fileCount: document.getElementById("file_count"),
     fileList: document.getElementById("file_list"),
@@ -198,6 +224,9 @@ async function loadResults() {
         state.tracks.clear();
         state.selectedVideo = null;
         state.activeVideoTrackKey = null;
+        state.detailSensor = null;
+        state.detailSensorOffset = 0;
+        state.focusedEvent = null;
         const duration = experimentDuration();
         state.viewStart = 0;
         state.viewEnd = duration;
@@ -674,11 +703,12 @@ function renderTracks() {
             <div class="track-canvas-wrap${compact ? " compact" : ""}">
                 <canvas class="analysis-canvas" height="${compact ? 96 : 176}" aria-label="${escapeHtml(track.label)} timeline"></canvas>
                 <div class="track-overlay" hidden></div>
+                <div class="track-tooltip" hidden></div>
             </div>`;
         row.querySelector(".track-remove").addEventListener("click", () => toggleTrack(track.key, track.kind));
         elements.analysisTracks.appendChild(row);
         const canvas = row.querySelector("canvas");
-        bindCanvasInteractions(canvas, track);
+        bindCanvasInteractions(canvas, track, row.querySelector(".track-tooltip"));
         drawTrack(track, canvas, row.querySelector(".track-overlay"));
     }
 }
@@ -738,7 +768,7 @@ function drawSharedCursor(ctx, width, height, left = 48, right = 12) {
     if (!Number.isFinite(Number(state.cursorTime)) || state.cursorTime < state.viewStart || state.cursorTime > state.viewEnd) return;
     const x = xForTime(state.cursorTime, width, left, right);
     ctx.save();
-    ctx.strokeStyle = cssVar("--text", "#222");
+    ctx.strokeStyle = cssVar("--plot-text", "#f3f6f8");
     ctx.globalAlpha = 0.42;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -794,8 +824,8 @@ function drawNumericTrack(track, canvas, points, mode = "line") {
     const yFor = value => top + (1 - (Number(value) - minY) / (maxY - minY)) * (height - top - bottom);
     const plotColor = mode === "points" ? cssVar("--success", "#18845b") : track.kind === "system" ? cssVar("--preview", "#7254d8") : cssVar("--accent", "#2f6fed");
     ctx.save();
-    ctx.strokeStyle = "rgba(127,127,127,.16)";
-    ctx.fillStyle = cssVar("--text-soft", "#666");
+    ctx.strokeStyle = cssVar("--plot-grid", "rgba(255,255,255,.16)");
+    ctx.fillStyle = cssVar("--plot-muted", "#c6cdd5");
     ctx.font = "11px system-ui, sans-serif";
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
@@ -842,8 +872,8 @@ function eventColor(category) {
         stage: cssVar("--accent", "#2f6fed"),
         camera: cssVar("--preview", "#7254d8"),
         sensor: cssVar("--success", "#18845b"),
-        other: cssVar("--text-soft", "#666"),
-    }[category] || cssVar("--text-soft", "#666");
+        other: cssVar("--plot-muted", "#c6cdd5"),
+    }[category] || cssVar("--plot-muted", "#c6cdd5");
 }
 
 function drawEventTrack(track, canvas) {
@@ -852,7 +882,7 @@ function drawEventTrack(track, canvas) {
     const right = 12;
     drawStageBands(ctx, width, height, left, right);
     const y = height / 2;
-    ctx.strokeStyle = "rgba(127,127,127,.25)";
+    ctx.strokeStyle = cssVar("--plot-grid", "rgba(255,255,255,.16)");
     ctx.beginPath();
     ctx.moveTo(left, y);
     ctx.lineTo(width - right, y);
@@ -929,7 +959,7 @@ function drawTrack(track, canvas, overlay) {
     }
 }
 
-function bindCanvasInteractions(canvas, track) {
+function bindCanvasInteractions(canvas, track, tooltip = null) {
     canvas.addEventListener("pointerdown", event => {
         const startTime = timeForCanvasX(event.clientX, canvas);
         state.drag = { pointerId: event.pointerId, canvas, startX: event.clientX, startTime, endTime: startTime };
@@ -939,6 +969,15 @@ function bindCanvasInteractions(canvas, track) {
         const time = timeForCanvasX(event.clientX, canvas);
         state.cursorTime = time;
         if (state.drag?.pointerId === event.pointerId) state.drag.endTime = time;
+        if (tooltip && track.kind === "event") {
+            const nearest = nearestEventToPointer(track, canvas, event.clientX, 12);
+            if (nearest) {
+                tooltip.hidden = false;
+                tooltip.style.left = `${Math.max(8, Math.min(canvas.getBoundingClientRect().width - 220, event.clientX - canvas.getBoundingClientRect().left + 10))}px`;
+                tooltip.style.top = `${Math.max(4, event.clientY - canvas.getBoundingClientRect().top - 8)}px`;
+                tooltip.innerHTML = `<strong>${escapeHtml(String(nearest.event.event || "Event").replaceAll("_", " "))}</strong><span>${escapeHtml(formatSeconds(nearest.event.run_elapsed_s))}${nearest.event.stage_name ? ` · ${escapeHtml(nearest.event.stage_name)}` : ""}</span><small>${escapeHtml(eventDescription(nearest.event))}</small>`;
+            } else tooltip.hidden = true;
+        }
         drawAllTracksOnly();
         renderCursorInfo();
     });
@@ -953,6 +992,13 @@ function bindCanvasInteractions(canvas, track) {
             setViewRange(start, end);
         } else {
             state.drag = null;
+            if (track.kind === "event") {
+                const nearest = nearestEventToPointer(track, canvas, event.clientX, 12);
+                if (nearest) {
+                    focusEvent(nearest.event);
+                    return;
+                }
+            }
             syncVideoToTime(time, track);
             drawAllTracksOnly();
             renderCursorInfo();
@@ -960,8 +1006,10 @@ function bindCanvasInteractions(canvas, track) {
     });
     canvas.addEventListener("pointercancel", () => {
         state.drag = null;
+        if (tooltip) tooltip.hidden = true;
         drawAllTracksOnly();
     });
+    canvas.addEventListener("pointerleave", () => { if (tooltip) tooltip.hidden = true; });
     canvas.addEventListener("dblclick", () => fitExperiment());
 }
 
@@ -1090,6 +1138,147 @@ function closeVideoPlayer() {
     state.selectedVideo = null;
 }
 
+
+function renderDetailedSensors() {
+    const sensors = state.overview?.sensors || [];
+    if (!elements.detailSensorCards) return;
+    if (!sensors.length) {
+        elements.detailSensorCards.innerHTML = `<div class="empty-state">No sensor TSV files were found.</div>`;
+        elements.detailSensorViewer.hidden = true;
+        return;
+    }
+    elements.detailSensorCards.innerHTML = "";
+    for (const source of sensors) {
+        const card = document.createElement("article");
+        card.className = "sensor-source-card";
+        card.innerHTML = `<div class="sensor-source-header"><strong>${escapeHtml(source.name)}</strong><span>${Number(source.sample_count || 0).toLocaleString()} rows · ${escapeHtml(formatBytes(source.size_bytes))}</span></div>`;
+        for (const series of source.series || []) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "sensor-series-button";
+            if (state.detailSensor?.source?.path === source.path && String(state.detailSensor?.series?.id) === String(series.id)) button.classList.add("active");
+            button.innerHTML = `<span><strong>${escapeHtml(series.name || series.id)}</strong><small>${Number(series.count || 0).toLocaleString()} samples${series.unit ? ` · ${escapeHtml(series.unit)}` : ""}</small></span><span class="series-range">${escapeHtml(withUnit(series.min, series.unit))} – ${escapeHtml(withUnit(series.max, series.unit))}</span>`;
+            button.addEventListener("click", () => {
+                state.detailSensor = { source, series };
+                state.detailSensorOffset = 0;
+                renderDetailedSensors();
+                loadDetailedSensorTable();
+            });
+            card.appendChild(button);
+        }
+        elements.detailSensorCards.appendChild(card);
+    }
+    if (state.detailSensor) {
+        const { source, series } = state.detailSensor;
+        elements.detailSensorViewer.hidden = false;
+        elements.detailSensorSource.textContent = source.name || "Sensor";
+        elements.detailSensorTitle.textContent = series.name || series.id;
+        elements.detailSensorStats.textContent = `${Number(series.count || 0).toLocaleString()} samples · mean ${withUnit(series.mean, series.unit)} · range ${withUnit(series.min, series.unit)} to ${withUnit(series.max, series.unit)}`;
+    }
+}
+
+async function loadDetailedSensorTable() {
+    if (!state.detailSensor) return;
+    const { source, series } = state.detailSensor;
+    elements.detailSensorTableBody.innerHTML = `<tr><td colspan="20"><span class="loading-spinner small"></span> Loading samples…</td></tr>`;
+    try {
+        const params = new URLSearchParams({ path: source.path, series: series.id, offset: String(state.detailSensorOffset), limit: "200" });
+        const data = await requestJson(`/api/results/${encodeURIComponent(storageId)}/table?${params}`);
+        const columns = data.columns || [];
+        elements.detailSensorTableHead.innerHTML = `<tr>${columns.map(column => `<th>${escapeHtml(column)}</th>`).join("")}</tr>`;
+        elements.detailSensorTableBody.innerHTML = (data.rows || []).length
+            ? data.rows.map(row => `<tr>${columns.map(column => `<td>${escapeHtml(valueOrDash(row[column]))}</td>`).join("")}</tr>`).join("")
+            : `<tr><td colspan="${Math.max(1, columns.length)}">No samples in this page.</td></tr>`;
+        const start = data.total ? data.offset + 1 : 0;
+        const end = Math.min(data.total, data.offset + (data.rows || []).length);
+        elements.detailSensorTableInfo.textContent = `${start.toLocaleString()}–${end.toLocaleString()} of ${Number(data.total || 0).toLocaleString()} rows`;
+        elements.detailSensorPrev.disabled = data.offset <= 0;
+        elements.detailSensorNext.disabled = data.offset + data.limit >= data.total;
+    } catch (error) {
+        elements.detailSensorTableBody.innerHTML = `<tr><td>${escapeHtml(error.message)}</td></tr>`;
+    }
+}
+
+function renderDetailedMeasurements() {
+    const variables = state.measurements?.variables || [];
+    const observations = state.measurements?.observations || [];
+    elements.detailMeasurementCards.innerHTML = variables.length ? variables.map(variable => {
+        const latest = variable.latest || {};
+        return `<article class="measurement-card"><header><div><strong>${escapeHtml(variable.name || variable.id)}</strong><span>${escapeHtml(variable.id)}</span></div><span>${Number(variable.count || 0).toLocaleString()} pts</span></header><div class="measurement-latest">${escapeHtml(withUnit(latest.value, variable.unit))}</div><div class="measurement-meta">Range ${escapeHtml(withUnit(variable.min, variable.unit))} – ${escapeHtml(withUnit(variable.max, variable.unit))}</div></article>`;
+    }).join("") : `<div class="empty-state">No operator measurements were recorded.</div>`;
+    elements.detailMeasurementTable.innerHTML = observations.length ? observations.slice().reverse().map(record => `<tr><td>${escapeHtml(record.variable_name || record.variable_id || "—")}</td><td>${escapeHtml(withUnit(record.value, record.unit))}</td><td>${escapeHtml(record.sensor_name || record.source_type || "—")}</td><td>${escapeHtml(formatSeconds(record.run_elapsed_s))}</td><td>${escapeHtml(record.stage_name || record.stage_id || record.state || "—")}</td><td>${escapeHtml(formatDate(record.captured_at || record.timestamp))}</td></tr>`).join("") : `<tr><td colspan="6">No observations.</td></tr>`;
+}
+
+function eventDescription(event) {
+    const data = event?.data || {};
+    if (data.message) return String(data.message);
+    if (data.reason) return String(data.reason);
+    return Object.entries(data).filter(([key]) => !["path", "start_monotonic_ns", "end_monotonic_ns"].includes(key)).slice(0, 6).map(([key, value]) => `${humanizeKey(key)}: ${typeof value === "object" ? JSON.stringify(value) : valueOrDash(value)}`).join(" · ");
+}
+
+function renderDetailedEvents() {
+    if (!elements.detailEventsList) return;
+    const all = state.events?.events || [];
+    const events = all.filter(event => state.detailEventFilter === "all" || classifyEvent(event.event) === state.detailEventFilter);
+    elements.detailEventFilters?.querySelectorAll("[data-event-filter]").forEach(button => button.classList.toggle("active", button.dataset.eventFilter === state.detailEventFilter));
+    elements.detailEventsList.innerHTML = events.length ? events.map(event => {
+        const category = classifyEvent(event.event);
+        const focused = state.focusedEvent === event;
+        const description = eventDescription(event);
+        const raw = event.data && Object.keys(event.data).length ? `<details class="event-details"><summary>Raw data</summary><pre>${escapeHtml(JSON.stringify(event.data, null, 2))}</pre></details>` : "";
+        return `<tr class="event-table-row ${category}${focused ? " focused" : ""}" data-event-index="${all.indexOf(event)}"><td class="event-time">${escapeHtml(formatSeconds(event.run_elapsed_s))}</td><td><strong>${escapeHtml(String(event.event || "Event").replaceAll("_", " "))}</strong></td><td>${escapeHtml(event.stage_name || (event.stage_id == null ? "—" : `Stage ${event.stage_id}`))}</td><td><span class="event-description">${escapeHtml(description || "—")}</span>${raw}</td></tr>`;
+    }).join("") : `<tr><td colspan="4">No events match this filter.</td></tr>`;
+    if (state.focusedEvent) requestAnimationFrame(() => elements.detailEventsList.querySelector(".event-table-row.focused")?.scrollIntoView({ behavior: "smooth", block: "center" }));
+}
+
+function renderDetailedVideos() {
+    const videos = state.overview?.videos || [];
+    elements.detailVideoCards.innerHTML = videos.length ? "" : `<div class="empty-state">No recordings were found.</div>`;
+    for (const video of videos) {
+        const card = document.createElement("article");
+        card.className = "video-detail-card";
+        card.innerHTML = `<div class="video-thumb">▶</div><div class="video-card-body"><strong>${escapeHtml(video.camera_name || video.name)}</strong><span>${escapeHtml(video.name)} · ${escapeHtml(formatBytes(video.size_bytes))}</span><span>${escapeHtml(videoTechnicalSummary(video))}</span><span>${escapeHtml(formatSeconds(video.start_elapsed_s))} → ${escapeHtml(formatSeconds(video.end_elapsed_s))}</span></div><button class="button button-primary button-small" type="button">Open in Analysis</button>`;
+        card.querySelector("button").addEventListener("click", async () => {
+            await activateTab("analysis");
+            const camera = video.camera_name || video.camera_id || "Camera";
+            const key = `video:${camera}`;
+            if (!state.tracks.has(key)) await toggleTrack(key, "video");
+            selectVideo(video, video.start_elapsed_s, key);
+        });
+        elements.detailVideoCards.appendChild(card);
+    }
+}
+
+function renderDetailedSystem() {
+    const rows = state.system?.rows || [];
+    const columns = state.system?.columns || [];
+    elements.detailSystemInfo.textContent = `${rows.length.toLocaleString()} sampled telemetry rows`;
+    elements.detailSystemHead.innerHTML = `<tr>${columns.map(column => `<th>${escapeHtml(humanizeKey(column))}</th>`).join("")}</tr>`;
+    elements.detailSystemBody.innerHTML = rows.length ? rows.map(row => `<tr>${columns.map(column => `<td>${escapeHtml(valueOrDash(row[column]))}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${Math.max(1, columns.length)}">No system metrics recorded.</td></tr>`;
+}
+
+async function focusEvent(event) {
+    state.focusedEvent = event;
+    state.detailEventFilter = "all";
+    await activateTab("events");
+    renderDetailedEvents();
+}
+
+function nearestEventToPointer(track, canvas, clientX, maxPx = 10) {
+    if (track.kind !== "event") return null;
+    const rect = canvas.getBoundingClientRect();
+    let best = null;
+    let bestPx = Infinity;
+    for (const event of track.events || []) {
+        const time = Number(event.run_elapsed_s);
+        if (!Number.isFinite(time) || time < state.viewStart || time > state.viewEnd) continue;
+        const px = xForTime(time, rect.width, 48, 12);
+        const distance = Math.abs((clientX - rect.left) - px);
+        if (distance < bestPx) { best = event; bestPx = distance; }
+    }
+    return bestPx <= maxPx ? { event: best, distance: bestPx } : null;
+}
+
 function renderFiles() {
     if (!state.overview) return;
     const query = (elements.fileSearch.value || "").trim().toLowerCase();
@@ -1173,6 +1362,17 @@ async function activateTab(name) {
         await loadAnalysisData();
         requestAnimationFrame(() => renderAnalysis());
     }
+    if (["measurements", "events", "system"].includes(name)) {
+        const loadingElement = name === "events" ? elements.detailEventsLoading : name === "measurements" ? elements.detailMeasurementsLoading : elements.detailSystemLoading;
+        if (!state.analysisLoaded && loadingElement) loadingElement.hidden = false;
+        await loadAnalysisData();
+        if (loadingElement) loadingElement.hidden = true;
+    }
+    if (name === "sensors") { renderDetailedSensors(); if (state.detailSensor) await loadDetailedSensorTable(); }
+    if (name === "measurements") renderDetailedMeasurements();
+    if (name === "events") renderDetailedEvents();
+    if (name === "videos") renderDetailedVideos();
+    if (name === "system") renderDetailedSystem();
     if (name === "files") renderFiles();
 }
 
@@ -1186,6 +1386,19 @@ function bindSelector(container) {
 
 function bindEvents() {
     elements.refresh.addEventListener("click", loadResults);
+    elements.clearVideoCache?.addEventListener("click", async () => {
+        const previous = elements.clearVideoCache.textContent;
+        elements.clearVideoCache.disabled = true;
+        elements.clearVideoCache.textContent = "Clearing…";
+        try {
+            const result = await requestJson(`/api/results/${encodeURIComponent(storageId)}/cache`, { method: "DELETE" });
+            elements.clearVideoCache.textContent = `Cleared ${formatBytes(result.removed_bytes || 0)}`;
+            window.setTimeout(() => { elements.clearVideoCache.textContent = previous; }, 1800);
+        } catch (error) {
+            showError(`Could not clear video cache: ${error.message}`);
+            elements.clearVideoCache.textContent = previous;
+        } finally { elements.clearVideoCache.disabled = false; }
+    });
     document.querySelectorAll(".results-tab").forEach(button => button.addEventListener("click", () => activateTab(button.dataset.tab)));
     [elements.analysisSensorSelector, elements.analysisMeasurementSelector, elements.analysisEventSelector, elements.analysisVideoSelector, elements.analysisSystemSelector].forEach(bindSelector);
     elements.analysisStageTrack.addEventListener("click", event => {
@@ -1205,6 +1418,15 @@ function bindEvents() {
     elements.fileSearch.addEventListener("input", renderFiles);
     elements.dialogClose.addEventListener("click", () => elements.dialog.close ? elements.dialog.close() : elements.dialog.removeAttribute("open"));
     elements.dialog.addEventListener("click", event => { if (event.target === elements.dialog) elements.dialog.close?.(); });
+    elements.detailSensorPrev?.addEventListener("click", async () => { state.detailSensorOffset = Math.max(0, state.detailSensorOffset - 200); await loadDetailedSensorTable(); });
+    elements.detailSensorNext?.addEventListener("click", async () => { state.detailSensorOffset += 200; await loadDetailedSensorTable(); });
+    elements.detailEventFilters?.addEventListener("click", event => {
+        const button = event.target.closest("[data-event-filter]");
+        if (!button) return;
+        state.detailEventFilter = button.dataset.eventFilter;
+        state.focusedEvent = null;
+        renderDetailedEvents();
+    });
     elements.videoClose.addEventListener("click", closeVideoPlayer);
 
     elements.videoPlayer.addEventListener("loadstart", () => {

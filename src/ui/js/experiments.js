@@ -548,6 +548,8 @@ function renderExperiments() {
         row.className = (
             "experiment-row"
         );
+        row.dataset.groupLevel = rowData.parentKey ? "1" : "0";
+        row.classList.add(rowData.parentKey ? "experiment-run-row" : "experiment-group-row");
 
 
         if (
@@ -903,7 +905,7 @@ function renderExperiments() {
             openButton
         );
 
-        if (resultRuns.length > 0 && !isActiveRun) {
+        if (rowData.kind === "local" && resultRuns.length > 0 && !isActiveRun) {
             const latestResult = resultRuns[0];
             const resultsButton = document.createElement("button");
             resultsButton.type = "button";

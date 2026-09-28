@@ -32,7 +32,8 @@ function cacheUi() {
         "measurement_source", "measurement_sensor_value", "measurement_sensor_value_text",
         "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value",
         "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint",
-        "measurement_count", "measurement_summary_body", "measurement_history_body"
+        "measurement_count", "measurement_summary_body", "measurement_history_body",
+        "calibration_review_panel", "calibration_review_list", "run_stage_timeline", "run_stage_position"
     ].forEach((id) => { ui[id] = document.getElementById(id); });
     ui.workflowSteps = [...document.querySelectorAll(".workflow-step")];
 }
@@ -122,7 +123,7 @@ function renderCameraCalibration(state) {
                 </div>
                 <p>${escapeHtml(exposureText)}</p>
                 <div class="button-group compact-actions">
-                    ${done ? '<span class="button button-secondary">Resolved</span>' : `
+                    ${done ? `${openDisabled ? '<span class="button button-secondary">Unavailable</span>' : `<button class="button button-secondary" type="button" data-edit-camera="${escapeHtml(camera.id)}">Edit calibration</button>`}` : `
                         ${openDisabled ? '' : `<a class="button button-primary" href="/cameras?camera=${encodeURIComponent(camera.id)}&calibration=1">Open calibration</a>`}
                         <button class="button button-secondary" type="button" data-skip-camera="${escapeHtml(camera.id)}">Skip camera</button>
                     `}
@@ -158,20 +159,86 @@ function renderSensorCalibration(state) {
     }).join("") || "<p>No sensors configured.</p>";
 }
 
-function stageParameters(stage) {
+function humanizeStageKey(key) {
+    return String(key || "")
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function stageParameters(stage, state = null) {
     if (!stage) return "";
-    const items = [
-        ["Duration", `${stage.duration ?? "—"} s`],
-        ["Airflow", `${stage.airflow ?? "—"}`],
-        ["Rotor speed", `${stage.rotor_speed ?? "—"} rpm`],
-        ["Target pH", stage.ph ?? stage.pH ?? "—"],
-    ];
-    if (stage.reagent_name) items.push(["Reagent", stage.reagent_name]);
-    if (stage.reagent?.concentration != null) items.push(["Concentration", `${stage.reagent.concentration} %`]);
-    if (stage.reagent?.volume != null) items.push(["Volume", `${stage.reagent.volume} mL`]);
+    const items = [];
+    const push = (label, value) => {
+        if (value === null || value === undefined || value === "" || typeof value === "object") return;
+        items.push([label, value]);
+    };
+
+    push("Stage ID", stage.id);
+    push("Attempt", state?.stage_attempt);
+    push("Type", stage.type);
+    push("Planned duration", stage.duration == null ? null : `${stage.duration} s`);
+    push("Airflow", stage.airflow == null ? null : `${stage.airflow} L/min`);
+    push("Rotor speed", stage.rotor_speed == null ? null : `${stage.rotor_speed} rpm`);
+    push("Target pH", stage.ph ?? stage.pH);
+    push("Reagent", stage.reagent_name || stage.reagent?.name);
+    push("Concentration", stage.reagent?.concentration == null ? null : `${stage.reagent.concentration} %`);
+    push("Volume", stage.reagent?.volume == null ? null : `${stage.reagent.volume} mL`);
+
+    const known = new Set([
+        "id", "name", "type", "duration", "airflow", "rotor_speed", "ph", "pH",
+        "reagent_name", "reagent", "reagent_id", "policy",
+    ]);
+    for (const [key, value] of Object.entries(stage)) {
+        if (known.has(key) || value === null || value === undefined || value === "" || typeof value === "object") continue;
+        push(humanizeStageKey(key), typeof value === "boolean" ? (value ? "Yes" : "No") : value);
+    }
     return items.map(([label, value]) => `
         <div class="parameter"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
     `).join("");
+}
+
+function renderCalibrationReview(state) {
+    if (!ui.calibration_review_panel || !ui.calibration_review_list) return;
+    const visible = ["SensorCalibration", "Ready"].includes(state.state);
+    ui.calibration_review_panel.hidden = !visible;
+    if (!visible) return;
+
+    const items = [];
+    for (const camera of Object.values(state.calibration?.cameras || {})) {
+        const status = camera.status || "pending";
+        const editable = camera.available !== false && ["passed", "skipped"].includes(status);
+        items.push(`<div class="calibration-review-item"><span class="review-kind">Camera</span><strong>${escapeHtml(camera.name || `Camera ${camera.id}`)}</strong><span class="calibration-status ${escapeHtml(status)}">${escapeHtml(status)}</span>${editable ? `<button class="button button-secondary button-small" type="button" data-edit-camera="${escapeHtml(camera.id)}">Edit</button>` : ""}</div>`);
+    }
+    for (const sensor of Object.values(state.calibration?.sensors || {})) {
+        const status = sensor.status || "pending";
+        const editable = ["passed", "skipped"].includes(status);
+        items.push(`<div class="calibration-review-item"><span class="review-kind">Sensor</span><strong>${escapeHtml(sensor.name || sensor.id)}</strong><span class="calibration-status ${escapeHtml(status)}">${escapeHtml(status)}</span>${editable ? `<button class="button button-secondary button-small" type="button" data-edit-sensor="${escapeHtml(sensor.id)}">Edit</button>` : ""}</div>`);
+    }
+    ui.calibration_review_list.innerHTML = items.join("") || `<span class="review-empty">No calibration entries.</span>`;
+}
+
+function renderMiniStageTimeline(state) {
+    if (!ui.run_stage_timeline) return;
+    const stages = Array.isArray(state.stages) ? state.stages : [];
+    const currentIndex = Number.isInteger(state.current_stage_index) ? state.current_stage_index : -1;
+    if (!stages.length) {
+        ui.run_stage_timeline.innerHTML = `<span class="mini-stage-empty">No stage metadata available.</span>`;
+        if (ui.run_stage_position) ui.run_stage_position.textContent = "—";
+        return;
+    }
+    if (ui.run_stage_position) {
+        const displayIndex = currentIndex >= 0 ? currentIndex + 1 : 1;
+        ui.run_stage_position.textContent = `Stage ${displayIndex} of ${stages.length}`;
+    }
+    const transition = state.stage_state === "Transition" || (state.state === "Paused" && state.transition_remaining_s != null);
+    ui.run_stage_timeline.innerHTML = stages.map((stage, index) => {
+        let klass = "upcoming";
+        if (index < currentIndex) klass = "done";
+        else if (index === currentIndex) klass = transition ? "done current-complete" : "current";
+        else if (transition && index === currentIndex + 1) klass = "next";
+        const duration = Math.max(1, Number(stage.duration) || 1);
+        return `<div class="mini-stage-segment ${klass}" style="--stage-weight:${duration}" title="${escapeHtml(stage.name || `Stage ${index + 1}`)} · ${escapeHtml(stage.type || "stage")}"><span>${escapeHtml(stage.name || `Stage ${index + 1}`)}</span><small>${escapeHtml(stage.type || "")}</small></div>`;
+    }).join("");
 }
 
 function renderOperations(state) {
@@ -501,13 +568,14 @@ function renderReady(state) {
         <p class="eyebrow">First stage</p>
         <h3>${escapeHtml(stage.name || `Stage ${stage.id}`)}</h3>
         <p>${escapeHtml(stage.type || "")}</p>
-        <div class="parameter-grid">${stageParameters(stage)}</div>`;
+        <div class="parameter-grid">${stageParameters(stage, state)}</div>`;
     ui.start_first_stage.disabled = false;
 }
 
 function renderRun(state) {
     ui.run_panel.hidden = false;
     const stage = state.current_stage;
+    renderMiniStageTimeline(state);
     const paused = state.state === "Paused";
     const transition = state.stage_state === "Transition" || (paused && state.transition_remaining_s != null);
 
@@ -524,13 +592,14 @@ function renderRun(state) {
     ui.start_now_button.hidden = !transition;
     ui.pause_button.hidden = paused;
     ui.resume_button.hidden = !paused;
-    ui.finish_stage_button.hidden = transition;
-    ui.skip_stage_button.hidden = transition;
+    const stageActionRelevant = !transition && Boolean(stage) && ["Running", "Paused"].includes(state.state);
+    ui.finish_stage_button.hidden = !stageActionRelevant;
+    ui.skip_stage_button.hidden = !stageActionRelevant;
 
     if (!transition) {
         ui.stage_timer.textContent = formatTime(state.stage_remaining_s);
         ui.stage_elapsed.textContent = `Elapsed ${formatTime(state.stage_elapsed_s)}`;
-        ui.stage_parameters.innerHTML = stageParameters(stage);
+        ui.stage_parameters.innerHTML = stageParameters(stage, state);
         const scraping = state.scraping || {};
         ui.scraping_box.hidden = !scraping.enabled;
         if (scraping.enabled) {
@@ -591,6 +660,7 @@ function render(state) {
     setStateBadge(state.state);
     setWorkflow(state.state);
     renderOperations(state);
+    renderCalibrationReview(state);
 
     ui.experiment_name.textContent = state.experiment?.name || "Experiment run";
     ui.experiment_meta.textContent = state.storage_id
@@ -668,17 +738,42 @@ async function action(url, body = null) {
 }
 
 function bindActions() {
+    document.addEventListener("click", async (event) => {
+        const cameraButton = event.target.closest("[data-edit-camera]");
+        if (cameraButton) {
+            cameraButton.disabled = true;
+            try {
+                await requestJson(`/api/digiflot/calibration/cameras/${encodeURIComponent(cameraButton.dataset.editCamera)}/reopen`, { method: "POST" });
+                window.location.href = `/cameras?camera=${encodeURIComponent(cameraButton.dataset.editCamera)}&calibration=1`;
+            } catch (error) {
+                cameraButton.disabled = false;
+                showToast(error.message);
+            }
+            return;
+        }
+        const sensorButton = event.target.closest("[data-edit-sensor]");
+        if (sensorButton) {
+            sensorButton.disabled = true;
+            try {
+                await requestJson(`/api/digiflot/calibration/sensors/${encodeURIComponent(sensorButton.dataset.editSensor)}/reopen`, { method: "POST" });
+                window.location.href = "/sensors?calibration=1";
+            } catch (error) {
+                sensorButton.disabled = false;
+                showToast(error.message);
+            }
+        }
+    });
     ui.start_first_stage.addEventListener("click", () => action("/api/digiflot/stages/start"));
     ui.start_now_button.addEventListener("click", () => action("/api/digiflot/stages/start"));
     ui.pause_button.addEventListener("click", () => action("/api/digiflot/pause"));
     ui.resume_button.addEventListener("click", () => action("/api/digiflot/resume"));
     ui.finish_stage_button.addEventListener("click", async () => {
-        const confirmed = window.confirm("Finish the current stage now and keep it as a valid early completion?");
+        const confirmed = window.confirm("Finish the active stage early? The stage will remain valid and will be recorded as an early completion.");
         if (confirmed) await action("/api/digiflot/stages/finish-now", { reason: "Operator finished stage early" });
     });
     ui.skip_stage_button.addEventListener("click", async () => {
-        const confirmed = window.confirm("Skip the current stage? It will be marked as skipped in the event log.");
-        if (confirmed) await action("/api/digiflot/stages/skip", { reason: "Operator skipped stage" });
+        const confirmed = window.confirm("Abort the active stage? It will be marked as skipped/invalid in the event log and the workflow will continue.");
+        if (confirmed) await action("/api/digiflot/stages/skip", { reason: "Operator aborted active stage" });
     });
     ui.retry_devices_button.addEventListener("click", () => action("/api/digiflot/recovery/retry-devices"));
     ui.operations_retry_devices.addEventListener("click", () => action("/api/digiflot/recovery/retry-devices"));

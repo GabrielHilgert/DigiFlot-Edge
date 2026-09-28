@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Results</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260928b">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/results.css') }}?v=20260928b">
-    <script defer src="{{ url_for('static', path='js/results.js') }}?v=20260928b"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/results.css') }}?v=20260928c">
+    <script defer src="{{ url_for('static', path='js/results.js') }}?v=20260928c"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -25,6 +25,7 @@
                 <div id="result_meta" class="results-meta"></div>
             </div>
             <div class="results-hero-actions">
+                <button id="clear_video_cache" class="button button-secondary" type="button" title="Delete generated browser-compatible video proxies">Clear video cache</button>
                 <button id="refresh_results" class="button button-secondary" type="button">Refresh</button>
                 <a id="download_experiment" class="button button-secondary" href="#" hidden>Experiment JSON</a>
             </div>
@@ -41,6 +42,11 @@
         <nav class="results-tabs" aria-label="Result sections">
             <button type="button" class="results-tab active" data-tab="overview">Overview</button>
             <button type="button" class="results-tab" data-tab="analysis">Analysis</button>
+            <button type="button" class="results-tab" data-tab="sensors">Sensors</button>
+            <button type="button" class="results-tab" data-tab="measurements">Measurements</button>
+            <button type="button" class="results-tab" data-tab="events">Events</button>
+            <button type="button" class="results-tab" data-tab="videos">Videos</button>
+            <button type="button" class="results-tab" data-tab="system">System</button>
             <button type="button" class="results-tab" data-tab="files">Files</button>
         </nav>
 
@@ -171,6 +177,44 @@
                     </article>
                 </div>
             </div>
+        </section>
+
+        <section class="results-panel" data-panel="sensors" hidden>
+            <div class="panel-intro"><div><span class="section-kicker">Acquisition</span><h2>Sensor data</h2><p>Inspect recorded variables and page through the raw TSV samples.</p></div></div>
+            <div id="detail_sensor_cards" class="sensor-card-grid"></div>
+            <article id="detail_sensor_viewer" class="result-card sensor-viewer" hidden>
+                <div class="result-card-heading sensor-viewer-heading">
+                    <div><span id="detail_sensor_source" class="section-kicker">Sensor</span><h2 id="detail_sensor_title">—</h2><p id="detail_sensor_stats">—</p></div>
+                </div>
+                <div class="data-table-wrap">
+                    <div class="table-toolbar"><span id="detail_sensor_table_info">—</span><div><button id="detail_sensor_prev" class="button button-secondary button-small" type="button">Previous</button><button id="detail_sensor_next" class="button button-secondary button-small" type="button">Next</button></div></div>
+                    <div class="table-scroll"><table class="data-table"><thead id="detail_sensor_table_head"></thead><tbody id="detail_sensor_table_body"></tbody></table></div>
+                </div>
+            </article>
+        </section>
+
+        <section class="results-panel" data-panel="measurements" hidden>
+            <div class="panel-intro"><div><span class="section-kicker">Operator data</span><h2>Measurements</h2><p>Discrete manual and sensor-backed observations captured during the run.</p></div></div>
+            <div id="detail_measurements_loading" class="loading-block" hidden><span class="loading-spinner small"></span> Loading measurements…</div>
+            <div id="detail_measurement_cards" class="measurement-card-grid"></div>
+            <article class="result-card"><div class="result-card-heading"><div><span class="section-kicker">All observations</span><h2>Measurement log</h2></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Variable</th><th>Value</th><th>Source</th><th>Experiment time</th><th>Stage</th><th>Captured</th></tr></thead><tbody id="detail_measurement_table"></tbody></table></div></article>
+        </section>
+
+        <section class="results-panel" data-panel="events" hidden>
+            <div class="panel-intro events-intro"><div><span class="section-kicker">Journal</span><h2>Event log</h2><p>Click an event in Analysis to jump here and inspect the complete journal entry.</p></div><div id="detail_event_filters" class="event-filters"><button class="filter-chip active" data-event-filter="all" type="button">All</button><button class="filter-chip" data-event-filter="stage" type="button">Stages</button><button class="filter-chip" data-event-filter="warning" type="button">Warnings</button><button class="filter-chip" data-event-filter="camera" type="button">Cameras</button><button class="filter-chip" data-event-filter="sensor" type="button">Sensors</button><button class="filter-chip" data-event-filter="other" type="button">Other</button></div></div>
+            <div id="detail_events_loading" class="loading-block" hidden><span class="loading-spinner small"></span> Loading event journal…</div>
+            <div class="table-scroll"><table class="data-table events-table"><thead><tr><th>Time</th><th>Event</th><th>Stage</th><th>Details</th></tr></thead><tbody id="detail_events_list"></tbody></table></div>
+        </section>
+
+        <section class="results-panel" data-panel="videos" hidden>
+            <div class="panel-intro"><div><span class="section-kicker">Cameras</span><h2>Recordings</h2><p>Recorded segments and codec metadata. Open a recording in Analysis for synchronized playback.</p></div></div>
+            <div id="detail_video_cards" class="video-card-grid"></div>
+        </section>
+
+        <section class="results-panel" data-panel="system" hidden>
+            <div class="panel-intro"><div><span class="section-kicker">Diagnostics</span><h2>System metrics</h2><p>Recorded telemetry for acquisition and thermal diagnostics.</p></div></div>
+            <div id="detail_system_loading" class="loading-block" hidden><span class="loading-spinner small"></span> Loading system metrics…</div>
+            <article class="result-card"><div class="table-toolbar"><span id="detail_system_info">—</span></div><div class="table-scroll"><table class="data-table"><thead id="detail_system_head"></thead><tbody id="detail_system_body"></tbody></table></div></article>
         </section>
 
         <section class="results-panel" data-panel="files" hidden>

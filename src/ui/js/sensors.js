@@ -124,7 +124,10 @@ function calibrationMarkup(snapshot) {
                     <strong>Calibration complete</strong>
                     <span>${calibration.mode === "two_point" ? "Two-point pH calibration stored by the EZO circuit." : "Sensor check completed."}</span>
                 </div>
-                <span class="calibration-pill passed">Passed</span>
+                <div class="calibration-heading-actions">
+                    <span class="calibration-pill passed">Passed</span>
+                    <button class="button button-secondary sensor-reopen" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Edit calibration</button>
+                </div>
             </div>`;
     }
 
@@ -135,7 +138,10 @@ function calibrationMarkup(snapshot) {
                     <strong>Calibration skipped</strong>
                     <span>${escapeHtml(calibration.skip_reason || "Skipped by operator.")}</span>
                 </div>
-                <span class="calibration-pill skipped">Skipped</span>
+                <div class="calibration-heading-actions">
+                    <span class="calibration-pill skipped">Skipped</span>
+                    <button class="button button-secondary sensor-reopen" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Edit calibration</button>
+                </div>
             </div>`;
     }
 
@@ -412,6 +418,24 @@ async function refreshDigiFlotState() {
 }
 
 function bindCalibrationControls(root = document) {
+    root.querySelectorAll(".sensor-reopen").forEach(button => {
+        if (button.dataset.bound) return;
+        button.dataset.bound = "1";
+        button.addEventListener("click", async () => {
+            button.disabled = true;
+            try {
+                state.digiflot = await requestJson(`/api/digiflot/calibration/sensors/${encodeURIComponent(button.dataset.sensorId)}/reopen`, { method: "POST" });
+                state.calibrationMode = true;
+                renderCards();
+                updateCalibrationProgress();
+                showToast("Calibration reopened.");
+            } catch (error) {
+                button.disabled = false;
+                showToast(error.message);
+            }
+        });
+    });
+
     root.querySelectorAll(".sensor-confirm").forEach(button => {
         if (button.dataset.bound) return;
         button.dataset.bound = "1";

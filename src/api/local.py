@@ -603,6 +603,14 @@ def delete_local_experiment(
             directory
         )
 
+        cache_directory = (
+            directory.parent
+            / ".results_cache"
+            / storage_id
+        )
+        if cache_directory.is_dir():
+            shutil.rmtree(cache_directory)
+
 
         return {
             "storage_id": storage_id,

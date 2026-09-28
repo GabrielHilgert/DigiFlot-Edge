@@ -1270,3 +1270,18 @@ code {
         color: var(--text-soft, #657282);
     }
 }
+
+
+/* Theme-safe experiment calibration notice */
+.calibration-banner {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--border));
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.calibration-banner p { color: var(--text-soft); }
+
+.info-note {
+  border-left-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--surface-soft);
+  color: var(--text-soft);
+}

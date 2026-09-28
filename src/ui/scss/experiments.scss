@@ -1175,3 +1175,40 @@ button:disabled {
         display: none;
     }
 }
+
+/* Experiment list hierarchy / action alignment */
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.experiment-row:hover { background: var(--surface-soft); }
+.table-action { min-width: 210px; text-align: right !important; }
+.experiment-group-row {
+  background: color-mix(in srgb, var(--surface-strong) 42%, var(--surface));
+}
+.experiment-group-row td { border-top: 1px solid var(--border-strong); }
+.local-run-row,
+.experiment-run-row { background: var(--surface-soft); }
+.local-run-row td,
+.experiment-run-row td { border-top: 1px dashed var(--border); }
+.local-run-row td:nth-child(2),
+.experiment-run-row td:nth-child(2) { padding-left: 2.35rem; }
+.experiment-run-row td:nth-child(2)::before {
+  content: "Run";
+  display: inline-flex;
+  margin-right: .55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: .16rem .42rem;
+  color: var(--text-faint);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.row-actions { flex-wrap: wrap; gap: .4rem; }
+.row-actions .button { min-width: 76px; }
