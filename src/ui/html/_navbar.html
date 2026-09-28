@@ -26,7 +26,9 @@
     if (!links || !badge || !text) return;
 
     const path = window.location.pathname;
-    const navName = path === "/" ? "experiments" : path.slice(1).split("/")[0];
+    const navName = (path === "/" || path.startsWith("/results/"))
+        ? "experiments"
+        : path.slice(1).split("/")[0];
     links.querySelector(`[data-nav="${navName}"]`)?.classList.add("active");
 
     function applyState(state) {

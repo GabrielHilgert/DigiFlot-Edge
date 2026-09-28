@@ -53,6 +53,9 @@ const elements = {
 
     stageCount: document.getElementById("stage_count"),
     stages: document.getElementById("stages_list"),
+
+    executionCount: document.getElementById("execution_count"),
+    executions: document.getElementById("executions_list"),
 };
 
 
@@ -660,6 +663,13 @@ function renderExperiments() {
             nameCell.appendChild(activeLabel);
         }
 
+        if (rowData.kind === "local" && !rowData.parentKey) {
+            const localOnly = document.createElement("span");
+            localOnly.className = "local-only-label";
+            localOnly.textContent = "LOCAL ONLY";
+            nameCell.appendChild(localOnly);
+        }
+
         if (
             rowData.kind ===
             "local"
@@ -779,6 +789,31 @@ function renderExperiments() {
         );
 
 
+        /* Local data ------------------------------------------------------- */
+
+        const dataCell = document.createElement("td");
+        dataCell.className = "local-data-cell";
+
+        const resultRuns = getResultRuns(rowData);
+        const allRuns = getRelatedLocalRuns(rowData);
+
+        if (resultRuns.length > 0) {
+            const badge = document.createElement("span");
+            badge.className = "local-data-badge available";
+            badge.textContent = resultRuns.length === 1
+                ? "● Available"
+                : `● ${resultRuns.length} runs`;
+            dataCell.appendChild(badge);
+        } else if (allRuns.length > 0) {
+            const badge = document.createElement("span");
+            badge.className = "local-data-badge pending";
+            badge.textContent = "○ Local";
+            dataCell.appendChild(badge);
+        } else {
+            dataCell.textContent = "—";
+        }
+
+
         /* Actions ---------------------------------------------------------- */
 
         const actionCell = (
@@ -867,6 +902,21 @@ function renderExperiments() {
         actions.appendChild(
             openButton
         );
+
+        if (resultRuns.length > 0 && !isActiveRun) {
+            const latestResult = resultRuns[0];
+            const resultsButton = document.createElement("button");
+            resultsButton.type = "button";
+            resultsButton.className = "button button-secondary button-small results-button";
+            resultsButton.textContent = resultRuns.length > 1
+                ? `Results (${resultRuns.length})`
+                : "Results";
+            resultsButton.addEventListener("click", event => {
+                event.stopPropagation();
+                openResults(latestResult.storage_id);
+            });
+            actions.appendChild(resultsButton);
+        }
 
 
         /*
@@ -960,6 +1010,7 @@ function renderExperiments() {
             sourceCell,
             stateCell,
             modifiedCell,
+            dataCell,
             actionCell,
         );
 
@@ -979,26 +1030,54 @@ function renderExperiments() {
 }
 
 
+function getRelatedLocalRuns(row) {
+    if (!row) return [];
+
+    if (row.kind === "local") {
+        const matches = state.localExperiments.filter(local =>
+            sameExperimentIdentity(row.experiment, local.experiment)
+            && (
+                !row.experiment?.source
+                || !local.experiment?.source
+                || local.experiment.source === row.experiment.source
+            )
+        );
+        return matches.length ? matches : (row.local ? [row.local] : []);
+    }
+
+    return state.localExperiments.filter(local =>
+        sameExperimentIdentity(row.experiment, local.experiment)
+        && (
+            !local.experiment?.source
+            || local.experiment.source === row.source
+        )
+    );
+}
+
+
+function getResultRuns(row) {
+    const runs = row?.kind === "local"
+        ? (row.local ? [row.local] : [])
+        : getRelatedLocalRuns(row);
+
+    return runs
+        .filter(local => Boolean(local.results?.available))
+        .sort((a, b) => String(b.storage_id).localeCompare(String(a.storage_id)));
+}
+
+
+function openResults(storageId) {
+    if (!storageId) return;
+    window.location.href = `/results/${encodeURIComponent(storageId)}`;
+}
+
+
 function countRelatedLocal(
     row,
 ) {
-    return (
-        state.localExperiments.filter(
-            local => (
-                sameExperimentIdentity(
-                    row.experiment,
-                    local.experiment,
-                )
-                &&
-                (
-                    !local.experiment?.source ||
-                    local.experiment.source ===
-                    row.source
-                )
-            )
-        ).length
-    );
+    return getRelatedLocalRuns(row).length;
 }
+
 
 
 function renderTableMessage(
@@ -1021,7 +1100,7 @@ function renderTableMessage(
         )
     );
 
-    cell.colSpan = 6;
+    cell.colSpan = 7;
 
     cell.className = (
         "table-message"
@@ -1786,6 +1865,123 @@ function renderExperiment(
     renderStages(
         experiment.stages || []
     );
+
+    renderExecutions(row);
+}
+
+
+/* -------------------------------------------------------------------------- */
+/* Executions                                                                 */
+/* -------------------------------------------------------------------------- */
+
+function renderExecutions(row) {
+    if (!elements.executions || !elements.executionCount) return;
+
+    const runs = getRelatedLocalRuns(row)
+        .slice()
+        .sort((a, b) => String(b.storage_id).localeCompare(String(a.storage_id)));
+
+    elements.executionCount.textContent = runs.length;
+    elements.executions.innerHTML = "";
+
+    if (!runs.length) {
+        elements.executions.appendChild(
+            emptyBlock("No local executions are associated with this experiment yet.")
+        );
+        return;
+    }
+
+    for (const local of runs) {
+        const experiment = local.experiment || {};
+        const results = local.results || {};
+        const runtime = local.runtime || {};
+        const isActive = state.activeRun?.storage_id === local.storage_id;
+
+        const card = document.createElement("article");
+        card.className = "execution-card";
+        if (isActive) card.classList.add("active");
+
+        const info = document.createElement("div");
+        info.className = "execution-info";
+        info.innerHTML = `
+            <div class="execution-title-line">
+                <strong>${escapeHtmlText(formatDate(experiment.local_created, true))}</strong>
+                <span class="execution-state">${escapeHtmlText(isActive ? state.activeRun.state : (local.state || experiment.state || "Created"))}</span>
+                ${!local.parentKey && !row.parentKey && row.kind === "local" ? '<span class="execution-local-only">LOCAL</span>' : ''}
+            </div>
+            <span class="execution-id">${escapeHtmlText(local.storage_id)}</span>
+            <div class="execution-metrics">
+                <span><strong>${escapeHtmlText(formatDuration(results.duration_s ?? runtime.run_elapsed_s))}</strong> duration</span>
+                <span><strong>${Number(results.sensor_files || 0)}</strong> sensor files</span>
+                <span><strong>${Number(results.videos || 0)}</strong> videos</span>
+                <span><strong>${Number(results.measurements || 0)}</strong> measurements</span>
+                <span><strong>${escapeHtmlText(formatFileSize(results.size_bytes || 0))}</strong> data</span>
+            </div>
+        `;
+
+        const actions = document.createElement("div");
+        actions.className = "execution-actions";
+
+        if (isActive) {
+            const activeButton = document.createElement("a");
+            activeButton.className = "button button-primary button-small";
+            activeButton.href = "/run";
+            activeButton.textContent = "Open active run";
+            actions.appendChild(activeButton);
+        } else if (results.available) {
+            const resultButton = document.createElement("button");
+            resultButton.type = "button";
+            resultButton.className = "button button-primary button-small";
+            resultButton.textContent = "View Results";
+            resultButton.addEventListener("click", () => openResults(local.storage_id));
+            actions.appendChild(resultButton);
+        }
+
+        if (!isActive) {
+            const openButton = document.createElement("button");
+            openButton.type = "button";
+            openButton.className = "button button-secondary button-small";
+            openButton.textContent = "Open run";
+            openButton.addEventListener("click", () => openExperiment(`local:${local.storage_id}`));
+            actions.appendChild(openButton);
+        }
+
+        card.append(info, actions);
+        elements.executions.appendChild(card);
+    }
+}
+
+
+function escapeHtmlText(value) {
+    return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+
+function formatDuration(value) {
+    const seconds = Number(value);
+    if (!Number.isFinite(seconds)) return "—";
+    if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)} s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainder = Math.floor(seconds % 60);
+    return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
+}
+
+
+function formatFileSize(value) {
+    let bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes <= 0) return bytes === 0 ? "0 B" : "—";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let index = 0;
+    while (bytes >= 1024 && index < units.length - 1) {
+        bytes /= 1024;
+        index += 1;
+    }
+    return `${bytes.toFixed(index === 0 ? 0 : bytes < 10 ? 2 : 1)} ${units[index]}`;
 }
 
 

@@ -14,12 +14,12 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260831b">
     <link
         rel="stylesheet"
-        href="{{ url_for('static', path='css/experiments.css') }}?v=5"
+        href="{{ url_for('static', path='css/experiments.css') }}?v=20260924a"
     >
 
     <script
         defer
-        src="{{ url_for('static', path='js/experiments.js') }}?v=4"
+        src="{{ url_for('static', path='js/experiments.js') }}?v=20260924a"
     ></script>
 </head>
 
@@ -186,6 +186,7 @@
                                     <th>Source</th>
                                     <th>State</th>
                                     <th>Modified</th>
+                                    <th>Local data</th>
                                     <th></th>
                                 </tr>
 
@@ -196,7 +197,7 @@
 
                                 <tr>
                                     <td
-                                        colspan="6"
+                                        colspan="7"
                                         class="table-message"
                                     >
                                         Loading experiments...
@@ -319,6 +320,24 @@
                             </span>
 
                         </div>
+
+                    </div>
+
+
+                    <div class="detail-section execution-section">
+
+                        <div class="subsection-heading subsection-heading-inline">
+
+                            <div>
+                                <h4>Executions</h4>
+                                <p>Local runs associated with this experiment. Results remain available even when the central server is offline.</p>
+                            </div>
+
+                            <span id="execution_count" class="count-pill">0</span>
+
+                        </div>
+
+                        <div id="executions_list" class="executions-list"></div>
 
                     </div>
 

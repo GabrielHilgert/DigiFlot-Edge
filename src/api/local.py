@@ -203,6 +203,83 @@ def read_runtime_state(directory: Path):
 
     return runtime.get("state"), runtime
 
+def summarize_local_results(directory: Path, runtime: dict | None = None) -> dict:
+    """Return a cheap filesystem-only summary for the experiments page."""
+    runtime = runtime or {}
+    state = str(runtime.get("state") or "").strip()
+
+    sensor_files = [
+        path for path in (directory / "sensors").glob("*.tsv")
+        if path.is_file()
+    ] if (directory / "sensors").is_dir() else []
+
+    video_suffixes = {".mp4", ".avi", ".mjpeg", ".mov", ".mkv", ".webm"}
+    video_files = [
+        path for path in (directory / "cameras").rglob("*")
+        if path.is_file() and path.suffix.lower() in video_suffixes
+    ] if (directory / "cameras").is_dir() else []
+
+    def line_count(path: Path) -> int:
+        if not path.is_file():
+            return 0
+        count = 0
+        try:
+            with path.open("rb") as file:
+                for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                    count += chunk.count(b"\n")
+        except OSError:
+            return 0
+        return count
+
+    measurement_count = line_count(directory / "measurements.jsonl")
+    event_count = line_count(directory / "events.jsonl")
+
+    size_bytes = 0
+    file_count = 0
+    try:
+        for path in directory.rglob("*"):
+            if not path.is_file():
+                continue
+            file_count += 1
+            try:
+                size_bytes += path.stat().st_size
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+    available = bool(
+        sensor_files
+        or video_files
+        or measurement_count
+        or event_count
+        or (directory / "system_metrics.tsv").is_file()
+        or (directory / "runtime.json").is_file()
+    )
+
+    normalized_state = state.lower()
+    if normalized_state == "recoveryrequired":
+        integrity = "recovery"
+    elif normalized_state == "completed":
+        integrity = "complete"
+    elif available:
+        integrity = "partial"
+    else:
+        integrity = "empty"
+
+    return {
+        "available": available,
+        "integrity": integrity,
+        "sensor_files": len(sensor_files),
+        "videos": len(video_files),
+        "measurements": measurement_count,
+        "events": event_count,
+        "files": file_count,
+        "size_bytes": size_bytes,
+        "duration_s": runtime.get("run_elapsed_s"),
+    }
+
+
 def local_experiment_response(
     directory: Path,
     experiment: dict,
@@ -223,6 +300,7 @@ def local_experiment_response(
         "source": experiment.get("source"),
         "local_created": experiment.get("local_created"),
         "runtime": runtime,
+        "results": summarize_local_results(directory, runtime),
         "experiment": response_experiment,
     }
 

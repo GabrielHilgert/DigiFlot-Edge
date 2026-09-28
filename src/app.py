@@ -11,6 +11,7 @@ from api.digiflot import router as digiflot_router
 from api.local import router as local_router
 from api.sensors import router as sensor_router
 from api.server import router as server_router
+from api.results import router as results_router
 from lib.digiflot import DigiFlot, load_config
 from lib.server import Server
 
@@ -72,9 +73,11 @@ app.include_router(local_router)
 app.include_router(camera_router)
 app.include_router(sensor_router)
 app.include_router(digiflot_router)
+app.include_router(results_router)
 
 
 LOCKED_PAGE_PATHS = {"/", "/cameras", "/sensors", "/performance", "/settings"}
+LOCKED_PAGE_PREFIXES = ("/results/",)
 LOCKED_API_PREFIXES = (
     "/api/cameras",
     "/api/sensors",
@@ -83,6 +86,7 @@ LOCKED_API_PREFIXES = (
     "/api/digiflot/performance",
     "/api/digiflot/settings",
     "/api/digiflot/devices",
+    "/api/results",
 )
 
 
@@ -91,7 +95,7 @@ async def active_execution_guard(request: Request, call_next):
     digiflot = getattr(request.app.state, "digiflot", None)
     if digiflot is not None and digiflot.execution_locked:
         path = request.url.path
-        if path in LOCKED_PAGE_PATHS:
+        if path in LOCKED_PAGE_PATHS or any(path.startswith(prefix) for prefix in LOCKED_PAGE_PREFIXES):
             return RedirectResponse(url="/run", status_code=303)
         if any(path.startswith(prefix) for prefix in LOCKED_API_PREFIXES):
             return JSONResponse(
@@ -108,6 +112,17 @@ def index(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="experiments.html",
+    )
+
+
+@app.get("/results/{storage_id}", response_class=HTMLResponse)
+def results(request: Request, storage_id: str):
+    return templates.TemplateResponse(
+        request=request,
+        name="results.html",
+        context={
+            "storage_id": storage_id,
+        },
     )
 
 
