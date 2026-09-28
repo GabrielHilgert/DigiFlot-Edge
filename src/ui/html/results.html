@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Results</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260924a">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/results.css') }}?v=20260924a">
-    <script defer src="{{ url_for('static', path='js/results.js') }}?v=20260924a"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260928b">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/results.css') }}?v=20260928b">
+    <script defer src="{{ url_for('static', path='js/results.js') }}?v=20260928b"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -31,30 +31,16 @@
         </header>
 
         <div id="results_error" class="results-error" hidden></div>
+        <div id="global_loading" class="global-loading" role="status" aria-live="polite">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <span>Loading experiment results…</span>
+        </div>
 
         <section id="summary_cards" class="summary-grid" aria-label="Experiment summary"></section>
 
-        <section class="timeline-card" aria-labelledby="timeline_title">
-            <div class="section-heading-inline">
-                <div>
-                    <span class="section-kicker">Timeline</span>
-                    <h2 id="timeline_title">Experiment progression</h2>
-                    <p>Stages, measurements, warnings, and recording events share the same experiment time axis.</p>
-                </div>
-                <strong id="timeline_duration" class="timeline-duration">—</strong>
-            </div>
-            <div id="timeline" class="timeline-view">
-                <div class="loading-block">Loading timeline…</div>
-            </div>
-        </section>
-
         <nav class="results-tabs" aria-label="Result sections">
             <button type="button" class="results-tab active" data-tab="overview">Overview</button>
-            <button type="button" class="results-tab" data-tab="sensors">Sensors</button>
-            <button type="button" class="results-tab" data-tab="measurements">Measurements</button>
-            <button type="button" class="results-tab" data-tab="videos">Videos</button>
-            <button type="button" class="results-tab" data-tab="events">Events</button>
-            <button type="button" class="results-tab" data-tab="system">System</button>
+            <button type="button" class="results-tab" data-tab="analysis">Analysis</button>
             <button type="button" class="results-tab" data-tab="files">Files</button>
         </nav>
 
@@ -84,77 +70,107 @@
             </article>
         </section>
 
-        <section class="results-panel" data-panel="sensors" hidden>
-            <div class="panel-intro">
-                <div><span class="section-kicker">Acquisition</span><h2>Sensor data</h2><p>Select a recorded variable to inspect the time series and raw samples.</p></div>
+        <section class="results-panel" data-panel="analysis" hidden>
+            <div class="panel-intro analysis-intro">
+                <div>
+                    <span class="section-kicker">Synchronized analysis</span>
+                    <h2>Experiment timeline</h2>
+                    <p>Add sensors, operator measurements, events, cameras, or system metrics. Every track uses the same experiment-time axis.</p>
+                </div>
+                <div class="analysis-range-controls" aria-label="Timeline zoom controls">
+                    <button id="analysis_zoom_out" class="button button-secondary button-small" type="button" title="Zoom out">−</button>
+                    <button id="analysis_zoom_in" class="button button-secondary button-small" type="button" title="Zoom in">+</button>
+                    <button id="analysis_fit" class="button button-secondary button-small" type="button">Fit experiment</button>
+                </div>
             </div>
-            <div id="sensor_cards" class="sensor-card-grid"></div>
-            <article id="sensor_viewer" class="result-card sensor-viewer" hidden>
-                <div class="result-card-heading sensor-viewer-heading">
-                    <div>
-                        <span id="sensor_viewer_source" class="section-kicker">Sensor</span>
-                        <h2 id="sensor_viewer_title">—</h2>
-                        <p id="sensor_viewer_stats">—</p>
+
+            <div class="analysis-layout">
+                <aside class="analysis-sidebar" aria-label="Available experiment data">
+                    <div class="analysis-sidebar-heading">
+                        <strong>Data</strong>
+                        <span>Click to add or remove a track.</span>
                     </div>
-                    <div class="viewer-actions">
-                        <button id="sensor_table_toggle" class="button button-secondary" type="button">Show table</button>
-                    </div>
-                </div>
-                <div class="chart-wrap">
-                    <canvas id="sensor_chart" class="data-chart" height="340"></canvas>
-                    <div id="sensor_chart_empty" class="chart-empty" hidden>No numeric samples are available for this variable.</div>
-                </div>
-                <div id="sensor_table_wrap" class="data-table-wrap" hidden>
-                    <div class="table-toolbar">
-                        <span id="sensor_table_info">—</span>
+
+                    <section class="selector-group">
+                        <h3>Sensors</h3>
+                        <div id="analysis_sensor_selector" class="selector-list"><div class="selector-loading"><span class="loading-spinner small"></span> Loading sensors…</div></div>
+                    </section>
+
+                    <section class="selector-group">
+                        <h3>Measurements</h3>
+                        <div id="analysis_measurement_selector" class="selector-list"><div class="selector-loading"><span class="loading-spinner small"></span> Loading measurements…</div></div>
+                    </section>
+
+                    <section class="selector-group">
+                        <h3>Events</h3>
+                        <div id="analysis_event_selector" class="selector-list"><div class="selector-loading"><span class="loading-spinner small"></span> Loading event journal…</div></div>
+                    </section>
+
+                    <section class="selector-group">
+                        <h3>Videos</h3>
+                        <div id="analysis_video_selector" class="selector-list"><div class="selector-loading"><span class="loading-spinner small"></span> Reading video metadata…</div></div>
+                    </section>
+
+                    <section class="selector-group">
+                        <h3>System</h3>
+                        <div id="analysis_system_selector" class="selector-list"><div class="selector-loading"><span class="loading-spinner small"></span> Loading system metrics…</div></div>
+                    </section>
+                </aside>
+
+                <div class="analysis-main">
+                    <div class="analysis-toolbar">
                         <div>
-                            <button id="sensor_prev" class="button button-secondary button-small" type="button">Previous</button>
-                            <button id="sensor_next" class="button button-secondary button-small" type="button">Next</button>
+                            <span class="section-kicker">Visible range</span>
+                            <strong id="analysis_range_label">—</strong>
+                        </div>
+                        <div id="analysis_cursor_info" class="analysis-cursor-info">Move over a track to inspect a time.</div>
+                    </div>
+
+                    <div id="analysis_workspace" class="analysis-workspace" aria-busy="true">
+                        <div class="analysis-stage-row">
+                            <div class="track-label stage-label-block">
+                                <strong>Stages</strong>
+                                <span>Click a stage to zoom</span>
+                            </div>
+                            <div id="analysis_stage_track" class="analysis-stage-track">
+                                <div class="loading-block compact">Loading stages…</div>
+                            </div>
+                        </div>
+
+                        <div id="analysis_tracks" class="analysis-tracks">
+                            <div id="analysis_empty" class="analysis-empty">
+                                <strong>Add data from the menu</strong>
+                                <span>Selected variables appear here as synchronized tracks.</span>
+                            </div>
+                        </div>
+
+                        <div class="analysis-axis-row" aria-hidden="true">
+                            <div></div>
+                            <div id="analysis_time_axis" class="analysis-time-axis"></div>
                         </div>
                     </div>
-                    <div class="table-scroll"><table class="data-table"><thead id="sensor_table_head"></thead><tbody id="sensor_table_body"></tbody></table></div>
-                </div>
-            </article>
-        </section>
 
-        <section class="results-panel" data-panel="measurements" hidden>
-            <div class="panel-intro"><div><span class="section-kicker">Operator data</span><h2>Measurements</h2><p>Manual and sensor-backed observations captured during the run.</p></div></div>
-            <div id="measurement_cards" class="measurement-card-grid"></div>
-            <article class="result-card">
-                <div class="result-card-heading"><div><span class="section-kicker">All observations</span><h2>Measurement log</h2></div></div>
-                <div class="table-scroll"><table class="data-table"><thead><tr><th>Variable</th><th>Value</th><th>Source</th><th>Experiment time</th><th>Stage</th><th>Captured</th></tr></thead><tbody id="measurement_table"></tbody></table></div>
-            </article>
-        </section>
-
-        <section class="results-panel" data-panel="videos" hidden>
-            <div class="panel-intro"><div><span class="section-kicker">Cameras</span><h2>Recordings</h2><p>Video segments are streamed directly from local experiment storage.</p></div></div>
-            <div class="video-layout">
-                <div id="video_cards" class="video-card-grid"></div>
-                <article id="video_viewer" class="result-card video-viewer" hidden>
-                    <div class="result-card-heading"><div><span id="video_camera" class="section-kicker">Camera</span><h2 id="video_title">—</h2><p id="video_meta">—</p></div></div>
-                    <video id="video_player" class="video-player" controls preload="metadata"></video>
-                    <div id="video_context" class="video-context"></div>
-                </article>
-            </div>
-        </section>
-
-        <section class="results-panel" data-panel="events" hidden>
-            <div class="panel-intro events-intro">
-                <div><span class="section-kicker">Journal</span><h2>Event log</h2><p>Persistent orchestration, hardware, stage, and warning events.</p></div>
-                <div id="event_filters" class="event-filters">
-                    <button class="filter-chip active" data-event-filter="all" type="button">All</button>
-                    <button class="filter-chip" data-event-filter="stage" type="button">Stages</button>
-                    <button class="filter-chip" data-event-filter="warning" type="button">Warnings</button>
-                    <button class="filter-chip" data-event-filter="camera" type="button">Cameras</button>
-                    <button class="filter-chip" data-event-filter="sensor" type="button">Sensors</button>
+                    <article id="analysis_video_viewer" class="result-card analysis-video-viewer" hidden>
+                        <div class="result-card-heading">
+                            <div>
+                                <span id="video_camera" class="section-kicker">Camera</span>
+                                <h2 id="video_title">—</h2>
+                                <p id="video_meta">—</p>
+                            </div>
+                            <button id="video_close" class="button button-secondary button-small" type="button">Close player</button>
+                        </div>
+                        <div class="video-player-wrap">
+                            <video id="video_player" class="video-player" controls preload="metadata"></video>
+                            <div id="video_loading" class="video-loading" hidden>
+                                <span class="loading-spinner"></span>
+                                <span id="video_loading_text">Loading video…</span>
+                            </div>
+                        </div>
+                        <div id="video_error" class="video-error" hidden></div>
+                        <div id="video_context" class="video-context"></div>
+                    </article>
                 </div>
             </div>
-            <div id="events_list" class="events-list"></div>
-        </section>
-
-        <section class="results-panel" data-panel="system" hidden>
-            <div class="panel-intro"><div><span class="section-kicker">Diagnostics</span><h2>System metrics</h2><p>Lightweight telemetry recorded during the experiment.</p></div></div>
-            <div id="system_cards" class="system-chart-grid"></div>
         </section>
 
         <section class="results-panel" data-panel="files" hidden>

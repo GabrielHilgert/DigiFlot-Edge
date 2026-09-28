@@ -3,6 +3,9 @@ import json
 import math
 import mimetypes
 import re
+import shutil
+import subprocess
+import hashlib
 from pathlib import Path
 from typing import Iterable
 from urllib.parse import quote
@@ -19,10 +22,22 @@ router = APIRouter(
 )
 
 _NUMBER_PATTERN = re.compile(r"[-+]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:[eE][-+]?\d+)?")
-_VIDEO_SUFFIXES = {".mp4", ".avi", ".mjpeg", ".mov", ".mkv", ".webm"}
+_VIDEO_SUFFIXES = {".mp4", ".m4v", ".avi", ".mjpeg", ".mjpg", ".mov", ".mkv", ".webm"}
 _TEXT_SUFFIXES = {".json", ".jsonl", ".tsv", ".csv", ".txt", ".log"}
 _MAX_TEXT_PREVIEW_BYTES = 512 * 1024
 _SENSOR_META_CACHE = {}
+_VIDEO_PROBE_CACHE = {}
+
+_VIDEO_MIME_TYPES = {
+    ".mp4": "video/mp4",
+    ".m4v": "video/mp4",
+    ".mov": "video/quicktime",
+    ".webm": "video/webm",
+    ".avi": "video/x-msvideo",
+    ".mkv": "video/x-matroska",
+    ".mjpeg": "video/x-motion-jpeg",
+    ".mjpg": "video/x-motion-jpeg",
+}
 
 
 def _read_json(path: Path, default=None):
@@ -131,6 +146,159 @@ def _parse_number(value):
     except ValueError:
         return None
 
+
+
+def _frame_rate(value):
+    if value in (None, "", "0/0"):
+        return None
+    text = str(value)
+    try:
+        if "/" in text:
+            numerator, denominator = text.split("/", 1)
+            denominator_value = float(denominator)
+            return float(numerator) / denominator_value if denominator_value else None
+        return float(text)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+
+def _video_media_type(path: Path):
+    return _VIDEO_MIME_TYPES.get(path.suffix.lower()) or mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+
+
+def _browser_compatible_video(path: Path, codec: str | None):
+    suffix = path.suffix.lower()
+    codec = str(codec or "").lower()
+    if suffix in {".mp4", ".m4v", ".mov"}:
+        return codec in {"h264", "avc1"}
+    if suffix == ".webm":
+        return codec in {"vp8", "vp9", "av1"}
+    return False
+
+
+def _probe_video(path: Path):
+    try:
+        stat = path.stat()
+    except OSError as error:
+        return {"ok": False, "error": str(error)}
+
+    cache_key = (str(path.resolve()), stat.st_size, stat.st_mtime_ns)
+    cached = _VIDEO_PROBE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    for key in list(_VIDEO_PROBE_CACHE):
+        if key[0] == cache_key[0] and key != cache_key:
+            _VIDEO_PROBE_CACHE.pop(key, None)
+
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        result = {
+            "ok": False,
+            "error": "ffprobe is not installed.",
+            "media_type": _video_media_type(path),
+            "browser_compatible": False,
+        }
+        _VIDEO_PROBE_CACHE[cache_key] = result
+        return result
+
+    try:
+        completed = subprocess.run(
+            [
+                ffprobe, "-v", "error", "-print_format", "json",
+                "-show_format", "-show_streams", str(path),
+            ],
+            capture_output=True, text=True, timeout=12, check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        result = {"ok": False, "error": str(error), "media_type": _video_media_type(path), "browser_compatible": False}
+        _VIDEO_PROBE_CACHE[cache_key] = result
+        return result
+
+    if completed.returncode != 0:
+        error = (completed.stderr or completed.stdout or "ffprobe failed").strip()
+        result = {"ok": False, "error": error[-1000:], "media_type": _video_media_type(path), "browser_compatible": False}
+        _VIDEO_PROBE_CACHE[cache_key] = result
+        return result
+
+    try:
+        payload = json.loads(completed.stdout or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+
+    streams = payload.get("streams") or []
+    video_stream = next((item for item in streams if item.get("codec_type") == "video"), {})
+    format_info = payload.get("format") or {}
+    codec = video_stream.get("codec_name")
+    duration = _parse_number(video_stream.get("duration"))
+    if duration is None:
+        duration = _parse_number(format_info.get("duration"))
+
+    result = {
+        "ok": bool(video_stream),
+        "error": None if video_stream else "No video stream found.",
+        "codec": codec,
+        "codec_long_name": video_stream.get("codec_long_name"),
+        "pixel_format": video_stream.get("pix_fmt"),
+        "width": video_stream.get("width"),
+        "height": video_stream.get("height"),
+        "fps": _frame_rate(video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate")),
+        "duration_s": duration,
+        "format_name": format_info.get("format_name"),
+        "media_type": _video_media_type(path),
+        "browser_compatible": _browser_compatible_video(path, codec),
+    }
+    _VIDEO_PROBE_CACHE[cache_key] = result
+    return result
+
+
+def _browser_video_cache_path(directory: Path, file_path: Path):
+    stat = file_path.stat()
+    relative = _relative(directory, file_path)
+    digest = hashlib.sha256(f"{relative}|{stat.st_size}|{stat.st_mtime_ns}".encode("utf-8")).hexdigest()[:20]
+    cache_dir = directory.parent / ".results_cache" / directory.name
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{digest}.browser.mp4"
+
+
+def _ensure_browser_video(directory: Path, file_path: Path):
+    probe = _probe_video(file_path)
+    if probe.get("browser_compatible"):
+        return file_path, _video_media_type(file_path), False
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise HTTPException(status_code=503, detail="ffmpeg is required to prepare this recording for browser playback.")
+
+    output = _browser_video_cache_path(directory, file_path)
+    if output.is_file() and output.stat().st_size > 0:
+        return output, "video/mp4", True
+
+    temporary = output.with_suffix(".tmp.mp4")
+    temporary.unlink(missing_ok=True)
+    command = [
+        ffmpeg, "-y", "-v", "error", "-i", str(file_path),
+        "-map", "0:v:0", "-an",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        str(temporary),
+    ]
+    try:
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=1800, check=False)
+    except subprocess.TimeoutExpired as error:
+        temporary.unlink(missing_ok=True)
+        raise HTTPException(status_code=504, detail="Timed out while preparing video for browser playback.") from error
+    except OSError as error:
+        temporary.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Could not run ffmpeg: {error}") from error
+
+    if completed.returncode != 0 or not temporary.is_file() or temporary.stat().st_size <= 0:
+        temporary.unlink(missing_ok=True)
+        detail = (completed.stderr or completed.stdout or "ffmpeg failed").strip()[-1400:]
+        raise HTTPException(status_code=422, detail=f"Could not prepare browser-compatible video: {detail}")
+
+    temporary.replace(output)
+    return output, "video/mp4", True
 
 def _atlas_config(config: dict):
     sensors = config.get("sensors") or {}
@@ -309,6 +477,7 @@ def _video_manifest(directory: Path, events: list | None = None):
         sidecar = path.with_suffix(path.suffix + ".json")
         metadata = _read_json(sidecar, {}) if sidecar.is_file() else {}
         camera_name = metadata.get("camera_name") or path.parent.name
+        probe = _probe_video(path)
 
         start_elapsed_s = None
         end_elapsed_s = None
@@ -327,6 +496,12 @@ def _video_manifest(directory: Path, events: list | None = None):
             elif event_name == "CAMERA_RECORDING_STOPPED":
                 end_elapsed_s = _parse_number(event.get("run_elapsed_s"))
 
+        duration_s = _parse_number(probe.get("duration_s"))
+        if end_elapsed_s is None and start_elapsed_s is not None and duration_s is not None:
+            end_elapsed_s = start_elapsed_s + duration_s
+
+        browser_compatible = bool(probe.get("browser_compatible"))
+        playback_media_type = probe.get("media_type") if browser_compatible else "video/mp4"
         videos.append({
             "id": rel,
             "path": rel,
@@ -344,8 +519,20 @@ def _video_manifest(directory: Path, events: list | None = None):
             "end_monotonic_ns": metadata.get("end_monotonic_ns"),
             "start_elapsed_s": start_elapsed_s,
             "end_elapsed_s": end_elapsed_s,
+            "duration_s": duration_s,
             "metadata": metadata,
-            "stream_url": f"/api/results/{quote(directory.name, safe='')}/file?path={quote(rel, safe='')}",
+            "probe": probe,
+            "codec": probe.get("codec"),
+            "format_name": probe.get("format_name"),
+            "fps": probe.get("fps"),
+            "width": probe.get("width"),
+            "height": probe.get("height"),
+            "media_type": probe.get("media_type") or _video_media_type(path),
+            "browser_compatible": browser_compatible,
+            "needs_proxy": not browser_compatible,
+            "playback_media_type": playback_media_type,
+            "stream_url": f"/api/results/{quote(directory.name, safe='')}/video?path={quote(rel, safe='')}",
+            "raw_url": f"/api/results/{quote(directory.name, safe='')}/file?path={quote(rel, safe='')}",
         })
     return videos
 
@@ -699,6 +886,29 @@ def get_system_metrics(
     return {"columns": columns, "rows": rows}
 
 
+@router.get("/{storage_id}/video")
+def get_browser_video(
+    storage_id: str,
+    path: str = Query(...),
+):
+    directory = get_local_directory(storage_id)
+    file_path = _safe_relative_path(directory, path)
+    if file_path.suffix.lower() not in _VIDEO_SUFFIXES:
+        raise HTTPException(status_code=400, detail="Requested file is not a supported recording.")
+
+    playback_path, media_type, transcoded = _ensure_browser_video(directory, file_path)
+    headers = {
+        "Cache-Control": "private, max-age=3600",
+        "X-DigiFlot-Video-Proxy": "1" if transcoded else "0",
+    }
+    return FileResponse(
+        playback_path,
+        media_type=media_type,
+        headers=headers,
+        content_disposition_type="inline",
+    )
+
+
 @router.get("/{storage_id}/file")
 def get_result_file(
     storage_id: str,
@@ -707,7 +917,7 @@ def get_result_file(
 ):
     directory = get_local_directory(storage_id)
     file_path = _safe_relative_path(directory, path)
-    media_type, _ = mimetypes.guess_type(file_path.name)
+    media_type = _video_media_type(file_path) if file_path.suffix.lower() in _VIDEO_SUFFIXES else mimetypes.guess_type(file_path.name)[0]
     disposition = "attachment" if download else "inline"
     return FileResponse(
         file_path,
