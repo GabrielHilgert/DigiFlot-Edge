@@ -194,6 +194,11 @@ class DigiFlot:
         self.measurement_variables = {}
         self.measurement_revision = 0
 
+        # Optional offline-safe Server synchronization. The orchestrator must
+        # remain fully operational when no ServerSync manager is attached or
+        # when local sync bookkeeping fails.
+        self.server_sync_manager = None
+
     # ------------------------------------------------------------------
     # Startup / shutdown
     # ------------------------------------------------------------------
@@ -344,6 +349,57 @@ class DigiFlot:
     # ------------------------------------------------------------------
     # Status / state snapshots
     # ------------------------------------------------------------------
+
+    def set_server_sync_manager(self, manager):
+        """Attach the optional persistent ServerSync manager.
+
+        The manager is attached after DigiFlot.start() by app.py. Reconcile any
+        run restored during startup immediately so an interrupted execution is
+        still represented in server_sync.json. Sync bookkeeping is deliberately
+        best-effort and must never stop local acquisition.
+        """
+        with self.lock:
+            self.server_sync_manager = manager
+            self._sync_execution_state_unlocked(ensure=True)
+        return manager
+
+    def _server_execution_status_unlocked(self):
+        if self.state in {self.RUNNING, self.PAUSED, self.RECOVERY_REQUIRED}:
+            return "running"
+        if self.state == self.COMPLETED:
+            return "completed"
+        if self.state == self.ABORTED:
+            return "aborted"
+        if self.state == self.ERROR:
+            return "failed"
+        return "preparing"
+
+    def _sync_execution_state_unlocked(self, status=None, *, ensure=False):
+        manager = self.server_sync_manager
+        if manager is None or self.run_directory is None or self.experiment is None:
+            return None
+
+        status = str(status or self._server_execution_status_unlocked()).strip().lower()
+        try:
+            if ensure:
+                record = manager.ensure_execution(
+                    self.run_directory,
+                    self.experiment,
+                    status=status,
+                )
+                # Legacy/manual experiments intentionally have no v2 execution
+                # template, so ensure_execution() returns None. That is valid.
+                if record is None:
+                    return None
+
+            return manager.update_execution(
+                self.run_directory,
+                status,
+                occurred_at=_utc_now(),
+            )
+        except Exception as error:
+            print(f"[DigiFlot] Server sync bookkeeping unavailable: {error}")
+            return None
 
     @property
     def execution_locked(self):
@@ -996,6 +1052,7 @@ class DigiFlot:
                     "experiment_name": experiment.get("name"),
                 },
             )
+            self._sync_execution_state_unlocked("preparing", ensure=True)
             self._advance_from_camera_calibration_unlocked()
             return self.status
 
@@ -1602,6 +1659,7 @@ class DigiFlot:
                 self.current_stage_index = 0
                 self.stage_attempt = 1
                 self._touch_unlocked("EXPERIMENT_STARTED")
+                self._sync_execution_state_unlocked("running", ensure=True)
 
                 try:
                     self._start_sensor_recording_unlocked()
@@ -1845,6 +1903,7 @@ class DigiFlot:
         self.state = self.COMPLETED
         self.recovery_context = None
         self._touch_unlocked("EXPERIMENT_COMPLETED")
+        self._sync_execution_state_unlocked("completed", ensure=True)
 
     def abort_experiment(self, reason="Operator aborted experiment"):
         with self.lock:
@@ -1866,6 +1925,7 @@ class DigiFlot:
             self.last_error = str(reason)
             self.recovery_context = None
             self._touch_unlocked("EXPERIMENT_ABORTED", {"reason": str(reason)})
+            self._sync_execution_state_unlocked("aborted", ensure=True)
             return self.status
 
     def _enter_recovery_unlocked(self, error, source="orchestrator"):
