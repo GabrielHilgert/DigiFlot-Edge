@@ -14,12 +14,12 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260928c">
     <link
         rel="stylesheet"
-        href="{{ url_for('static', path='css/experiments.css') }}?v=20260928c"
+        href="{{ url_for('static', path='css/experiments.css') }}?v=20261005a"
     >
 
     <script
         defer
-        src="{{ url_for('static', path='js/experiments.js') }}?v=20260928c"
+        src="{{ url_for('static', path='js/experiments.js') }}?v=20261005a"
     ></script>
 </head>
 
@@ -36,11 +36,11 @@
                 </p>
 
                 <h1>
-                    Available experiments
+                    Campaigns and experiments
                 </h1>
 
                 <p class="page-description">
-                    Experiment definitions and recorded runs. Results are attached to executions that contain data, independent of where the definition came from.
+                    Browse the Server catalog by user and campaign. Experiment definitions contain the recipe; recorded executions appear directly below the definition that produced them.
                 </p>
             </div>
 
@@ -119,6 +119,15 @@
                         >
 
                         <button
+                            id="sync_button"
+                            class="button button-secondary"
+                            type="button"
+                            title="Request an immediate catalog and execution synchronization"
+                        >
+                            Sync now
+                        </button>
+
+                        <button
                             id="refresh_button"
                             class="button button-secondary"
                             type="button"
@@ -144,7 +153,7 @@
                             <input
                                 id="experiment_search"
                                 type="search"
-                                placeholder="Name, ID, source or state"
+                                placeholder="User, campaign, experiment, design, ID or state"
                                 autocomplete="off"
                             >
 
@@ -154,7 +163,7 @@
                         <div class="experiment-count">
 
                             <span>
-                                Entries
+                                Experiments
                             </span>
 
                             <strong id="experiment_count">
@@ -166,6 +175,16 @@
                     </div>
 
 
+                    <div class="catalog-summary" id="catalog_summary">
+                        <div class="catalog-summary-counts">
+                            <span><strong id="catalog_user_count">0</strong> users</span>
+                            <span><strong id="catalog_campaign_count">0</strong> campaigns</span>
+                            <span><strong id="catalog_definition_count">0</strong> definitions</span>
+                            <span><strong id="catalog_local_count">0</strong> local runs</span>
+                        </div>
+                        <span id="catalog_sync_text" class="catalog-sync-text">Catalog not loaded</span>
+                    </div>
+
                     <div class="table-frame">
 
                         <table class="experiment-table">
@@ -175,8 +194,8 @@
                                 <tr>
                                     <th>ID</th>
                                     <th>Experiment</th>
-                                    <th>Source</th>
-                                    <th>State</th>
+                                    <th>Context</th>
+                                    <th>Execution</th>
                                     <th>Modified</th>
                                     <th>Local data</th>
                                     <th></th>
@@ -371,12 +390,12 @@
                             </div>
 
                             <div class="parameter-item">
-                                <span>User ID</span>
+                                <span>Owner / User</span>
                                 <strong id="detail_user">—</strong>
                             </div>
 
                             <div class="parameter-item">
-                                <span>Group ID</span>
+                                <span>Campaign</span>
                                 <strong id="detail_group">—</strong>
                             </div>
 
