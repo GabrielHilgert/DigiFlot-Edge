@@ -14,6 +14,7 @@ from api.server import router as server_router
 from api.results import router as results_router
 from lib.digiflot import DigiFlot, load_config
 from lib.server import Server
+from lib.server_sync import ServerSync
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -46,17 +47,21 @@ async def lifespan(app: FastAPI):
         name=server_config.get("name", ""),
         token=server_config.get("token", ""),
     )
-    try:
-        app.state.server.login()
-    except Exception as error:
-        # The central server must not prevent the local DigiFlot interface from
-        # starting. Settings remains available so the operator can correct the
-        # endpoint, cell ID, name or token and then restart locally.
-        print(f"[DigiFlot] Central server unavailable during startup: {error}")
+
+    # Server access is completely asynchronous. The Edge must boot and remain
+    # operational from its persistent cache even if the central Server is down
+    # for hours or days.
+    app.state.server_sync = ServerSync(
+        app.state.server,
+        LOCAL_STORAGE_DIR,
+    )
+    digiflot.set_server_sync_manager(app.state.server_sync)
+    app.state.server_sync.start()
 
     try:
         yield
     finally:
+        app.state.server_sync.stop()
         digiflot.close()
 
 
