@@ -520,7 +520,12 @@ function renderExperiments() {
         }
     }
 
-    if (!renderedExperiments) {
+    // Group headers are valid rendered content even when their children are
+    // collapsed. Using renderedExperiments here caused a collapsed user or
+    // campaign to be immediately replaced by the empty-state row, which made
+    // the group itself disappear. Only show the empty state when no row at all
+    // was rendered.
+    if (!elements.body.children.length) {
         renderTableMessage(query ? "No experiments match the current search." : "No experiments are available.");
     }
 }

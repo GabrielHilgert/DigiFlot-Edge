@@ -891,6 +891,12 @@ def get_system_metrics(
         for row in reader:
             parsed = {}
             for key, value in row.items():
+                # _parse_number() is intentionally permissive for values that may
+                # contain units. Do not apply it to ISO timestamps, otherwise a
+                # value such as 2026-10-12T11:30:00.000+00:00 becomes 2026.0.
+                if str(key).strip().lower() in {"timestamp", "datetime", "time"}:
+                    parsed[key] = value
+                    continue
                 number = _parse_number(value)
                 parsed[key] = number if number is not None else value
             rows.append(parsed)
