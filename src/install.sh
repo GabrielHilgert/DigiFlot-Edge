@@ -106,8 +106,9 @@ wait_for_http() {
     return 1
 }
 
-cd /opt/digiflot-edge
-sudo git update-index --skip-worktree src/config.json
+
+
+
 
 printf '\n========================================\n'
 printf '    DigiFlot Edge Shared Installer\n'
@@ -223,6 +224,11 @@ fi
 
 # Keep ownership deterministic after git operations.
 as_root chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DIR"
+
+if run_as_service git -C "$APP_DIR" ls-files --error-unmatch src/config.json >/dev/null 2>&1; then
+    run_as_service git -C "$APP_DIR" update-index --skip-worktree src/config.json
+fi
+
 
 [[ -d "$SRC_DIR" ]] || die "Source directory not found: $SRC_DIR"
 [[ -f "$REQUIREMENTS" ]] || die "requirements.txt not found: $REQUIREMENTS"
