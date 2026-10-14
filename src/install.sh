@@ -72,12 +72,22 @@ as_root() {
     fi
 }
 
-run_as_service() {
-    if [[ "$(id -un)" == "$SERVICE_USER" ]]; then
-        HOME="$SERVICE_HOME" "$@"
+run_as_user() {
+    local username="$1"
+    local user_home="$2"
+    shift 2
+
+    if [[ "$(id -un)" == "$username" ]]; then
+        HOME="$user_home" "$@"
+    elif (( EUID == 0 )); then
+        runuser -u "$username" -- env HOME="$user_home" "$@"
     else
-        sudo -u "$SERVICE_USER" -H env HOME="$SERVICE_HOME" "$@"
+        sudo -u "$username" -H env HOME="$user_home" "$@"
     fi
+}
+
+run_as_service() {
+    run_as_user "$SERVICE_USER" "$SERVICE_HOME" "$@"
 }
 
 write_root_file_if_changed() {
@@ -106,6 +116,14 @@ wait_for_http() {
     return 1
 }
 
+protect_machine_config() {
+    if [[ -d "$APP_DIR/.git" ]] \
+       && run_as_service git -C "$APP_DIR" ls-files --error-unmatch src/config.json >/dev/null 2>&1; then
+        run_as_service git -C "$APP_DIR" update-index --skip-worktree src/config.json
+        log "Machine-local src/config.json is protected from routine Git updates."
+    fi
+}
+
 
 
 
@@ -127,6 +145,8 @@ as_root apt-get update
 as_root apt-get install -y \
     git \
     curl \
+    util-linux \
+    xdg-utils \
     ffmpeg \
     i2c-tools \
     desktop-file-utils \
@@ -185,6 +205,7 @@ if [[ -d "$APP_DIR/.git" ]]; then
     # Older installs may have been created by root/a different user. Normalize
     # ownership before using git as the service account.
     as_root chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DIR"
+    protect_machine_config
 
     log "Shared repository already exists. Checking for updates..."
     if run_as_service git -C "$APP_DIR" fetch origin "$BRANCH"; then
@@ -224,11 +245,7 @@ fi
 
 # Keep ownership deterministic after git operations.
 as_root chown -R "$SERVICE_USER:$SERVICE_GROUP" "$APP_DIR"
-
-if run_as_service git -C "$APP_DIR" ls-files --error-unmatch src/config.json >/dev/null 2>&1; then
-    run_as_service git -C "$APP_DIR" update-index --skip-worktree src/config.json
-fi
-
+protect_machine_config
 
 [[ -d "$SRC_DIR" ]] || die "Source directory not found: $SRC_DIR"
 [[ -f "$REQUIREMENTS" ]] || die "requirements.txt not found: $REQUIREMENTS"
@@ -263,7 +280,15 @@ if [[ "$REQ_HASH" == "$OLD_REQ_HASH" ]]; then
     log "Python requirements are unchanged; pip install not required."
 else
     log "Python requirements changed or have not been installed yet. Installing..."
-    run_as_service "$PYTHON" -m pip install -r "$REQUIREMENTS"
+
+    # The venv deliberately inherits Raspberry Pi system packages so Picamera2
+    # and libcamera remain available. On Debian/Raspberry Pi OS,
+    # typing_extensions may therefore come from apt without pip RECORD
+    # metadata. Install a venv-local copy first instead of trying to uninstall
+    # the distro-owned package.
+    run_as_service "$PYTHON" -m pip install --ignore-installed --no-deps typing_extensions
+    run_as_service "$PYTHON" -m pip install --upgrade-strategy only-if-needed -r "$REQUIREMENTS"
+
     printf '%s\n' "$REQ_HASH" | as_root tee "$REQ_STAMP" >/dev/null
     as_root chown "$SERVICE_USER:$SERVICE_GROUP" "$REQ_STAMP"
     REQUIREMENTS_RESULT="installed/updated"
@@ -428,11 +453,16 @@ SERVICE_HOME="$SERVICE_HOME"
 BRANCH="$BRANCH"
 
 as_service() {
-    sudo -u "\$SERVICE_USER" -H env HOME="\$SERVICE_HOME" "\$@"
+    runuser -u "\$SERVICE_USER" -- env HOME="\$SERVICE_HOME" "\$@"
 }
 
 [[ "\${EUID}" -eq 0 ]] || { echo '[DigiFlot] Run as root: sudo digiflot-update' >&2; exit 1; }
 [[ -d "\$APP_DIR/.git" ]] || { echo '[DigiFlot] Shared repository is missing.' >&2; exit 1; }
+
+# Old installations may not yet have marked config.json as machine-local.
+if as_service git -C "\$APP_DIR" ls-files --error-unmatch src/config.json >/dev/null 2>&1; then
+    as_service git -C "\$APP_DIR" update-index --skip-worktree src/config.json
+fi
 
 printf '[DigiFlot] Checking shared repository for updates...\\n'
 as_service git -C "\$APP_DIR" fetch origin "\$BRANCH"
@@ -456,9 +486,22 @@ as_service git -C "\$APP_DIR" merge-base --is-ancestor "\$local_commit" "\$remot
 }
 
 as_service git -C "\$APP_DIR" pull --ff-only origin "\$BRANCH"
-as_service "\$VENV_DIR/bin/python" -m pip install -r "\$REQUIREMENTS"
-sha256sum "\$REQUIREMENTS" | awk '{print \$1}' > "\$VENV_DIR/.digiflot_requirements.sha256"
-chown "\$SERVICE_USER:$(id -gn "$SERVICE_USER")" "\$VENV_DIR/.digiflot_requirements.sha256"
+
+req_hash="\$(sha256sum "\$REQUIREMENTS" | awk '{print \$1}')"
+req_stamp="\$VENV_DIR/.digiflot_requirements.sha256"
+old_req_hash=""
+[[ -f "\$req_stamp" ]] && old_req_hash="\$(cat "\$req_stamp" 2>/dev/null || true)"
+
+if [[ "\$req_hash" != "\$old_req_hash" ]]; then
+    echo '[DigiFlot] Python requirements changed. Updating environment...'
+    as_service "\$VENV_DIR/bin/python" -m pip install --ignore-installed --no-deps typing_extensions
+    as_service "\$VENV_DIR/bin/python" -m pip install --upgrade-strategy only-if-needed -r "\$REQUIREMENTS"
+    printf '%s\\n' "\$req_hash" > "\$req_stamp"
+    chown "\$SERVICE_USER:$(id -gn "$SERVICE_USER")" "\$req_stamp"
+else
+    echo '[DigiFlot] Python requirements unchanged.'
+fi
+
 systemctl restart ${SERVICE_NAME}.service
 echo '[DigiFlot] Update installed and service restarted.'
 EOF_UPDATE
@@ -509,13 +552,30 @@ EOF_DESKTOP
 # -----------------------------------------------------------------------------
 # Validate and install system files
 # -----------------------------------------------------------------------------
+# Validate generated helper scripts before installing anything.
+bash -n "$TMP_DIR/digiflot-healthcheck"
+bash -n "$TMP_DIR/digiflot-edge-open"
+bash -n "$TMP_DIR/digiflot-status"
+bash -n "$TMP_DIR/digiflot-update"
+
+# systemd-analyze also checks whether ExecStart exists. The real healthcheck
+# path is intentionally not installed yet on a clean machine, so validate an
+# otherwise identical temporary unit that points to /bin/true.
+VERIFY_DIR="$TMP_DIR/verify"
+mkdir -p "$VERIFY_DIR"
+cp "$TMP_DIR/${SERVICE_NAME}.service" "$VERIFY_DIR/${SERVICE_NAME}.service"
+cp "$TMP_DIR/${HEALTH_SERVICE_NAME}.timer" "$VERIFY_DIR/${HEALTH_SERVICE_NAME}.timer"
+sed "s|^ExecStart=$GLOBAL_HEALTH_SCRIPT$|ExecStart=/bin/true|" \
+    "$TMP_DIR/${HEALTH_SERVICE_NAME}.service" \
+    > "$VERIFY_DIR/${HEALTH_SERVICE_NAME}.service"
+
 log "Validating generated systemd units..."
 VERIFY_OUTPUT="$(systemd-analyze verify \
-    "$TMP_DIR/${SERVICE_NAME}.service" \
-    "$TMP_DIR/${HEALTH_SERVICE_NAME}.service" \
-    "$TMP_DIR/${HEALTH_SERVICE_NAME}.timer" 2>&1)" || {
+    "$VERIFY_DIR/${SERVICE_NAME}.service" \
+    "$VERIFY_DIR/${HEALTH_SERVICE_NAME}.service" \
+    "$VERIFY_DIR/${HEALTH_SERVICE_NAME}.timer" 2>&1)" || {
     printf '%s\n' "$VERIFY_OUTPUT" >&2
-    die "Generated systemd configuration is invalid; nothing was installed."
+    die "Generated systemd configuration is invalid; system unit files were not installed."
 }
 log "systemd unit validation: OK"
 
@@ -578,7 +638,7 @@ install_user_shortcut() {
     log "Desktop shortcut installed for $username: $desktop_file"
 
     if command -v gio >/dev/null 2>&1; then
-        sudo -u "$username" gio set "$desktop_file" metadata::trusted true >/dev/null 2>&1 || true
+        run_as_user "$username" "$user_home" gio set "$desktop_file" metadata::trusted true >/dev/null 2>&1 || true
     fi
 }
 
