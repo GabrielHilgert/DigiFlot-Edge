@@ -569,6 +569,23 @@ function renderRequiredInputs(state) {
     }
     ui.required_inputs_panel.hidden = false;
     const profile = data.cell_profile || {};
+    const derived = Object.values(data.derived_metrics || {}).filter(item => item && Number.isFinite(Number(item.value)));
+    const derivedMarkup = derived.length ? `
+        <div class="required-inputs-heading">
+            <div><strong>Derived from available measurements</strong><span>Estimates only; original inputs and observations are unchanged.</span></div>
+        </div>
+        <div class="required-input-grid">
+            ${derived.map(item => {
+                const isFraction = item.unit === "fraction";
+                const value = isFraction ? Number(item.value) * 100 : Number(item.value);
+                const unit = isFraction ? "%" : (item.unit || "");
+                return `<div class="required-input-item complete">
+                    <label>${escapeHtml(item.label || "Derived value")}</label>
+                    <strong>${escapeHtml(value.toLocaleString(undefined, {maximumFractionDigits: 3}))} ${escapeHtml(unit)}</strong>
+                    <small>Calculated, not directly measured</small>
+                </div>`;
+            }).join("")}
+        </div>` : "";
     const suggestionOptions = suggestions.map((item, index) => {
         const name = item.cell_name || "Unnamed observed cell";
         const volume = item.working_volume_l != null ? `${Number(item.working_volume_l).toLocaleString()} L` : "volume unknown";
@@ -608,7 +625,8 @@ function renderRequiredInputs(state) {
                     <small>${item.measurement_id ? "Execution value · auditable measurement" : (item.source === "recipe" ? "From recipe; change only if the actual run differs." : "Not provided by recipe.")}</small>
                 </div>`;
             }).join("")}
-        </div>`;
+        </div>
+        ${derivedMarkup}`;
 }
 
 function renderMeasurements(state) {
