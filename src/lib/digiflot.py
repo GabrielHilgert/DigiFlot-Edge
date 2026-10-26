@@ -83,6 +83,12 @@ class DigiFlot:
 
     EXECUTION_LOCK_STATES = {RUNNING, PAUSED, RECOVERY_REQUIRED}
 
+    REQUIRED_EXECUTION_INPUTS = {
+        "working_cell_volume": {"label": "Working cell volume", "unit": "L", "aliases": ("working_cell_volume", "cell_volume", "working_volume")},
+        "feed_mass": {"label": "Feed mass", "unit": "g", "aliases": ("feed_mass", "ore_mass", "mass_of_solids", "solids_mass")},
+        "water_volume": {"label": "Water volume", "unit": "L", "aliases": ("water_volume", "water_volume_l")},
+    }
+
     STAGE_POLICIES = {
         "conditioning": {
             "camera": False,
@@ -193,6 +199,8 @@ class DigiFlot:
         self.measurements = []
         self.measurement_variables = {}
         self.measurement_revision = 0
+        self.execution_inputs = {}
+        self.cell_profile = None
 
         # Optional offline-safe Server synchronization. The orchestrator must
         # remain fully operational when no ServerSync manager is attached or
@@ -396,6 +404,9 @@ class DigiFlot:
                 self.run_directory,
                 status,
                 occurred_at=_utc_now(),
+                execution_inputs=deepcopy(self.execution_inputs),
+                cell_profile=deepcopy(self.cell_profile),
+                measurements_summary=self._measurement_summary_unlocked(),
             )
         except Exception as error:
             print(f"[DigiFlot] Server sync bookkeeping unavailable: {error}")
@@ -521,6 +532,7 @@ class DigiFlot:
             "devices": self._device_status_unlocked(),
             "performance": self._performance_summary_unlocked(),
             "measurements": self._measurement_summary_unlocked(),
+            "execution_inputs": self._execution_inputs_payload_unlocked(),
             "last_error": self.last_error,
         }
 
@@ -599,6 +611,67 @@ class DigiFlot:
     def _measurement_unit(value):
         value = str(value or "").strip()
         return value or None
+
+    def _initialise_execution_inputs_unlocked(self):
+        metadata = (self.experiment or {}).get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        previous = self.execution_inputs if isinstance(self.execution_inputs, dict) else {}
+        inputs = {}
+        for key, spec in self.REQUIRED_EXECUTION_INPUTS.items():
+            value = None
+            source = None
+            for alias in spec["aliases"]:
+                if (self.experiment or {}).get(alias) not in (None, ""):
+                    value, source = (self.experiment or {}).get(alias), "recipe"
+                    break
+                if metadata.get(alias) not in (None, ""):
+                    value, source = metadata.get(alias), "recipe"
+                    break
+            old = previous.get(key) if isinstance(previous.get(key), dict) else {}
+            if old.get("value") not in (None, ""):
+                value = old.get("value")
+                source = old.get("source") or source or "execution"
+            try:
+                value = float(value) if value not in (None, "") else None
+            except (TypeError, ValueError):
+                value = None
+            inputs[key] = {
+                "id": key,
+                "label": spec["label"],
+                "unit": spec["unit"],
+                "required": True,
+                "value": value,
+                "source": source,
+                "measurement_id": old.get("measurement_id"),
+                "updated_at": old.get("updated_at"),
+            }
+        self.execution_inputs = inputs
+
+        profile = deepcopy((self.experiment or {}).get("cell_profile") or metadata.get("cell_profile") or self.cell_profile)
+        if not isinstance(profile, dict):
+            profile = {}
+        if profile.get("working_volume_l") in (None, "") and inputs["working_cell_volume"]["value"] is not None:
+            profile["working_volume_l"] = inputs["working_cell_volume"]["value"]
+        self.cell_profile = profile or None
+
+    def _execution_inputs_payload_unlocked(self):
+        items = [deepcopy(self.execution_inputs.get(key, {})) for key in self.REQUIRED_EXECUTION_INPUTS]
+        missing = [item.get("id") for item in items if item.get("value") in (None, "")]
+        suggestions = []
+        manager = self.server_sync_manager
+        if manager is not None:
+            try:
+                suggestions = deepcopy((manager.catalog_payload() or {}).get("cell_suggestions") or [])
+            except Exception:
+                suggestions = []
+        return {
+            "complete": not missing,
+            "missing": missing,
+            "items": items,
+            "cell_profile": deepcopy(self.cell_profile),
+            "cell_suggestions": suggestions,
+        }
 
     def _measurement_summary_unlocked(self):
         variables = []
@@ -690,6 +763,9 @@ class DigiFlot:
         value=None,
         unit=None,
         variable_id=None,
+        value_type="number",
+        role="measurement",
+        category=None,
     ):
         with self.lock:
             if self.run_directory is None or self.experiment is None:
@@ -708,7 +784,18 @@ class DigiFlot:
                 name = existing["name"]
 
             source_id = str(source_id or "manual").strip()
+            value_type = str(value_type or "number").strip().lower()
+            role = str(role or "measurement").strip().lower()
+            category = str(category or ("note" if value_type == "text" else "measurement")).strip().lower()
+            if value_type not in {"number", "text"}:
+                raise ValueError("value_type must be 'number' or 'text'.")
+            if role not in {"measurement", "execution_input", "note"}:
+                raise ValueError("Unsupported measurement role.")
+            if role == "execution_input" and normalized_id not in self.REQUIRED_EXECUTION_INPUTS:
+                raise ValueError(f"Unknown execution input: {normalized_id}")
             source_type = "manual" if source_id.lower() == "manual" else "sensor"
+            if value_type == "text" and source_type != "manual":
+                raise ValueError("Text observations must use manual entry.")
             sensor_name = None
             sensor_type = None
             sensor_status = None
@@ -719,11 +806,15 @@ class DigiFlot:
             if source_type == "manual":
                 if value is None or str(value).strip() == "":
                     raise ValueError("A manual value is required.")
-                try:
-                    captured_value = float(str(value).replace(",", "."))
-                except (TypeError, ValueError):
-                    raise ValueError("Manual value must be numeric.")
-                captured_unit = self._measurement_unit(unit)
+                if value_type == "text":
+                    captured_value = str(value).strip()
+                    captured_unit = None
+                else:
+                    try:
+                        captured_value = float(str(value).replace(",", "."))
+                    except (TypeError, ValueError):
+                        raise ValueError("Manual numeric value must be numeric.")
+                    captured_unit = self._measurement_unit(unit)
             else:
                 snapshot = self._measurement_sensor_snapshot_unlocked(source_id)
                 captured_value = snapshot.get("value")
@@ -755,6 +846,9 @@ class DigiFlot:
                 "variable_id": normalized_id,
                 "variable_name": name,
                 "value": captured_value,
+                "value_type": value_type,
+                "role": role,
+                "category": category,
                 "unit": captured_unit,
                 "source_type": source_type,
                 "sensor_id": None if source_type == "manual" else source_id,
@@ -783,6 +877,18 @@ class DigiFlot:
                 os.fsync(file.fileno())
 
             self.measurements.append(record)
+            if role == "execution_input":
+                target = self.execution_inputs[normalized_id]
+                target.update({
+                    "value": captured_value,
+                    "source": source_id if source_type == "sensor" else "manual",
+                    "measurement_id": record["measurement_id"],
+                    "updated_at": record["captured_at"],
+                })
+                if normalized_id == "working_cell_volume":
+                    profile = deepcopy(self.cell_profile or {})
+                    profile["working_volume_l"] = captured_value
+                    self.cell_profile = profile
             variable = self.measurement_variables.get(normalized_id)
             if variable is None:
                 variable = {
@@ -808,9 +914,11 @@ class DigiFlot:
                     "sensor_id": record["sensor_id"],
                 },
             )
+            self._sync_execution_state_unlocked()
             return {
                 "record": deepcopy(record),
                 "measurements": self._measurement_summary_unlocked(),
+                "execution_inputs": self._execution_inputs_payload_unlocked(),
             }
 
     def _performance_summary_unlocked(self):
@@ -1041,6 +1149,7 @@ class DigiFlot:
             self.run_directory = directory
             self.experiment = experiment
             self._load_measurements_unlocked()
+            self._initialise_execution_inputs_unlocked()
             self.state = self.CAMERA_CALIBRATION
             self.stage_state = self.STAGE_NONE
             self._initialise_calibration_state_unlocked()
@@ -1062,6 +1171,13 @@ class DigiFlot:
         self.run_directory = directory
         self.experiment = experiment
         self._load_measurements_unlocked()
+        saved_inputs = runtime.get("execution_inputs")
+        if isinstance(saved_inputs, dict):
+            items = saved_inputs.get("items")
+            if isinstance(items, list):
+                self.execution_inputs = {str(item.get("id")): deepcopy(item) for item in items if isinstance(item, dict) and item.get("id")}
+            self.cell_profile = deepcopy(saved_inputs.get("cell_profile")) if isinstance(saved_inputs.get("cell_profile"), dict) else None
+        self._initialise_execution_inputs_unlocked()
         self.current_stage_index = runtime.get("current_stage_index")
         self.stage_state = runtime.get("stage_state", self.STAGE_NONE)
         self.run_started_at = runtime.get("run_started_at")
@@ -1195,6 +1311,8 @@ class DigiFlot:
         self.measurements = []
         self.measurement_variables = {}
         self.measurement_revision = 0
+        self.execution_inputs = {}
+        self.cell_profile = None
         self.state = self.IDLE
 
     def _initialise_calibration_state_unlocked(self):
@@ -1651,6 +1769,10 @@ class DigiFlot:
             if self.state == self.READY:
                 if self.current_stage_index is not None:
                     raise RuntimeError("The first stage has already been started.")
+                required = self._execution_inputs_payload_unlocked()
+                if required["missing"]:
+                    labels = [self.REQUIRED_EXECUTION_INPUTS[key]["label"] for key in required["missing"]]
+                    raise RuntimeError("Required execution inputs are missing: " + ", ".join(labels))
 
                 now = time.monotonic()
                 self.run_started_monotonic = now
