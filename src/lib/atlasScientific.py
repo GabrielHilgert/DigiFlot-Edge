@@ -167,7 +167,7 @@ class AtlasScientific:
         if str(device.get("type", "")).lower() != "ph":
             raise ValueError("Calibration-point status is only available for pH sensors.")
         response = str(self.query(sensor, "Cal,?", delay=0.35) or "")
-        match = re.search(r"(?:\\?Cal,)?([0-3])\\s*$", response, flags=re.IGNORECASE)
+        match = re.fullmatch(r"\s*(?:\??Cal\s*,\s*)?([0-3])\s*", response, flags=re.IGNORECASE)
         points = int(match.group(1)) if match else None
         return {"response": response, "points": points}
 
