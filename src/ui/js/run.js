@@ -569,9 +569,10 @@ function renderRequiredInputs(state) {
     }
     ui.required_inputs_panel.hidden = false;
     const profile = data.cell_profile || {};
-    const suggestionOptions = suggestions.map((item) => {
-        const name = item.cell_name || (item.working_volume_l != null ? `${item.working_volume_l} L cell` : "Observed cell");
-        return `<option value="${escapeHtml(name)}" data-volume="${escapeHtml(item.working_volume_l ?? "")}">${escapeHtml(item.observations || 0)} previous run(s)</option>`;
+    const suggestionOptions = suggestions.map((item, index) => {
+        const name = item.cell_name || "Unnamed observed cell";
+        const volume = item.working_volume_l != null ? `${Number(item.working_volume_l).toLocaleString()} L` : "volume unknown";
+        return `<option value="${index}" data-name="${escapeHtml(item.cell_name || "")}" data-volume="${escapeHtml(item.working_volume_l ?? "")}">${escapeHtml(name)} · ${escapeHtml(volume)} · ${escapeHtml(item.observations || 0)} run(s)</option>`;
     }).join("");
     ui.required_inputs_panel.innerHTML = `
         <div class="required-inputs-heading">
@@ -579,12 +580,17 @@ function renderRequiredInputs(state) {
             <span class="required-status ${data.complete ? "complete" : "incomplete"}">${data.complete ? "Ready" : `${(data.missing || []).length} missing`}</span>
         </div>
         <div class="cell-profile-row">
-            <label>Cell / vessel <span>(optional identity)</span>
-                <input id="execution_cell_name" type="text" list="execution_cell_suggestions" value="${escapeHtml(profile.cell_name || "")}" placeholder="e.g. Cell A">
-                <datalist id="execution_cell_suggestions">${suggestionOptions}</datalist>
+            <label>Known cell suggestion <span>(optional)</span>
+                <select id="execution_cell_suggestion">
+                    <option value="">Custom / unknown cell</option>
+                    ${suggestionOptions}
+                </select>
+            </label>
+            <label>Cell / vessel identity <span>(optional)</span>
+                <input id="execution_cell_name" type="text" value="${escapeHtml(profile.cell_name || "")}" placeholder="e.g. Cell A">
             </label>
             <button class="button button-secondary" type="button" data-save-cell-profile>Save cell identity</button>
-            <span class="cell-profile-hint">Observed cells become suggestions for future runs; volume does not uniquely identify a cell.</span>
+            <span class="cell-profile-hint">Selecting an observed cell can suggest its previous working volume. It never overwrites an existing execution value automatically.</span>
         </div>
         <div class="required-input-grid">
             ${items.map((item) => `
@@ -901,6 +907,18 @@ function bindActions() {
 
     ui.measurement_source.addEventListener("change", updateMeasurementSourcePreview);
     ui.measurement_value_type.addEventListener("change", updateMeasurementSourcePreview);
+
+    ui.required_inputs_panel.addEventListener("change", (event) => {
+        const select = event.target.closest("#execution_cell_suggestion");
+        if (!select || !select.value) return;
+        const option = select.options[select.selectedIndex];
+        const name = option?.dataset.name || "";
+        const volume = option?.dataset.volume || "";
+        const nameInput = document.getElementById("execution_cell_name");
+        if (nameInput && name) nameInput.value = name;
+        const volumeInput = ui.required_inputs_panel.querySelector('[data-required-value="working_cell_volume"]');
+        if (volumeInput && !volumeInput.value && volume) volumeInput.value = volume;
+    });
 
     ui.required_inputs_panel.addEventListener("click", async (event) => {
         const saveInput = event.target.closest("[data-save-required]");
