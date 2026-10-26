@@ -154,6 +154,17 @@ def reopen_sensor_calibration(sensor_id: str, request: Request):
         raise api_error(error) from error
 
 
+@router.post("/calibration/sensors/{sensor_id}/mode")
+def set_sensor_calibration_mode(sensor_id: str, request: Request, payload: dict | None = None):
+    try:
+        return get_digiflot(request).set_sensor_calibration_points(
+            sensor_id,
+            int((payload or {}).get("requested_points") or 3),
+        )
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.post("/calibration/sensors/{sensor_id}/start")
 def start_sensor_calibration(sensor_id: str, request: Request, payload: dict | None = None):
     try:
