@@ -1352,22 +1352,17 @@ class DigiFlot:
                     "id": sensor_id,
                     "name": sensor.get("name", sensor_type),
                     "type": sensor_type,
-                    "mode": "two_point" if is_ph else "manual_check",
+                    "mode": "ph_points" if is_ph else "manual_check",
+                    "requested_points": 3 if is_ph else None,
+                    "chip_points": None,
                     "status": "pending",
                     "confirmed_at": None,
                     "software_calibration_available": is_ph,
                     "points": (
                         {
-                            "mid": {
-                                "value": 7.0,
-                                "status": "pending",
-                                "calibrated_at": None,
-                            },
-                            "low": {
-                                "value": 4.0,
-                                "status": "pending",
-                                "calibrated_at": None,
-                            },
+                            "mid": {"value": 7.0, "status": "pending", "calibrated_at": None},
+                            "low": {"value": 4.0, "status": "pending", "calibrated_at": None},
+                            "high": {"value": 10.0, "status": "pending", "calibrated_at": None},
                         }
                         if is_ph else None
                     ),
@@ -1535,7 +1530,7 @@ class DigiFlot:
             item["confirmed_at"] = None
             item.pop("skip_reason", None)
             item.pop("error", None)
-            if item.get("mode") == "two_point":
+            if item.get("mode") in {"two_point", "ph_points"}:
                 for point in (item.get("points") or {}).values():
                     point["status"] = "pending"
                     point["calibrated_at"] = None
@@ -1573,16 +1568,14 @@ class DigiFlot:
                 )
                 return self.status
 
-            if item.get("mode") == "two_point":
+            if item.get("mode") in {"two_point", "ph_points"}:
                 points = item.get("points") or {}
-                missing = [
-                    name
-                    for name in ("mid", "low")
-                    if points.get(name, {}).get("status") != "passed"
-                ]
+                requested = int(item.get("requested_points") or (2 if item.get("mode") == "two_point" else 3))
+                required_names = ("mid", "low", "high")[:requested]
+                missing = [name for name in required_names if points.get(name, {}).get("status") != "passed"]
                 if missing:
                     raise RuntimeError(
-                        "Complete the pH two-point calibration before confirming this sensor."
+                        f"Complete the selected {requested}-point pH calibration before confirming this sensor."
                     )
 
             item["status"] = "passed"
@@ -1679,8 +1672,12 @@ class DigiFlot:
                 raise KeyError(f"Sensor '{sensor_id}' not found.")
 
             item = self.sensor_calibration[sensor_id]
-            if item.get("mode") != "two_point":
+            if item.get("mode") not in {"two_point", "ph_points"}:
                 raise RuntimeError("This sensor does not use software point calibration.")
+            requested_points = int(kwargs.get("requested_points") or item.get("requested_points") or (2 if item.get("mode") == "two_point" else 3))
+            if requested_points not in {1, 2, 3}:
+                raise ValueError("pH calibration requires 1, 2, or 3 points.")
+            item["requested_points"] = requested_points
 
             snapshot = self._sensor_status_unlocked(sensor_id)
             if snapshot.get("status") != "connected":
@@ -1688,12 +1685,15 @@ class DigiFlot:
                 raise RuntimeError(f"Sensor '{sensor_id}' is offline: {detail}")
 
             point = str(kwargs.get("point", "")).strip().lower()
-            if point not in {"mid", "low"}:
-                raise ValueError("Two-point pH calibration requires point 'mid' or 'low'.")
+            allowed = ("mid", "low", "high")[:requested_points]
+            if point not in allowed:
+                raise ValueError(f"{requested_points}-point pH calibration does not use point '{point}'.")
 
             points = item.get("points") or {}
             if point == "low" and points.get("mid", {}).get("status") != "passed":
                 raise RuntimeError("Calibrate the pH midpoint before the low point.")
+            if point == "high" and points.get("low", {}).get("status") != "passed":
+                raise RuntimeError("Calibrate the pH low point before the high point.")
 
             try:
                 value = float(kwargs.get("value", points.get(point, {}).get("value")))
@@ -1743,10 +1743,10 @@ class DigiFlot:
             point_item.pop("error", None)
             item.pop("error", None)
 
-            complete = all(
-                item["points"][name].get("status") == "passed"
-                for name in ("mid", "low")
-            )
+            requested = int(item.get("requested_points") or 3)
+            required_names = ("mid", "low", "high")[:requested]
+            complete = all(item["points"][name].get("status") == "passed" for name in required_names)
+            item["chip_points"] = result.get("chip_points")
             item["status"] = "passed" if complete else "calibrating"
             if complete:
                 item["confirmed_at"] = _utc_now()
