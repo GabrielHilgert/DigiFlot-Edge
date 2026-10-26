@@ -465,17 +465,28 @@ function bindCalibrationControls(root = document) {
     root.querySelectorAll(".ph-mode-select").forEach(select => {
         if (select.dataset.bound) return;
         select.dataset.bound = "1";
-        select.addEventListener("change", () => {
+        select.addEventListener("change", async () => {
             const id = select.dataset.standaloneMode || select.dataset.phMode;
             if (select.dataset.standaloneMode) {
                 const progress = state.standaloneCalibration.get(String(id)) || {mid:false,low:false,high:false};
                 progress.requested_points = Number(select.value);
                 state.standaloneCalibration.set(String(id), progress);
-            } else {
-                const item = state.digiflot?.calibration?.sensors?.[String(id)];
-                if (item) item.requested_points = Number(select.value);
+                renderCalibrationDrawer();
+                return;
             }
-            renderCalibrationDrawer();
+            select.disabled = true;
+            try {
+                state.digiflot = await requestJson(`/api/digiflot/calibration/sensors/${encodeURIComponent(id)}/mode`, {
+                    method:"POST", headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify({requested_points:Number(select.value)})
+                });
+                renderCards();
+                state.activeCalibrationSensorId = String(id);
+                renderCalibrationDrawer();
+            } catch (error) {
+                showToast(error.message);
+                select.disabled = false;
+            }
         });
     });
     root.querySelectorAll(".sensor-reopen").forEach(button => {
