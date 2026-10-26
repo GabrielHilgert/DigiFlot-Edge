@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260928c">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20260928c">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026b">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261026b">
     <script defer src="{{ url_for('static', path='js/run.js') }}?v=20260928c"></script>
 </head>
 <body>
@@ -202,17 +202,26 @@
                 <div>
                     <span class="section-index">DATA</span>
                     <div>
-                        <h2>Operator measurements</h2>
-                        <p>Capture named values from the latest sensor reading or enter a value manually. Existing variables receive a new time-stamped point.</p>
+                        <h2>Inputs &amp; measurements</h2>
+                        <p>Complete required execution inputs, capture sensor values, or add time-stamped notes. Recipe values can be corrected for this execution without changing the recipe.</p>
                     </div>
                 </div>
             </div>
+            <div id="required_inputs_panel" class="required-inputs-panel"></div>
             <div class="card-body measurement-layout">
                 <form id="measurement_form" class="measurement-form">
                     <div class="form-field">
                         <label for="measurement_variable_name">Variable name</label>
                         <input id="measurement_variable_name" name="variable_name" type="text" list="measurement_variable_names" autocomplete="off" placeholder="e.g. Feed mass" required>
                         <datalist id="measurement_variable_names"></datalist>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="measurement_value_type">Entry type</label>
+                        <select id="measurement_value_type" name="value_type">
+                            <option value="number">Numeric measurement</option>
+                            <option value="text">Text / note</option>
+                        </select>
                     </div>
 
                     <div class="form-field">
@@ -230,6 +239,7 @@
                         <div class="form-field">
                             <label for="measurement_manual_value">Value</label>
                             <input id="measurement_manual_value" name="value" type="number" step="any" inputmode="decimal" placeholder="e.g. 4.02">
+                            <textarea id="measurement_manual_text" name="text_value" rows="3" placeholder="Observation, intervention, comment…" hidden></textarea>
                         </div>
                         <div class="form-field">
                             <label for="measurement_manual_unit">Unit <span>(optional)</span></label>
