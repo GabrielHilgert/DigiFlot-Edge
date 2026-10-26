@@ -786,7 +786,11 @@ class DigiFlot:
                 else:
                     profile.pop("cell_name", None)
             if physical_cell_id is not None:
-                profile["physical_cell_id"] = physical_cell_id
+                identity = str(physical_cell_id).strip()
+                if identity:
+                    profile["physical_cell_id"] = identity
+                else:
+                    profile.pop("physical_cell_id", None)
             volume = (self.execution_inputs.get("working_cell_volume") or {}).get("value")
             if volume is not None:
                 profile["working_volume_l"] = volume

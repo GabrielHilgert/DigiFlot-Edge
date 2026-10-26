@@ -589,7 +589,7 @@ function renderRequiredInputs(state) {
     const suggestionOptions = suggestions.map((item, index) => {
         const name = item.cell_name || "Unnamed observed cell";
         const volume = item.working_volume_l != null ? `${Number(item.working_volume_l).toLocaleString()} L` : "volume unknown";
-        return `<option value="${index}" data-name="${escapeHtml(item.cell_name || "")}" data-volume="${escapeHtml(item.working_volume_l ?? "")}">${escapeHtml(name)} · ${escapeHtml(volume)} · ${escapeHtml(item.observations || 0)} run(s)</option>`;
+        return `<option value="${index}" data-name="${escapeHtml(item.cell_name || "")}" data-volume="${escapeHtml(item.working_volume_l ?? "")}" data-cell-id="${escapeHtml(item.physical_cell_id ?? "")}">${escapeHtml(name)} · ${escapeHtml(volume)} · ${escapeHtml(item.observations || 0)} run(s)</option>`;
     }).join("");
     ui.required_inputs_panel.innerHTML = `
         <div class="required-inputs-heading">
@@ -604,7 +604,7 @@ function renderRequiredInputs(state) {
                 </select>
             </label>
             <label>Cell / vessel identity <span>(optional)</span>
-                <input id="execution_cell_name" type="text" value="${escapeHtml(profile.cell_name || "")}" placeholder="e.g. Cell A">
+                <input id="execution_cell_name" type="text" value="${escapeHtml(profile.cell_name || "")}" data-physical-id="${escapeHtml(profile.physical_cell_id ?? "")}" placeholder="e.g. Cell A">
             </label>
             <button class="button button-secondary" type="button" data-save-cell-profile>Save cell identity</button>
             <span class="cell-profile-hint">Selecting an observed cell can suggest its previous working volume. It never overwrites an existing execution value automatically.</span>
@@ -945,9 +945,19 @@ function bindActions() {
         const name = option?.dataset.name || "";
         const volume = option?.dataset.volume || "";
         const nameInput = document.getElementById("execution_cell_name");
-        if (nameInput && name) nameInput.value = name;
+        if (nameInput && name) {
+            nameInput.value = name;
+            nameInput.dataset.physicalId = option?.dataset.cellId || "";
+        }
         const volumeInput = ui.required_inputs_panel.querySelector('[data-required-value="working_cell_volume"]');
         if (volumeInput && !volumeInput.value && volume) volumeInput.value = volume;
+    });
+
+    ui.required_inputs_panel.addEventListener("input", (event) => {
+        if (event.target.id === "execution_cell_name") {
+            // A manually renamed vessel must not keep another vessel's stable ID.
+            event.target.dataset.physicalId = "";
+        }
     });
 
     ui.required_inputs_panel.addEventListener("click", async (event) => {
@@ -974,11 +984,13 @@ function bindActions() {
         }
         const saveCell = event.target.closest("[data-save-cell-profile]");
         if (saveCell) {
-            const cellName = document.getElementById("execution_cell_name")?.value?.trim() || "";
+            const cellInput = document.getElementById("execution_cell_name");
+            const cellName = cellInput?.value?.trim() || "";
+            const physicalCellId = cellInput?.dataset.physicalId || "";
             saveCell.disabled = true;
             try {
                 const result = await requestJson("/api/digiflot/execution-inputs/cell-profile", {
-                    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({cell_name:cellName})
+                    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({cell_name:cellName, physical_cell_id:physicalCellId})
                 });
                 if (latestState) latestState.execution_inputs = result;
                 renderRequiredInputs(latestState || {});
