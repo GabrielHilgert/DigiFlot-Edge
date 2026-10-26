@@ -1683,6 +1683,31 @@ class DigiFlot:
 
         raise KeyError(f"Sensor '{sensor_id}' not found.")
 
+    def set_sensor_calibration_points(self, sensor_id: str, requested_points: int):
+        with self.lock:
+            if self.state != self.SENSOR_CALIBRATION:
+                raise RuntimeError("Sensor calibration is not active.")
+            sensor_id = str(sensor_id)
+            item = self.sensor_calibration.get(sensor_id)
+            if item is None:
+                raise KeyError(f"Sensor '{sensor_id}' not found.")
+            if item.get("mode") not in {"two_point", "ph_points"}:
+                raise RuntimeError("This sensor does not use point calibration.")
+            requested_points = int(requested_points)
+            if requested_points not in {1, 2, 3}:
+                raise ValueError("pH calibration requires 1, 2, or 3 points.")
+            item["mode"] = "ph_points"
+            item["requested_points"] = requested_points
+            required_names = ("mid", "low", "high")[:requested_points]
+            complete = all((item.get("points") or {}).get(name, {}).get("status") == "passed" for name in required_names)
+            item["status"] = "passed" if complete else "calibrating"
+            item["confirmed_at"] = _utc_now() if complete else None
+            self._touch_unlocked(
+                "SENSOR_CALIBRATION_MODE_CHANGED",
+                {"sensor_id": sensor_id, "requested_points": requested_points},
+            )
+            return self.status
+
     def start_sensor_calibration(self, sensor_id: str, **kwargs):
         """Run one software calibration step for sensors that support it."""
         sensor_id = str(sensor_id)
