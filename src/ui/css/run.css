@@ -329,3 +329,28 @@ a { color: inherit; text-decoration: none; }
   .mini-stage-segment { flex:0 0 110px; }
   .run-body { grid-template-columns:1fr; }
 }
+
+
+/* Execution inputs share the measurement surface but remain visually distinct. */
+.required-inputs-panel { margin:0 20px 18px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-soft); padding:16px; }
+.required-inputs-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:14px; }
+.required-inputs-heading > div { display:flex; flex-direction:column; gap:2px; }
+.required-inputs-heading span { color:var(--text-soft); font-size:.8rem; }
+.required-status { display:inline-flex; border:1px solid var(--border); border-radius:999px; padding:5px 9px; font-size:.72rem; font-weight:750; }
+.required-status.complete { border-color:color-mix(in srgb, var(--success) 35%, var(--border)); background:var(--success-soft); color:var(--success); }
+.required-status.incomplete { border-color:color-mix(in srgb, var(--warning) 35%, var(--border)); background:var(--warning-soft); color:var(--warning); }
+.required-input-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.required-input-item { border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); padding:11px; }
+.required-input-item.missing { border-color:color-mix(in srgb, var(--warning) 45%, var(--border)); }
+.required-input-item label { display:flex; justify-content:space-between; gap:8px; margin-bottom:7px; font-size:.78rem; font-weight:700; }
+.required-input-item label span, .cell-profile-row label span { color:var(--text-faint); font-weight:500; }
+.required-input-item > div { display:flex; gap:7px; }
+.required-input-item input, .cell-profile-row input, #measurement_manual_text, #measurement_value_type { min-width:0; width:100%; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); padding:9px 10px; }
+.required-input-item small, .cell-profile-hint { display:block; margin-top:6px; color:var(--text-faint); font-size:.69rem; }
+.cell-profile-row { display:grid; grid-template-columns:minmax(220px,1fr) auto minmax(240px,1.5fr); gap:10px; align-items:end; margin-bottom:12px; }
+.cell-profile-row label { display:flex; flex-direction:column; gap:5px; font-size:.78rem; font-weight:700; }
+.required-warning { margin:12px 0 0; color:var(--warning); font-weight:700; }
+@media (max-width:900px) {
+  .required-input-grid { grid-template-columns:1fr; }
+  .cell-profile-row { grid-template-columns:1fr; align-items:stretch; }
+}
