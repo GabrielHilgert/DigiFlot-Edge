@@ -470,6 +470,18 @@ def save_devices(request: Request, payload: dict | None = None):
         raise api_error(error) from error
 
 
+@router.post("/execution-inputs/cell-profile")
+def update_cell_profile(request: Request, payload: dict | None = None):
+    payload = payload or {}
+    try:
+        return get_digiflot(request).update_cell_profile(
+            cell_name=payload.get("cell_name"),
+            cell_id=payload.get("cell_id"),
+        )
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.get("/measurements")
 def measurements(request: Request):
     try:
