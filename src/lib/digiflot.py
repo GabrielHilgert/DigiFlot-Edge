@@ -617,6 +617,19 @@ class DigiFlot:
         if not isinstance(metadata, dict):
             metadata = {}
         previous = self.execution_inputs if isinstance(self.execution_inputs, dict) else {}
+        if not previous:
+            previous = {}
+            for record in self.measurements:
+                if record.get("role") != "execution_input":
+                    continue
+                key = str(record.get("variable_id") or "")
+                if key in self.REQUIRED_EXECUTION_INPUTS:
+                    previous[key] = {
+                        "value": record.get("value"),
+                        "source": record.get("sensor_id") or record.get("source_type") or "execution",
+                        "measurement_id": record.get("measurement_id"),
+                        "updated_at": record.get("captured_at"),
+                    }
         inputs = {}
         for key, spec in self.REQUIRED_EXECUTION_INPUTS.items():
             value = None
