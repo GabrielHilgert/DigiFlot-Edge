@@ -162,6 +162,15 @@ class AtlasScientific:
             raise ValueError("Atlas device reported a syntax error.")
         raise OSError(f"Atlas response code: {code}")
 
+    def ph_calibration_status(self, sensor):
+        device = self._sensor(sensor)
+        if str(device.get("type", "")).lower() != "ph":
+            raise ValueError("Calibration-point status is only available for pH sensors.")
+        response = str(self.query(sensor, "Cal,?", delay=0.35) or "")
+        match = re.search(r"(?:\\?Cal,)?([0-3])\\s*$", response, flags=re.IGNORECASE)
+        points = int(match.group(1)) if match else None
+        return {"response": response, "points": points}
+
     def calibrate_ph(self, sensor, point, value):
         point = str(point).strip().lower()
         if point not in {"mid", "low", "high"}:
@@ -169,13 +178,16 @@ class AtlasScientific:
 
         device = self._sensor(sensor)
         if str(device.get("type", "")).lower() != "ph":
-            raise ValueError("Software two-point calibration is only enabled for pH sensors.")
+            raise ValueError("Software point calibration is only enabled for pH sensors.")
 
         value = float(value)
         self.query(sensor, f"Cal,{point},{value:g}", delay=0.9)
+        status = self.ph_calibration_status(sensor)
         return {
             "point": point,
             "value": value,
+            "chip_points": status.get("points"),
+            "chip_response": status.get("response"),
         }
 
     def discover_available(self, addresses=None):
