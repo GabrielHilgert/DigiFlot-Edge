@@ -15,6 +15,7 @@ from picamera2 import Picamera2
 from lib.atlasScientific import AtlasScientific
 from lib.camera import Camera
 from lib.scale import Scale
+from lib.pulp_preparation import planned_inputs, derived_metrics
 try:
     from lib.performance import PerformanceManager
 except Exception:
@@ -404,7 +405,10 @@ class DigiFlot:
                 self.run_directory,
                 status,
                 occurred_at=_utc_now(),
-                execution_inputs=deepcopy(self.execution_inputs),
+                execution_inputs={
+                    **deepcopy(self.execution_inputs),
+                    "derived_metrics": self._derived_metrics_unlocked(),
+                },
                 cell_profile=deepcopy(self.cell_profile),
                 measurements_summary=self._measurement_summary_unlocked(),
             )
@@ -630,18 +634,14 @@ class DigiFlot:
                         "measurement_id": record.get("measurement_id"),
                         "updated_at": record.get("captured_at"),
                     }
+        planned = planned_inputs(self.experiment)
         inputs = {}
         for key, spec in self.REQUIRED_EXECUTION_INPUTS.items():
-            value = None
-            source = None
-            for alias in spec["aliases"]:
-                if (self.experiment or {}).get(alias) not in (None, ""):
-                    value, source = (self.experiment or {}).get(alias), "recipe"
-                    break
-                if metadata.get(alias) not in (None, ""):
-                    value, source = metadata.get(alias), "recipe"
-                    break
+            suggestion = planned.get(key, {})
+            value = suggestion.get("value")
+            source = suggestion.get("source")
             old = previous.get(key) if isinstance(previous.get(key), dict) else {}
+            # Operator-confirmed values always override the planned recipe.
             if old.get("value") not in (None, ""):
                 value = old.get("value")
                 source = old.get("source") or source or "execution"
@@ -656,6 +656,7 @@ class DigiFlot:
                 "required": True,
                 "value": value,
                 "source": source,
+                "recipe_path": suggestion.get("recipe_path"),
                 "measurement_id": old.get("measurement_id"),
                 "updated_at": old.get("updated_at"),
             }
@@ -684,7 +685,11 @@ class DigiFlot:
             "items": items,
             "cell_profile": deepcopy(self.cell_profile),
             "cell_suggestions": suggestions,
+            "derived_metrics": self._derived_metrics_unlocked(),
         }
+
+    def _derived_metrics_unlocked(self):
+        return derived_metrics(self.execution_inputs, self.experiment)
 
     def _measurement_summary_unlocked(self):
         variables = []
