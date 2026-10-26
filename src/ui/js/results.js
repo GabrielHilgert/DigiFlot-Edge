@@ -408,13 +408,13 @@ function renderMeasurementSelectors() {
         elements.analysisMeasurementSelector.innerHTML = `<div class="selector-error">${escapeHtml(state.measurements.error)}</div>`;
         return;
     }
-    const variables = state.measurements?.variables || [];
+    const variables = (state.measurements?.variables || []).filter(variable => Number(variable.numeric_count ?? variable.count ?? 0) > 0);
     elements.analysisMeasurementSelector.innerHTML = variables.length ? variables.map(variable => selectorButton({
         key: `measurement:${variable.id}`,
         kind: "measurement",
         label: variable.name || variable.id,
-        meta: `${Number(variable.count || 0).toLocaleString()} observation(s)${variable.unit ? ` · ${variable.unit}` : ""}`,
-    })).join("") : `<div class="selector-empty">No operator measurements recorded.</div>`;
+        meta: `${Number(variable.numeric_count ?? variable.count ?? 0).toLocaleString()} numeric observation(s)${variable.unit ? ` · ${variable.unit}` : ""}`,
+    })).join("") : `<div class="selector-empty">No numeric operator measurements available for plotting.</div>`;
 }
 
 function classifyEvent(eventName) {
@@ -510,7 +510,7 @@ function lookupTrackDefinition(key, kind) {
         const variable = (state.measurements?.variables || []).find(item => String(item.id) === id);
         if (variable) {
             const points = (state.measurements.observations || [])
-                .filter(item => String(item.variable_id || item.variable_name) === id)
+                .filter(item => String(item.variable_id || item.variable_name) === id && String(item.value_type || "number").toLowerCase() !== "text")
                 .map(item => ({ x: Number(item.run_elapsed_s), y: Number(item.value), raw: item }))
                 .filter(point => Number.isFinite(point.x) && Number.isFinite(point.y));
             return { key, kind, label: variable.name || id, unit: variable.unit || "", variable, points, loading: false, error: null };
@@ -1204,9 +1204,17 @@ function renderDetailedMeasurements() {
     const observations = state.measurements?.observations || [];
     elements.detailMeasurementCards.innerHTML = variables.length ? variables.map(variable => {
         const latest = variable.latest || {};
-        return `<article class="measurement-card"><header><div><strong>${escapeHtml(variable.name || variable.id)}</strong><span>${escapeHtml(variable.id)}</span></div><span>${Number(variable.count || 0).toLocaleString()} pts</span></header><div class="measurement-latest">${escapeHtml(withUnit(latest.value, variable.unit))}</div><div class="measurement-meta">Range ${escapeHtml(withUnit(variable.min, variable.unit))} – ${escapeHtml(withUnit(variable.max, variable.unit))}</div></article>`;
+        const latestText = latest.value_type === "text" ? String(latest.value ?? "—") : withUnit(latest.value, variable.unit);
+        const range = Number(variable.numeric_count ?? 0) > 0
+            ? `Range ${withUnit(variable.min, variable.unit)} – ${withUnit(variable.max, variable.unit)}`
+            : `${Number(variable.text_count || variable.count || 0).toLocaleString()} text observation(s)`;
+        return `<article class="measurement-card"><header><div><strong>${escapeHtml(variable.name || variable.id)}</strong><span>${escapeHtml(variable.id)}</span></div><span>${Number(variable.count || 0).toLocaleString()} pts</span></header><div class="measurement-latest">${escapeHtml(latestText)}</div><div class="measurement-meta">${escapeHtml(range)}</div></article>`;
     }).join("") : `<div class="empty-state">No operator measurements were recorded.</div>`;
-    elements.detailMeasurementTable.innerHTML = observations.length ? observations.slice().reverse().map(record => `<tr><td>${escapeHtml(record.variable_name || record.variable_id || "—")}</td><td>${escapeHtml(withUnit(record.value, record.unit))}</td><td>${escapeHtml(record.sensor_name || record.source_type || "—")}</td><td>${escapeHtml(formatSeconds(record.run_elapsed_s))}</td><td>${escapeHtml(record.stage_name || record.stage_id || record.state || "—")}</td><td>${escapeHtml(formatDate(record.captured_at || record.timestamp))}</td></tr>`).join("") : `<tr><td colspan="6">No observations.</td></tr>`;
+    elements.detailMeasurementTable.innerHTML = observations.length ? observations.slice().reverse().map(record => {
+        const value = record.value_type === "text" ? String(record.value ?? "—") : withUnit(record.value, record.unit);
+        const source = record.role === "note" ? "Note" : (record.sensor_name || record.source_type || "—");
+        return `<tr><td>${escapeHtml(record.variable_name || record.variable_id || "—")}</td><td>${escapeHtml(value)}</td><td>${escapeHtml(source)}</td><td>${escapeHtml(formatSeconds(record.run_elapsed_s))}</td><td>${escapeHtml(record.stage_name || record.stage_id || record.state || "—")}</td><td>${escapeHtml(formatDate(record.captured_at || record.timestamp))}</td></tr>`;
+    }).join("") : `<tr><td colspan="6">No observations.</td></tr>`;
 }
 
 function eventDescription(event) {

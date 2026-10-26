@@ -29,9 +29,9 @@ function cacheUi() {
         "recovery_abort_button", "operations_retry_devices",
         "live_sensor_panel", "live_sensor_grid", "measurement_panel",
         "measurement_form", "measurement_variable_name", "measurement_variable_names",
-        "measurement_source", "measurement_sensor_value", "measurement_sensor_value_text",
-        "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value",
-        "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint",
+        "measurement_source", "measurement_value_type", "measurement_sensor_value", "measurement_sensor_value_text",
+        "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value", "measurement_manual_text",
+        "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint", "required_inputs_panel",
         "measurement_count", "measurement_summary_body", "measurement_history_body",
         "calibration_review_panel", "calibration_review_list", "run_stage_timeline", "run_stage_position"
     ].forEach((id) => { ui[id] = document.getElementById(id); });
@@ -412,6 +412,9 @@ function renderLiveSensors(state) {
 
 function measurementValueText(record) {
     if (!record || record.value == null) return "—";
+    if (record.value_type === "text" || typeof record.value === "string" && !Number.isFinite(Number(record.value))) {
+        return String(record.value);
+    }
     const value = Number(record.value).toLocaleString(undefined, { maximumFractionDigits: 6 });
     return `${value}${record.unit ? ` ${record.unit}` : ""}`;
 }
@@ -483,11 +486,19 @@ function currentMeasurementSource() {
 }
 
 function updateMeasurementSourcePreview() {
+    const textMode = ui.measurement_value_type?.value === "text";
+    if (textMode && ui.measurement_source.value !== "manual") ui.measurement_source.value = "manual";
     const manual = ui.measurement_source.value === "manual";
+    ui.measurement_source.disabled = textMode;
     ui.measurement_manual_fields.hidden = !manual;
     ui.measurement_sensor_value.hidden = manual;
+    ui.measurement_manual_value.hidden = textMode;
+    ui.measurement_manual_text.hidden = !textMode;
+    ui.measurement_manual_unit.closest(".form-field").hidden = textMode;
     if (manual) {
-        ui.measurement_form_hint.textContent = "Manual unit is optional. Experiment state and stage are stored automatically.";
+        ui.measurement_form_hint.textContent = textMode
+            ? "Text notes are timestamped with the current experiment and stage context."
+            : "Manual unit is optional. Experiment state and stage are stored automatically.";
         return;
     }
     const sensor = currentMeasurementSource();
@@ -547,10 +558,64 @@ async function loadMeasurements() {
     }
 }
 
+function renderRequiredInputs(state) {
+    const data = state.execution_inputs || {};
+    const items = data.items || [];
+    const suggestions = data.cell_suggestions || [];
+    if (!ui.required_inputs_panel) return;
+    if (!items.length) {
+        ui.required_inputs_panel.hidden = true;
+        return;
+    }
+    ui.required_inputs_panel.hidden = false;
+    const profile = data.cell_profile || {};
+    const suggestionOptions = suggestions.map((item, index) => {
+        const name = item.cell_name || "Unnamed observed cell";
+        const volume = item.working_volume_l != null ? `${Number(item.working_volume_l).toLocaleString()} L` : "volume unknown";
+        return `<option value="${index}" data-name="${escapeHtml(item.cell_name || "")}" data-volume="${escapeHtml(item.working_volume_l ?? "")}">${escapeHtml(name)} · ${escapeHtml(volume)} · ${escapeHtml(item.observations || 0)} run(s)</option>`;
+    }).join("");
+    ui.required_inputs_panel.innerHTML = `
+        <div class="required-inputs-heading">
+            <div><strong>Required before first stage</strong><span>${data.complete ? "All required execution inputs are available." : "Complete the missing values. Recipe values can be overridden for this execution."}</span></div>
+            <span class="required-status ${data.complete ? "complete" : "incomplete"}">${data.complete ? "Ready" : `${(data.missing || []).length} missing`}</span>
+        </div>
+        <div class="cell-profile-row">
+            <label>Known cell suggestion <span>(optional)</span>
+                <select id="execution_cell_suggestion">
+                    <option value="">Custom / unknown cell</option>
+                    ${suggestionOptions}
+                </select>
+            </label>
+            <label>Cell / vessel identity <span>(optional)</span>
+                <input id="execution_cell_name" type="text" value="${escapeHtml(profile.cell_name || "")}" placeholder="e.g. Cell A">
+            </label>
+            <button class="button button-secondary" type="button" data-save-cell-profile>Save cell identity</button>
+            <span class="cell-profile-hint">Selecting an observed cell can suggest its previous working volume. It never overwrites an existing execution value automatically.</span>
+        </div>
+        <div class="required-input-grid">
+            ${items.map((item) => {
+                const compatible = sensorSnapshots(state).filter(sensor =>
+                    sensorIsOnline(sensor) && sensor.value != null &&
+                    String(sensor.unit || "").trim().toLowerCase() === String(item.unit || "").trim().toLowerCase()
+                );
+                return `<div class="required-input-item ${item.value == null ? "missing" : "complete"}">
+                    <label for="required_${escapeHtml(item.id)}">${escapeHtml(item.label)} <span>${escapeHtml(item.unit || "")}</span></label>
+                    ${compatible.length ? `<select data-required-source="${escapeHtml(item.id)}"><option value="manual">Manual entry</option>${compatible.map(sensor => `<option value="${escapeHtml(sensor.id)}">${escapeHtml(sensor.name || sensor.id)} · ${escapeHtml(sensorDisplayValue(sensor))}</option>`).join("")}</select>` : ""}
+                    <div>
+                        <input id="required_${escapeHtml(item.id)}" data-required-value="${escapeHtml(item.id)}" type="number" step="any" value="${item.value == null ? "" : escapeHtml(item.value)}" placeholder="Required">
+                        <button class="button button-primary" data-save-required="${escapeHtml(item.id)}" type="button">${item.value == null ? "Set" : "Update"}</button>
+                    </div>
+                    <small>${item.measurement_id ? "Execution value · auditable measurement" : (item.source === "recipe" ? "From recipe; change only if the actual run differs." : "Not provided by recipe.")}</small>
+                </div>`;
+            }).join("")}
+        </div>`;
+}
+
 function renderMeasurements(state) {
     const visible = ["Ready", "Running", "Paused", "Completed", "RecoveryRequired"].includes(state.state);
     ui.measurement_panel.hidden = !visible;
     if (!visible) return;
+    renderRequiredInputs(state);
     updateMeasurementSources(state);
     const remoteRevision = Number(state.measurements?.revision || 0);
     if (remoteRevision !== Number(measurementData.revision || 0)) loadMeasurements();
@@ -569,7 +634,12 @@ function renderReady(state) {
         <h3>${escapeHtml(stage.name || `Stage ${stage.id}`)}</h3>
         <p>${escapeHtml(stage.type || "")}</p>
         <div class="parameter-grid">${stageParameters(stage, state)}</div>`;
-    ui.start_first_stage.disabled = false;
+    const executionInputs = state.execution_inputs || {};
+    ui.start_first_stage.disabled = executionInputs.complete === false;
+    if (executionInputs.complete === false) {
+        const labels = (executionInputs.items || []).filter(item => item.value == null).map(item => item.label);
+        ui.ready_stage.insertAdjacentHTML("beforeend", `<p class="required-warning">Required before start: ${escapeHtml(labels.join(", "))}</p>`);
+    }
 }
 
 function renderRun(state) {
@@ -842,6 +912,63 @@ function bindActions() {
     });
 
     ui.measurement_source.addEventListener("change", updateMeasurementSourcePreview);
+    ui.measurement_value_type.addEventListener("change", updateMeasurementSourcePreview);
+
+    ui.required_inputs_panel.addEventListener("change", (event) => {
+        const sourceSelect = event.target.closest("[data-required-source]");
+        if (sourceSelect) {
+            const input = ui.required_inputs_panel.querySelector(`[data-required-value="${CSS.escape(sourceSelect.dataset.requiredSource)}"]`);
+            if (input) input.disabled = sourceSelect.value !== "manual";
+            return;
+        }
+        const select = event.target.closest("#execution_cell_suggestion");
+        if (!select || !select.value) return;
+        const option = select.options[select.selectedIndex];
+        const name = option?.dataset.name || "";
+        const volume = option?.dataset.volume || "";
+        const nameInput = document.getElementById("execution_cell_name");
+        if (nameInput && name) nameInput.value = name;
+        const volumeInput = ui.required_inputs_panel.querySelector('[data-required-value="working_cell_volume"]');
+        if (volumeInput && !volumeInput.value && volume) volumeInput.value = volume;
+    });
+
+    ui.required_inputs_panel.addEventListener("click", async (event) => {
+        const saveInput = event.target.closest("[data-save-required]");
+        if (saveInput) {
+            const id = saveInput.dataset.saveRequired;
+            const input = ui.required_inputs_panel.querySelector(`[data-required-value="${CSS.escape(id)}"]`);
+            const source = ui.required_inputs_panel.querySelector(`[data-required-source="${CSS.escape(id)}"]`)?.value || "manual";
+            if (source === "manual" && (!input || input.value.trim() === "")) { showToast("Enter the required value."); return; }
+            const item = (latestState?.execution_inputs?.items || []).find(entry => entry.id === id);
+            saveInput.disabled = true;
+            try {
+                const payload = {variable_id:id, variable_name:item?.label || id, source_id:source, value_type:"number", role:"execution_input", category:"initial_condition"};
+                if (source === "manual") { payload.value = input.value; payload.unit = item?.unit || null; }
+                const result = await requestJson("/api/digiflot/measurements", {
+                    method:"POST", headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify(payload)
+                });
+                if (latestState) latestState.execution_inputs = result.execution_inputs;
+                renderRequiredInputs(latestState || {});
+                showToast(`${item?.label || id} updated.`);
+            } catch (error) { showToast(error.message); } finally { saveInput.disabled = false; }
+            return;
+        }
+        const saveCell = event.target.closest("[data-save-cell-profile]");
+        if (saveCell) {
+            const cellName = document.getElementById("execution_cell_name")?.value?.trim() || "";
+            saveCell.disabled = true;
+            try {
+                const result = await requestJson("/api/digiflot/execution-inputs/cell-profile", {
+                    method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({cell_name:cellName})
+                });
+                if (latestState) latestState.execution_inputs = result;
+                renderRequiredInputs(latestState || {});
+                showToast("Cell identity saved for this execution.");
+            } catch (error) { showToast(error.message); } finally { saveCell.disabled = false; }
+        }
+    });
+
     ui.measurement_form.addEventListener("submit", async (event) => {
         event.preventDefault();
         const variableName = ui.measurement_variable_name.value.trim();
@@ -849,18 +976,23 @@ function bindActions() {
             showToast("Enter a variable name.");
             return;
         }
-        const sourceId = ui.measurement_source.value || "manual";
+        const valueType = ui.measurement_value_type.value || "number";
+        const sourceId = valueType === "text" ? "manual" : (ui.measurement_source.value || "manual");
         const payload = {
             variable_name: variableName,
             source_id: sourceId,
+            value_type: valueType,
+            role: valueType === "text" ? "note" : "measurement",
+            category: valueType === "text" ? "note" : "measurement",
         };
         if (sourceId === "manual") {
-            if (ui.measurement_manual_value.value.trim() === "") {
-                showToast("Enter a manual value.");
+            const manualValue = valueType === "text" ? ui.measurement_manual_text.value : ui.measurement_manual_value.value;
+            if (manualValue.trim() === "") {
+                showToast(valueType === "text" ? "Enter a note." : "Enter a manual value.");
                 return;
             }
-            payload.value = ui.measurement_manual_value.value;
-            payload.unit = ui.measurement_manual_unit.value.trim() || null;
+            payload.value = manualValue;
+            payload.unit = valueType === "text" ? null : (ui.measurement_manual_unit.value.trim() || null);
         }
 
         ui.capture_measurement_button.disabled = true;
@@ -876,6 +1008,7 @@ function bindActions() {
             measurementData.variables = result.measurements?.variables || measurementData.variables;
             renderMeasurementTables();
             ui.measurement_manual_value.value = "";
+            ui.measurement_manual_text.value = "";
             showToast(`Captured ${result.record.variable_name}: ${measurementValueText(result.record)}`);
         } catch (error) {
             showToast(error.message);

@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260928c">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20260928c">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026a">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261026a">
     <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20260928c"></script>
 </head>
 <body>
@@ -37,6 +37,17 @@
         </section>
 
         <section id="sensor_grid" class="sensor-grid" aria-live="polite"></section>
+
+        <section id="calibration_drawer" class="calibration-drawer card" hidden>
+            <div class="calibration-drawer-header">
+                <div>
+                    <span class="status-label">Sensor calibration</span>
+                    <strong id="calibration_drawer_title">pH calibration</strong>
+                </div>
+                <button id="calibration_drawer_close" class="button button-secondary" type="button">Minimize</button>
+            </div>
+            <div id="calibration_drawer_body"></div>
+        </section>
 
         <section id="empty_state" class="empty-state" hidden>
             <h2>No sensors configured</h2>

@@ -470,16 +470,22 @@ def _measurement_summary(records):
             "name": record.get("variable_name") or variable_id,
             "unit": record.get("unit"),
             "count": 0,
+            "numeric_count": 0,
+            "text_count": 0,
             "latest": None,
             "min": None,
             "max": None,
         })
         item["count"] += 1
         item["latest"] = record
-        value = _parse_number(record.get("value"))
+        value_type = str(record.get("value_type") or "number").lower()
+        value = None if value_type == "text" else _parse_number(record.get("value"))
         if value is not None and math.isfinite(value):
+            item["numeric_count"] += 1
             item["min"] = value if item["min"] is None else min(item["min"], value)
             item["max"] = value if item["max"] is None else max(item["max"], value)
+        else:
+            item["text_count"] += 1
         if record.get("unit") not in (None, ""):
             item["unit"] = record.get("unit")
     return list(variables.values())
@@ -588,6 +594,9 @@ def _timeline_payload(experiment: dict, runtime: dict, events: list, measurement
             "variable_id": record.get("variable_id"),
             "variable_name": record.get("variable_name"),
             "value": record.get("value"),
+            "value_type": record.get("value_type") or "number",
+            "role": record.get("role") or "measurement",
+            "category": record.get("category"),
             "unit": record.get("unit"),
         })
 

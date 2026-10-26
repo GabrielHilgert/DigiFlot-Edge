@@ -154,6 +154,17 @@ def reopen_sensor_calibration(sensor_id: str, request: Request):
         raise api_error(error) from error
 
 
+@router.post("/calibration/sensors/{sensor_id}/mode")
+def set_sensor_calibration_mode(sensor_id: str, request: Request, payload: dict | None = None):
+    try:
+        return get_digiflot(request).set_sensor_calibration_points(
+            sensor_id,
+            int((payload or {}).get("requested_points") or 3),
+        )
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.post("/calibration/sensors/{sensor_id}/start")
 def start_sensor_calibration(sensor_id: str, request: Request, payload: dict | None = None):
     try:
@@ -470,6 +481,18 @@ def save_devices(request: Request, payload: dict | None = None):
         raise api_error(error) from error
 
 
+@router.post("/execution-inputs/cell-profile")
+def update_cell_profile(request: Request, payload: dict | None = None):
+    payload = payload or {}
+    try:
+        return get_digiflot(request).update_cell_profile(
+            cell_name=payload.get("cell_name"),
+            physical_cell_id=payload.get("physical_cell_id", payload.get("cell_id")),
+        )
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.get("/measurements")
 def measurements(request: Request):
     try:
@@ -488,6 +511,9 @@ def capture_measurement(request: Request, payload: dict | None = None):
             source_id=payload.get("source_id", "manual"),
             value=payload.get("value"),
             unit=payload.get("unit"),
+            value_type=payload.get("value_type", "number"),
+            role=payload.get("role", "measurement"),
+            category=payload.get("category"),
         )
     except Exception as error:
         raise api_error(error) from error
