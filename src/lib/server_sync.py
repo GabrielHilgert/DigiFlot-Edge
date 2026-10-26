@@ -383,7 +383,16 @@ class ServerSync:
         self.notify_pending()
         return record
 
-    def update_execution(self, run_directory: Path, status: str, *, occurred_at=None):
+    def update_execution(
+        self,
+        run_directory: Path,
+        status: str,
+        *,
+        occurred_at=None,
+        execution_inputs=None,
+        cell_profile=None,
+        measurements_summary=None,
+    ):
         run_directory = Path(run_directory)
         path = run_directory / "server_sync.json"
         with self.lock:
@@ -402,6 +411,13 @@ class ServerSync:
 
             if status == "running" and not record.get("started_at"):
                 record["started_at"] = occurred_at
+            if execution_inputs is not None:
+                record["execution_inputs"] = deepcopy(execution_inputs)
+            if cell_profile is not None:
+                record["cell_profile"] = deepcopy(cell_profile)
+            if measurements_summary is not None:
+                record["measurements_summary"] = deepcopy(measurements_summary)
+
             if status in TERMINAL_EXECUTION_STATES:
                 record["finished_at"] = occurred_at
                 location = record.setdefault("location", {})
@@ -460,6 +476,9 @@ class ServerSync:
             "spec_hash": record.get("spec_hash"),
             "experiment_snapshot": deepcopy(record.get("experiment_snapshot") or {}),
             "campaign_context": deepcopy(record.get("campaign_context") or {}),
+            "execution_inputs": deepcopy(record.get("execution_inputs") or {}),
+            "cell_profile": deepcopy(record.get("cell_profile")),
+            "measurements_summary": deepcopy(record.get("measurements_summary") or {}),
             "reported_offline": bool(record.get("reported_offline")),
             "sequence": int(record.get("sequence") or 0),
             "status": record.get("status"),
