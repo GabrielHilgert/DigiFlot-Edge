@@ -488,6 +488,9 @@ def capture_measurement(request: Request, payload: dict | None = None):
             source_id=payload.get("source_id", "manual"),
             value=payload.get("value"),
             unit=payload.get("unit"),
+            value_type=payload.get("value_type", "number"),
+            role=payload.get("role", "measurement"),
+            category=payload.get("category"),
         )
     except Exception as error:
         raise api_error(error) from error
