@@ -402,7 +402,12 @@ class ServerSync:
 
             status = str(status).strip().lower()
             previous = str(record.get("status") or "").lower()
-            if status != previous:
+            runtime_changed = (
+                (execution_inputs is not None and execution_inputs != record.get("execution_inputs"))
+                or (cell_profile is not None and cell_profile != record.get("cell_profile"))
+                or (measurements_summary is not None and measurements_summary != record.get("measurements_summary"))
+            )
+            if status != previous or runtime_changed:
                 record["sequence"] = int(record.get("sequence") or 0) + 1
             record["status"] = status
             record["sync_status"] = "pending"
