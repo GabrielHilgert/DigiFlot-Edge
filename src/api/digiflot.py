@@ -487,7 +487,7 @@ def update_cell_profile(request: Request, payload: dict | None = None):
     try:
         return get_digiflot(request).update_cell_profile(
             cell_name=payload.get("cell_name"),
-            cell_id=payload.get("cell_id"),
+            physical_cell_id=payload.get("physical_cell_id", payload.get("cell_id")),
         )
     except Exception as error:
         raise api_error(error) from error
