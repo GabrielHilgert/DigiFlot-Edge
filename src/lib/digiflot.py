@@ -756,6 +756,28 @@ class DigiFlot:
                 "observations": deepcopy(self.measurements),
             }
 
+    def update_cell_profile(self, *, cell_name=None, cell_id=None):
+        with self.lock:
+            if self.run_directory is None or self.experiment is None:
+                raise RuntimeError("Select an experiment before editing the cell profile.")
+            profile = deepcopy(self.cell_profile or {})
+            if cell_name is not None:
+                name = str(cell_name).strip()
+                if name:
+                    profile["cell_name"] = name
+                else:
+                    profile.pop("cell_name", None)
+            if cell_id is not None:
+                profile["cell_id"] = cell_id
+            volume = (self.execution_inputs.get("working_cell_volume") or {}).get("value")
+            if volume is not None:
+                profile["working_volume_l"] = volume
+            profile["updated_at"] = _utc_now()
+            self.cell_profile = profile or None
+            self._touch_unlocked("CELL_PROFILE_UPDATED", {"cell_profile": deepcopy(self.cell_profile)})
+            self._sync_execution_state_unlocked()
+            return self._execution_inputs_payload_unlocked()
+
     def capture_measurement(
         self,
         variable_name,
