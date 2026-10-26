@@ -593,15 +593,21 @@ function renderRequiredInputs(state) {
             <span class="cell-profile-hint">Selecting an observed cell can suggest its previous working volume. It never overwrites an existing execution value automatically.</span>
         </div>
         <div class="required-input-grid">
-            ${items.map((item) => `
-                <div class="required-input-item ${item.value == null ? "missing" : "complete"}">
+            ${items.map((item) => {
+                const compatible = sensorSnapshots(state).filter(sensor =>
+                    sensorIsOnline(sensor) && sensor.value != null &&
+                    String(sensor.unit || "").trim().toLowerCase() === String(item.unit || "").trim().toLowerCase()
+                );
+                return `<div class="required-input-item ${item.value == null ? "missing" : "complete"}">
                     <label for="required_${escapeHtml(item.id)}">${escapeHtml(item.label)} <span>${escapeHtml(item.unit || "")}</span></label>
+                    ${compatible.length ? `<select data-required-source="${escapeHtml(item.id)}"><option value="manual">Manual entry</option>${compatible.map(sensor => `<option value="${escapeHtml(sensor.id)}">${escapeHtml(sensor.name || sensor.id)} · ${escapeHtml(sensorDisplayValue(sensor))}</option>`).join("")}</select>` : ""}
                     <div>
                         <input id="required_${escapeHtml(item.id)}" data-required-value="${escapeHtml(item.id)}" type="number" step="any" value="${item.value == null ? "" : escapeHtml(item.value)}" placeholder="Required">
                         <button class="button button-primary" data-save-required="${escapeHtml(item.id)}" type="button">${item.value == null ? "Set" : "Update"}</button>
                     </div>
                     <small>${item.measurement_id ? "Execution value · auditable measurement" : (item.source === "recipe" ? "From recipe; change only if the actual run differs." : "Not provided by recipe.")}</small>
-                </div>`).join("")}
+                </div>`;
+            }).join("")}
         </div>`;
 }
 
@@ -909,6 +915,12 @@ function bindActions() {
     ui.measurement_value_type.addEventListener("change", updateMeasurementSourcePreview);
 
     ui.required_inputs_panel.addEventListener("change", (event) => {
+        const sourceSelect = event.target.closest("[data-required-source]");
+        if (sourceSelect) {
+            const input = ui.required_inputs_panel.querySelector(`[data-required-value="${CSS.escape(sourceSelect.dataset.requiredSource)}"]`);
+            if (input) input.disabled = sourceSelect.value !== "manual";
+            return;
+        }
         const select = event.target.closest("#execution_cell_suggestion");
         if (!select || !select.value) return;
         const option = select.options[select.selectedIndex];
@@ -925,13 +937,16 @@ function bindActions() {
         if (saveInput) {
             const id = saveInput.dataset.saveRequired;
             const input = ui.required_inputs_panel.querySelector(`[data-required-value="${CSS.escape(id)}"]`);
-            if (!input || input.value.trim() === "") { showToast("Enter the required value."); return; }
+            const source = ui.required_inputs_panel.querySelector(`[data-required-source="${CSS.escape(id)}"]`)?.value || "manual";
+            if (source === "manual" && (!input || input.value.trim() === "")) { showToast("Enter the required value."); return; }
             const item = (latestState?.execution_inputs?.items || []).find(entry => entry.id === id);
             saveInput.disabled = true;
             try {
+                const payload = {variable_id:id, variable_name:item?.label || id, source_id:source, value_type:"number", role:"execution_input", category:"initial_condition"};
+                if (source === "manual") { payload.value = input.value; payload.unit = item?.unit || null; }
                 const result = await requestJson("/api/digiflot/measurements", {
                     method:"POST", headers:{"Content-Type":"application/json"},
-                    body:JSON.stringify({variable_id:id, variable_name:item?.label || id, source_id:"manual", value:input.value, unit:item?.unit || null, value_type:"number", role:"execution_input", category:"initial_condition"})
+                    body:JSON.stringify(payload)
                 });
                 if (latestState) latestState.execution_inputs = result.execution_inputs;
                 renderRequiredInputs(latestState || {});
