@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261109a">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261109b">
   <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261109a"></script>
 </head>
 <body>
@@ -15,33 +15,35 @@
   <span class="state-badge" id="vision_state">Loading</span></header>
   <div class="cell-vision-grid">
     <section class="card cell-profile-card"><div class="cv-card-head"><div><p class="eyebrow">01 / Physical cell</p><h2>Cell registry</h2></div><button type="button" class="button button-secondary" id="new_cell">New cell</button></div>
-      <label>Stored cell <select id="cell_select"><option value="">Select a cell</option></select></label>
+      <div class="cv-select-panel"><label>Stored cell <select id="cell_select"><option value="">Select a cell</option></select></label></div>
+      <div class="cv-field-group"><div class="cv-group-heading"><strong>Cell dimensions</strong><span>Physical parameters</span></div>
       <div class="cv-two"><label>Cell name <input id="cell_name" placeholder="Flotation Cell A" maxlength="80"></label>
       <label>Working volume (L) <input id="cell_volume" type="number" min="0" step="any" placeholder="Optional"></label></div>
       <div class="cv-two"><label>Geometry <select id="cell_shape"><option value="custom">Custom</option><option value="rectangular">Rectangular</option><option value="cylindrical">Cylindrical</option></select></label>
       <label>Height (mm) <input id="cell_height" type="number" min="0" step="any"></label></div>
       <div class="cv-two"><label>Width / diameter (mm) <input id="cell_width" type="number" min="0" step="any"></label>
-      <label>Depth (mm, rectangular) <input id="cell_depth" type="number" min="0" step="any"></label></div>
-      <p class="cv-description">Initial L-ruler: marker 0 origin, marker 1 vertical, marker 2 horizontal. Dimensions are local to the marker layout.</p>
+      <label>Depth (mm, rectangular) <input id="cell_depth" type="number" min="0" step="any"></label></div></div>
+      <div class="cv-field-group"><div class="cv-group-heading"><strong>ArUco reference</strong><span>DICT_4X4_50</span></div><p class="cv-description">L-ruler layout: marker 0 is the origin, marker 1 is vertical and marker 2 is horizontal. Dimensions follow the local marker axes.</p>
       <div class="cv-three"><label>Marker 0 ID <input id="marker_0" type="number" min="0" step="1" value="0"></label><label>Marker 1 ID <input id="marker_1" type="number" min="0" step="1" value="1"></label><label>Marker 2 ID <input id="marker_2" type="number" min="0" step="1" value="2"></label></div>
       <div class="cv-two"><label>Marker size (cm) <input id="marker_size" type="number" min="0.01" step="any" value="2"></label>
-      <label>Ruler span (cm) <input id="marker_span" type="number" min="0.01" step="any" value="14"></label></div>
-      <button class="button button-primary" type="button" id="save_cell">Save cell</button>
+      <label>Ruler span (cm) <input id="marker_span" type="number" min="0.01" step="any" value="14"></label></div></div>
+      <div class="cv-card-actions"><button class="button button-primary" type="button" id="save_cell">Save cell</button></div>
     </section>
     <section class="card camera-profile-card"><div class="cv-card-head"><div><p class="eyebrow">02 / Camera</p><h2>Camera profile</h2></div></div>
-      <label>Vision camera <select id="camera_select"><option value="">Select a camera</option></select></label>
+      <div class="cv-select-panel"><label>Vision camera <select id="camera_select"><option value="">Select a camera</option></select></label></div>
+      <div class="cv-camera-fields">
       <div class="cv-two"><label>Distortion mode <select id="optics_mode"><option value="none">None</option><option value="preset">Fisheye preset</option><option value="custom">Imported intrinsics</option></select></label>
       <label>Preset <select id="lens_preset"><option value="quase_sem_distorcao">Very low</option><option value="leve">Low</option><option value="media">Medium</option><option value="forte">Strong</option><option value="muito_forte">Very strong</option><option value="fisheye_extremo">Extreme</option></select></label></div>
       <label class="cv-inline"><input id="invert_markers" type="checkbox"> Invert marker detection</label>
       <label>Import existing intrinsic calibration JSON <input id="import_intrinsics" type="file" accept="application/json,.json"></label>
       <p class="cv-description">Use a distortion preset now; import K/D from an existing calibration or a future checkerboard calibration. The ROI belongs to the camera and uses normalized sensor coordinates.</p>
       <div class="cv-inline-row"><button class="button button-secondary" type="button" id="reset_roi">Full-image ROI</button><button class="button button-primary" type="button" id="save_camera">Save camera calibration</button></div>
-      <div id="roi_caption" class="cv-mono">ROI: [0, 0, 1, 1]</div>
-      <hr class="cv-sep"><div class="cv-card-head"><div><p class="eyebrow">Optional acquisition</p><h3>Vision worker</h3></div></div>
+      <div id="roi_caption" class="cv-mono">ROI: [0, 0, 1, 1]</div></div>
+      <div class="cv-worker-panel"><div class="cv-card-head"><div><p class="eyebrow">Optional acquisition</p><h3>Vision worker</h3></div></div>
       <label class="cv-inline"><input type="checkbox" id="vision_enabled"> Process the selected camera while recording</label>
       <div class="cv-two"><label>Sample interval (s) <input id="sample_interval" type="number" min="0.2" max="60" step="0.2" value="1"></label>
       <div class="cv-action-end"><button class="button button-secondary" type="button" id="save_vision_settings">Save vision settings</button></div></div>
-      <p class="cv-description">Disabled by default. Only this camera receives a low-resolution analysis stream during recording; the main recorder remains unchanged.</p>
+      <p class="cv-description">Disabled by default. Only this camera receives a low-resolution analysis stream during recording; the main recorder remains unchanged.</p></div>
     </section>
   </div>
   <section class="card vision-calibration-card"><div class="cv-card-head"><div><p class="eyebrow">03 / Camera–cell association</p><h2>ArUco calibration</h2><p class="cv-description">Load the last confirmed grid, detect the present marker positions, then confirm a new calibration if needed.</p></div>
