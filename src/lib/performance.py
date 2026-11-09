@@ -56,7 +56,9 @@ class PerformanceManager:
         self.quick_duration_s = float(self.config.get("quick_duration_s", 30.0))
         self.stability_duration_s = float(self.config.get("stability_duration_s", 120.0))
         self.sample_interval_s = max(0.25, float(self.config.get("sample_interval_s", 1.0)))
-        self.telemetry_interval_s = max(1.0, float(self.config.get("telemetry_interval_s", 5.0)))
+        self.telemetry_interval_s = max(1.0, float(self.config.get("telemetry_interval_s", 10.0)))
+        self.idle_telemetry_interval_s = max(1.0, float(self.config.get("idle_telemetry_interval_s", 30.0)))
+        self.storage_safety_margin_pct = max(0.0, float(self.config.get("storage_safety_margin_pct", 30.0)))
         self.max_temperature_c = float(self.config.get("max_temperature_c", 80.0))
         self.min_disk_free_gb = float(self.config.get("min_disk_free_gb", 2.0))
         self.profile_max_age_days = int(self.config.get("profile_max_age_days", 60))
@@ -74,10 +76,13 @@ class PerformanceManager:
         self.abort_event = threading.Event()
         self.benchmark_thread = None
 
-        self.telemetry_stop = threading.Event()
-        self.telemetry_thread = None
+        self.monitor_stop = threading.Event()
+        self.monitor_wake = threading.Event()
+        self.monitor_thread = None
+        self.telemetry_lock = threading.RLock()
         self.telemetry_path = None
         self.telemetry_event_callback = None
+        self.monitor_error = None
         self.last_sample = self.sample_system()
         self.profile = self._load_profile()
 
@@ -101,25 +106,21 @@ class PerformanceManager:
 
     @staticmethod
     def _read_temperature():
-        try:
-            result = subprocess.run(
-                ["vcgencmd", "measure_temp"],
-                capture_output=True,
-                text=True,
-                timeout=1.0,
-                check=False,
-            )
-            text = result.stdout.strip()
-            if "=" in text:
-                return float(text.split("=", 1)[1].split("'", 1)[0])
-        except Exception:
-            pass
-
+        # Prefer sysfs: no process creation on normal Raspberry Pi systems.
         thermal = Path("/sys/class/thermal/thermal_zone0/temp")
         try:
             return float(thermal.read_text(encoding="utf-8").strip()) / 1000.0
-        except Exception:
-            return None
+        except (OSError, ValueError):
+            pass
+        try:
+            result = subprocess.run(["vcgencmd", "measure_temp"], capture_output=True,
+                                    text=True, timeout=1.0, check=False)
+            text = result.stdout.strip()
+            if "=" in text:
+                return float(text.split("=", 1)[1].split("'", 1)[0])
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+        return None
 
     @staticmethod
     def _read_throttled():
@@ -327,7 +328,6 @@ class PerformanceManager:
     @property
     def status(self):
         with self.lock:
-            self.last_sample = self.sample_system()
             return {
                 "revision": self.revision,
                 "state": self.state,
@@ -703,70 +703,138 @@ class PerformanceManager:
             self.profile = profile
             self._touch()
 
+    def start_system_monitor(self):
+        with self.lock:
+            if self.monitor_thread is not None and self.monitor_thread.is_alive():
+                return
+            self.monitor_stop.clear()
+            self.monitor_wake.clear()
+            self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True,
+                                                   name="digiflot-system-monitor")
+            self.monitor_thread.start()
+
+    def stop_system_monitor(self):
+        self.monitor_stop.set()
+        self.monitor_wake.set()
+        thread = self.monitor_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=3.0)
+        self.monitor_thread = None
+
+    def update_monitor_settings(self, settings):
+        with self.lock:
+            self.telemetry_interval_s = float(settings["telemetry_interval_s"])
+            self.idle_telemetry_interval_s = float(settings["idle_telemetry_interval_s"])
+            self.min_disk_free_gb = float(settings["min_disk_free_gb"])
+            self.storage_safety_margin_pct = float(settings["storage_safety_margin_pct"])
+            self.config.update(settings)
+        self.monitor_wake.set()
+
+    def system_health(self):
+        with self.lock:
+            sample = deepcopy(self.last_sample)
+            return {"system": sample,
+                    "telemetry": {"running": self.monitor_thread is not None and self.monitor_thread.is_alive(),
+                                  "recording": self.telemetry_path is not None,
+                                  "experiment_interval_s": self.telemetry_interval_s,
+                                  "idle_interval_s": self.idle_telemetry_interval_s,
+                                  "error": self.monitor_error},
+                    "min_disk_free_gb": self.min_disk_free_gb,
+                    "storage_safety_margin_pct": self.storage_safety_margin_pct}
+
+    @staticmethod
+    def _format_telemetry_row(sample):
+        throttled = sample.get("throttled") or {}
+        disk = sample.get("disk") or {}
+        return "\t".join([
+            str(sample.get("timestamp") or ""),
+            "" if sample.get("temperature_c") is None else f"{sample['temperature_c']:.3f}",
+            "" if sample.get("load1") is None else f"{sample['load1']:.3f}",
+            "" if sample.get("load5") is None else f"{sample['load5']:.3f}",
+            "" if sample.get("load15") is None else f"{sample['load15']:.3f}",
+            "1" if throttled.get("current") else "0",
+            str(throttled.get("raw") or ""),
+            "" if disk.get("free_gb") is None else f"{disk['free_gb']:.3f}",
+        ]) + "\n"
+
+    def _append_telemetry(self, sample):
+        with self.telemetry_lock:
+            path = self.telemetry_path
+            if path is None:
+                return
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                header_needed = not path.exists() or path.stat().st_size == 0
+                with path.open("a", encoding="utf-8") as file:
+                    if header_needed:
+                        file.write("timestamp\ttemperature_c\tload1\tload5\tload15\tthrottled\tthrottled_raw\tdisk_free_gb\n")
+                    file.write(self._format_telemetry_row(sample))
+            except OSError as error:
+                with self.lock:
+                    self.monitor_error = f"System telemetry write failed: {error}"
+
     def start_experiment_telemetry(self, run_directory: Path, event_callback=None):
-        self.stop_experiment_telemetry()
-        self.telemetry_path = Path(run_directory) / "system_metrics.tsv"
-        self.telemetry_event_callback = event_callback
-        self.telemetry_stop.clear()
-        self.telemetry_thread = threading.Thread(
-            target=self._telemetry_loop,
-            daemon=True,
-            name="digiflot-system-telemetry",
-        )
-        self.telemetry_thread.start()
+        with self.telemetry_lock:
+            self.telemetry_path = Path(run_directory) / "system_metrics.tsv"
+            self.telemetry_event_callback = event_callback
+        with self.lock:
+            sample = deepcopy(self.last_sample)
+        self._append_telemetry(sample)
+        self.monitor_wake.set()
 
     def stop_experiment_telemetry(self):
-        self.telemetry_stop.set()
-        thread = self.telemetry_thread
-        if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=2.0)
-        self.telemetry_thread = None
-        self.telemetry_path = None
-        self.telemetry_event_callback = None
-
-    def _telemetry_loop(self):
-        path = self.telemetry_path
-        if path is None:
-            return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        header_needed = not path.exists()
-        last_warning = None
+        # Called after acquisition stops. Append a final cached measurement,
+        # refreshing disk capacity without launching a subprocess.
+        with self.lock:
+            sample = deepcopy(self.last_sample)
+        sample["timestamp"] = _utc_now()
         try:
-            with path.open("a", encoding="utf-8") as file:
-                if header_needed:
-                    file.write("timestamp\ttemperature_c\tload1\tload5\tload15\tthrottled\tthrottled_raw\tdisk_free_gb\n")
-                while not self.telemetry_stop.wait(self.telemetry_interval_s):
-                    sample = self.sample_system()
-                    with self.lock:
-                        self.last_sample = deepcopy(sample)
-                        self._touch()
-                    throttled = sample.get("throttled") or {}
-                    disk = sample.get("disk") or {}
-                    file.write("\t".join([
-                        str(sample.get("timestamp") or ""),
-                        "" if sample.get("temperature_c") is None else f"{sample['temperature_c']:.3f}",
-                        "" if sample.get("load1") is None else f"{sample['load1']:.3f}",
-                        "" if sample.get("load5") is None else f"{sample['load5']:.3f}",
-                        "" if sample.get("load15") is None else f"{sample['load15']:.3f}",
-                        "1" if throttled.get("current") else "0",
-                        str(throttled.get("raw") or ""),
-                        "" if disk.get("free_gb") is None else f"{disk['free_gb']:.3f}",
-                    ]) + "\n")
-                    file.flush()
+            usage = shutil.disk_usage(self.base_dir.parent)
+            sample["disk"] = {"total_gb": usage.total / 1024**3,
+                              "free_gb": usage.free / 1024**3,
+                              "used_gb": usage.used / 1024**3}
+        except OSError:
+            pass
+        with self.telemetry_lock:
+            if self.telemetry_path is not None:
+                self._append_telemetry(sample)
+            self.telemetry_path = None
+            self.telemetry_event_callback = None
+        self.monitor_wake.set()
 
-                    warning = None
-                    if throttled.get("current"):
-                        warning = "System throttling detected during experiment."
-                    elif sample.get("temperature_c") is not None and sample["temperature_c"] >= self.max_temperature_c:
-                        warning = f"System temperature reached {sample['temperature_c']:.1f} °C."
-                    elif disk.get("free_gb") is not None and disk["free_gb"] < self.min_disk_free_gb:
-                        warning = "Disk free space is below the configured safety threshold."
-
-                    if warning and warning != last_warning and self.telemetry_event_callback:
-                        try:
-                            self.telemetry_event_callback(warning, sample)
-                        except Exception:
-                            pass
-                    last_warning = warning
-        except Exception:
-            return
+    def _monitor_loop(self):
+        last_warning = None
+        while not self.monitor_stop.is_set():
+            try:
+                sample = self.sample_system()
+                with self.lock:
+                    self.last_sample = sample
+                    self.monitor_error = None
+                    self._touch()
+                self._append_telemetry(sample)
+                throttled = sample.get("throttled") or {}
+                free_gb = (sample.get("disk") or {}).get("free_gb")
+                warning = None
+                if throttled.get("current"):
+                    warning = "System throttling detected during experiment."
+                elif sample.get("temperature_c") is not None and sample["temperature_c"] >= self.max_temperature_c:
+                    warning = f"System temperature reached {sample['temperature_c']:.1f} °C."
+                elif free_gb is not None and free_gb < self.min_disk_free_gb:
+                    warning = "Disk free space is below the configured safety threshold."
+                with self.telemetry_lock:
+                    callback = self.telemetry_event_callback
+                    recording = self.telemetry_path is not None
+                if warning and warning != last_warning and recording and callback is not None:
+                    try:
+                        callback(warning, sample)
+                    except Exception:
+                        pass
+                last_warning = warning if recording else None
+            except Exception as error:
+                with self.lock:
+                    self.monitor_error = f"System monitor failed: {error}"
+            with self.telemetry_lock:
+                active = self.telemetry_path is not None
+            delay = self.telemetry_interval_s if active else self.idle_telemetry_interval_s
+            self.monitor_wake.wait(max(1.0, delay))
+            self.monitor_wake.clear()
