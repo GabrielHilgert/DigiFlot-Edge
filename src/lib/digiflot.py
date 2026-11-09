@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import threading
@@ -16,6 +17,7 @@ from lib.atlasScientific import AtlasScientific
 from lib.camera import Camera
 from lib.scale import Scale
 from lib.pulp_preparation import planned_inputs, derived_metrics
+from lib.storage_estimator import StorageEstimator
 try:
     from lib.performance import PerformanceManager
 except Exception:
@@ -154,6 +156,10 @@ class DigiFlot:
             except Exception as error:
                 print(f"Performance manager unavailable: {error}")
 
+        self.storage_estimator = StorageEstimator(self.local_storage_dir)
+        self.camera_storage_samples = []
+        self._storage_abort_requested = False
+
         self.state = self.IDLE
         self.stage_state = self.STAGE_NONE
         self.preview_camera_id = None
@@ -285,6 +291,11 @@ class DigiFlot:
                 self.atlas.error = str(error)
 
         self._discover_incomplete_run()
+        if self.performance is not None:
+            try:
+                self.performance.start_system_monitor()
+            except Exception as error:
+                print(f"[DigiFlot] System monitor unavailable: {error}")
 
         self.stop_event.clear()
         self.control_thread = threading.Thread(
@@ -340,6 +351,7 @@ class DigiFlot:
                 if benchmark_thread is not None and benchmark_thread is not threading.current_thread():
                     benchmark_thread.join(timeout=5.0)
                 self.performance.stop_experiment_telemetry()
+                self.performance.stop_system_monitor()
             except Exception as error:
                 errors.append(("performance", error))
 
@@ -1346,6 +1358,8 @@ class DigiFlot:
         self.sensor_calibration = {}
         self.active_camera_segments = {}
         self.camera_segment_count = {}
+        self.camera_storage_samples = []
+        self._storage_abort_requested = False
         self.stage_attempt = 0
         self.recovery_context = None
         self.warnings = []
@@ -1842,6 +1856,7 @@ class DigiFlot:
                 if required["missing"]:
                     labels = [self.REQUIRED_EXECUTION_INPUTS[key]["label"] for key in required["missing"]]
                     raise RuntimeError("Required execution inputs are missing: " + ", ".join(labels))
+                self._verify_start_storage_unlocked()
 
                 now = time.monotonic()
                 self.run_started_monotonic = now
@@ -2095,6 +2110,12 @@ class DigiFlot:
         self.recovery_context = None
         self._touch_unlocked("EXPERIMENT_COMPLETED")
         self._sync_execution_state_unlocked("completed", ensure=True)
+        try:
+            self.storage_estimator.record_completed(
+                self.run_directory, self.camera_storage_samples, self._run_elapsed_unlocked()
+            )
+        except Exception as error:
+            print(f"[DigiFlot] Could not update storage history: {error}")
 
     def abort_experiment(self, reason="Operator aborted experiment"):
         with self.lock:
@@ -2378,6 +2399,10 @@ class DigiFlot:
         while not self.stop_event.is_set():
             try:
                 with self.condition:
+                    if self._storage_abort_requested and self.state in {self.RUNNING, self.PAUSED}:
+                        self._storage_abort_requested = False
+                        self.abort_experiment("Critical disk space: acquisition stopped to protect stored data.")
+                        continue
                     if self.state in {self.RUNNING, self.PAUSED}:
                         self._check_device_health_unlocked()
 
@@ -2656,16 +2681,66 @@ class DigiFlot:
                 message,
                 {"sample": deepcopy(sample)},
             )
+            if "Disk free space is below" in message:
+                self._storage_abort_requested = True
             self._touch_unlocked(
                 "PERFORMANCE_WARNING",
                 {"message": message, "sample": deepcopy(sample)},
             )
+            if self._storage_abort_requested:
+                self.condition.notify_all()
+
+    def _storage_cameras_unlocked(self):
+        configured = self.config.get("cameras", [])
+        result = []
+        for item in configured:
+            try:
+                runtime = self.cameras.get(int(item["id"]))
+            except (KeyError, ValueError, TypeError):
+                runtime = None
+            result.append(runtime if runtime is not None else item)
+        return result
+
+    def estimate_storage(self, experiment):
+        with self.lock:
+            return self.storage_estimator.estimate(
+                experiment, self._storage_cameras_unlocked(), self._camera_required,
+                auto_advance=self.auto_advance_enabled, transition_delay_s=self.transition_timeout_s,
+                min_free_gb=(self.performance.min_disk_free_gb if self.performance else 2.0),
+                safety_margin_pct=(self.performance.storage_safety_margin_pct if self.performance else 30.0),
+            )
+
+    def _verify_start_storage_unlocked(self):
+        estimate = self.storage_estimator.estimate(
+            self.experiment, self._storage_cameras_unlocked(), self._camera_required,
+            auto_advance=self.auto_advance_enabled, transition_delay_s=self.transition_timeout_s,
+            min_free_gb=(self.performance.min_disk_free_gb if self.performance else 2.0),
+            safety_margin_pct=(self.performance.storage_safety_margin_pct if self.performance else 30.0),
+        )
+        if estimate["sufficient"] is None:
+            raise RuntimeError("Cannot verify available disk space. Check the storage device.")
+        if not estimate["sufficient"]:
+            shortage = (estimate["required_free_bytes"] - estimate["disk"]["free_bytes"]) / 1024**3
+            raise RuntimeError(f"Insufficient disk space for this experiment: at least {shortage:.2f} GiB more is required.")
+
+    def system_health(self):
+        # Additive server-facing endpoint. The existing /health contract is unchanged.
+        with self.lock:
+            state = self.state
+            running = self.state in {self.RUNNING, self.PAUSED, self.RECOVERY_REQUIRED}
+            experiment_id = self.storage_id
+        health = self.performance.system_health() if self.performance is not None else {
+            "system": None, "telemetry": {"running": False, "recording": False, "error": "Unavailable"}}
+        disk = self.storage_estimator.disk()
+        return {"status": "ok", "state": state, "acquisition_active": running,
+                "storage_id": experiment_id, "system": health["system"],
+                "telemetry": health["telemetry"], "storage": disk}
 
     def _start_performance_telemetry_unlocked(self):
         if self.performance is None or self.run_directory is None:
             return
         try:
-            if self.performance.telemetry_thread is None:
+            if self.performance.telemetry_path is None:
                 self.performance.start_experiment_telemetry(
                     self.run_directory,
                     event_callback=self._performance_warning_callback,
@@ -2756,6 +2831,12 @@ class DigiFlot:
                     "scraping_interval": self.scraping_interval_s,
                     "scraping_method": self.scraping_method,
                 },
+                "performance": {
+                    "telemetry_interval_s": self.performance.telemetry_interval_s if self.performance else 10.0,
+                    "idle_telemetry_interval_s": self.performance.idle_telemetry_interval_s if self.performance else 30.0,
+                    "min_disk_free_gb": self.performance.min_disk_free_gb if self.performance else 2.0,
+                    "storage_safety_margin_pct": self.performance.storage_safety_margin_pct if self.performance else 30.0,
+                },
                 "server": {
                     "ip": str(server.get("ip", "")),
                     "id": server.get("id", ""),
@@ -2799,6 +2880,32 @@ class DigiFlot:
             orchestration["transition_timeout_s"] = self.transition_timeout_s
             orchestration["scraping_interval"] = self.scraping_interval_s
             orchestration["scraping_method"] = self.scraping_method
+
+            performance_settings = None
+            if "performance" in payload:
+                requested = payload["performance"]
+                if not isinstance(requested, dict):
+                    raise ValueError("performance must be an object.")
+                limits = {"telemetry_interval_s": (1, 3600), "idle_telemetry_interval_s": (5, 3600),
+                          "min_disk_free_gb": (0.1, 1000), "storage_safety_margin_pct": (0, 300)}
+                current = self.config.setdefault("performance", {})
+                performance_settings = {
+                    "telemetry_interval_s": float(current.get("telemetry_interval_s", 10)),
+                    "idle_telemetry_interval_s": float(current.get("idle_telemetry_interval_s", 30)),
+                    "min_disk_free_gb": float(current.get("min_disk_free_gb", 2)),
+                    "storage_safety_margin_pct": float(current.get("storage_safety_margin_pct", 30)),
+                }
+                for key, value in requested.items():
+                    if key not in limits:
+                        raise ValueError(f"Unknown performance setting: {key}")
+                    number = float(value)
+                    low, high = limits[key]
+                    if not math.isfinite(number) or not low <= number <= high:
+                        raise ValueError(f"{key} must be between {low} and {high}.")
+                    performance_settings[key] = number
+                current.update(performance_settings)
+                if self.performance is not None:
+                    self.performance.update_monitor_settings(performance_settings)
 
             server_changed = False
             if "server" in payload:
@@ -2845,6 +2952,7 @@ class DigiFlot:
             server = self.config.get("server") or {}
             return {
                 "orchestration": deepcopy(orchestration),
+                "performance": deepcopy(self.config.get("performance", {})),
                 "server": {
                     "ip": str(server.get("ip", "")),
                     "id": server.get("id", ""),
@@ -3274,6 +3382,16 @@ class DigiFlot:
                 continue
 
             metadata = self.active_camera_segments.pop(camera.id, None)
+            try:
+                metrics = camera.recording_metrics()
+                if metrics.get("frame_count", 0) > 0:
+                    self.camera_storage_samples.append({
+                        "signature": self.storage_estimator.camera_signature(camera),
+                        "frame_count": metrics["frame_count"],
+                        "byte_count": metrics["byte_count"],
+                    })
+            except Exception:
+                pass
             try:
                 camera.stop_recording()
             except Exception as error:
