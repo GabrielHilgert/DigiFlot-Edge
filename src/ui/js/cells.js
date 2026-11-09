@@ -134,7 +134,8 @@
     state.association = await api(`/associations/${state.cameraId}/${encodeURIComponent(state.cellId)}`);
     const record = state.association;
     text('last_calibration',record?.calibration_id || 'None');
-    text('association_status',record ? `Using saved calibration #${record.revision}. Detect ArUco to update.` : 'No saved association yet. Detect ArUco to create one.');
+    const stale = record && (record.camera_revision !== state.profile?.revision || record.cell_revision !== state.cell?.revision);
+    text('association_status',record ? `Using saved calibration #${record.revision}${stale?' (profile changed; review grid)':''}. Detect ArUco to update.` : 'No saved association yet. Detect ArUco to create one.');
   }
 
   async function startPreview() {
@@ -209,7 +210,7 @@
   function drawDrag(event) {
     if (!state.drag) return;
     const p = relativePoint(event);if (!p) return;
-    const image = $('camera_image'), rect = image.getBoundingClientRect();
+    const rect = $('image_surface').getBoundingClientRect();
     const q = state.drag.startPixel;
     const x = Math.min(q[0],event.clientX),y=Math.min(q[1],event.clientY);
     const div=$('roi_drag');div.hidden=false;
