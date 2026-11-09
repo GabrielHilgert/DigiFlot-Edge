@@ -207,6 +207,7 @@ class Camera:
 
         self.id = int(config["id"])
         self.picam2 = Picamera2(self.id)
+        self.analysis_enabled = False  # opt-in for the selected Vision camera
 
         self.preview_encoder = None
         self.preview_output = None
@@ -1050,7 +1051,17 @@ class Camera:
             frame_rate=self.frame_rate,
         )
 
+        # One optional low-resolution stream accompanies the unchanged main recording.
+        lores = None
+        if self.analysis_enabled:
+            width = min(int(self.preview_size[0]), int(self.frame_size[0]))
+            width = max(2, width - width % 2)
+            height = max(2, int(round(width * self.frame_size[1] / self.frame_size[0] / 2)) * 2)
+            height = min(height, int(self.frame_size[1]) // 2 * 2)
+            lores = {"size": (width, height), "format": "YUV420"}
+
         return self.picam2.create_video_configuration(
+            lores=lores,
             main={
                 # frame_size is exactly the selected crop size. This avoids
                 # imposing a second, unrelated aspect ratio on the saved image.
@@ -1544,6 +1555,31 @@ class Camera:
             "write_rate_mbps": (output.byte_count / elapsed / 1_000_000.0) if elapsed > 0 else 0.0,
             "last_frame_age_s": last_age,
         }
+
+    def capture_analysis_frame(self):
+        """Read from active lores without reconfiguring or stopping the encoder."""
+        import cv2
+        from lib.vision.aruco import source_geometry
+        with self.lock:
+            if self.state not in (self.PREVIEW, self.RECORDING):
+                raise RuntimeError("Start camera preview or recording before requesting a vision frame")
+            if self.state == self.RECORDING and not self.analysis_enabled:
+                raise RuntimeError("Low-resolution analysis stream is disabled for this camera")
+            request = self.picam2.capture_request()
+            try:
+                plane = request.make_array("lores").copy()
+                metadata = request.get_metadata()
+            finally:
+                request.release()
+            cfg = self.picam2.camera_configuration()["lores"]
+            width, height = (int(v) for v in cfg["size"])
+            bgr = cv2.cvtColor(plane, cv2.COLOR_YUV2BGR_I420)
+            if bgr.shape[:2] != (height, width):
+                raise RuntimeError("Unexpected lores buffer geometry")
+            crop = self._rectangle_to_tuple(metadata.get("ScalerCrop"))
+            if crop is None:
+                crop = self.full_sensor_crop() if self.state == self.PREVIEW else (self.crop_region or self.full_sensor_crop())
+            return bgr, source_geometry([width, height], crop)
 
     def close(self):
         with self.lock:
