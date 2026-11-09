@@ -12,6 +12,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Check run page JavaScript syntax and input persistence
+        run: |
+          node --check src/ui/js/run.js
+          node tests/test_run_dom.js
       - name: Compile Python sources
         run: python -m compileall -q src tests
       - name: Storage estimator tests
