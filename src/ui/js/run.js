@@ -9,6 +9,7 @@ const lastSensorPlotTimestamp = new Map();
 let measurementData = { revision: 0, count: 0, variables: [], observations: [] };
 let measurementFetchInFlight = false;
 let measurementSourceSignature = null;
+let runStorageEstimateFor = null;
 
 function cacheUi() {
     [
@@ -23,6 +24,7 @@ function cacheUi() {
         "reset_button", "error_panel", "error_title", "error_message",
         "error_reset_button", "abort_bar", "abort_button", "scrape_signal", "toast",
         "device_summary", "performance_summary", "warning_panel", "warning_list",
+        "run_disk_free", "run_storage_estimate", "run_storage_status",
         "finish_stage_button", "skip_stage_button", "recovery_details", "transition_countdown", "run_performance_link",
         "recovery_actions", "error_close_actions", "retry_devices_button",
         "recovery_resume_button", "restart_stage_button", "recovery_skip_button",
@@ -46,6 +48,43 @@ async function requestJson(url, options = {}) {
         throw new Error(payload?.detail || `${response.status} ${response.statusText}`);
     }
     return payload;
+}
+
+function formatRunBytes(value) {
+    const bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes < 0) return "—";
+    return `${(bytes / (1024 ** 3)).toFixed(2)} GiB`;
+}
+
+async function refreshRunStorage() {
+    if (document.hidden) return;
+    try {
+        const data = await requestJson("/api/digiflot/system/health");
+        ui.run_disk_free.textContent = formatRunBytes(data.storage?.free_bytes);
+        const sample = data.system || {};
+        const timestamp = Date.parse(sample.timestamp || "");
+        const stale = !data.telemetry?.running || !Number.isFinite(timestamp)
+            || Date.now() - timestamp > Math.max(60000, Number(data.telemetry?.experiment_interval_s || 10) * 2500);
+        const critical = Number(data.storage?.free_bytes) < 2 ** 30 * Number(data.telemetry?.min_disk_free_gb ?? 2);
+        ui.run_storage_status.textContent = stale ? "Telemetry unavailable" : (critical ? "Critical disk space" : "Monitoring");
+    } catch (error) {
+        ui.run_storage_status.textContent = "Unavailable";
+    }
+}
+
+async function refreshRunEstimate(state) {
+    const key = state.storage_id;
+    if (!key || key === runStorageEstimateFor || !Array.isArray(state.stages) || !state.stages.length) return;
+    runStorageEstimateFor = key;
+    try {
+        const value = await requestJson("/api/digiflot/storage/estimate", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ experiment: { stages: state.stages } }),
+        });
+        if (runStorageEstimateFor === key) ui.run_storage_estimate.textContent = formatRunBytes(value.estimated_bytes);
+    } catch (_) {
+        if (runStorageEstimateFor === key) ui.run_storage_estimate.textContent = "Unavailable";
+    }
 }
 
 function showToast(message) {
@@ -1072,6 +1111,9 @@ async function initialise() {
         showToast(error.message);
     }
     connectStateStream();
+    if (latestState) refreshRunEstimate(latestState);
+    refreshRunStorage();
+    window.setInterval(refreshRunStorage, 30000);
 }
 
 document.addEventListener("DOMContentLoaded", initialise);

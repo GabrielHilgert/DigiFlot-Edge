@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026b">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261026b">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261026pulp1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261109a">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261109a"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -69,6 +69,12 @@
                 <button id="operations_retry_devices" class="button button-secondary button-small" type="button">Retry devices</button>
                 <a id="run_performance_link" class="button button-secondary button-small" href="/performance">Performance</a>
             </div>
+        </section>
+
+        <section class="card run-storage-strip" aria-label="Storage status">
+            <div><span class="status-label">Available disk space</span><strong id="run_disk_free">—</strong></div>
+            <div><span class="status-label">Estimated experiment size</span><strong id="run_storage_estimate">—</strong></div>
+            <div><span class="status-label">Storage health</span><strong id="run_storage_status">Checking…</strong></div>
         </section>
 
         <section id="warning_panel" class="warning-panel card" hidden>

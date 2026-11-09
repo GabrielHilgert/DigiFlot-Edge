@@ -355,3 +355,8 @@ a { color: inherit; text-decoration: none; }
   .required-input-grid { grid-template-columns:1fr; }
   .cell-profile-row { grid-template-columns:1fr; align-items:stretch; }
 }
+
+.run-storage-strip { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; padding:14px 22px; margin-bottom:22px; }
+.run-storage-strip > div { display:flex; flex-direction:column; gap:6px; min-width:0; }
+.run-storage-strip strong { font-size:.97rem; }
+@media (max-width:650px) { .run-storage-strip { grid-template-columns:1fr; } }
