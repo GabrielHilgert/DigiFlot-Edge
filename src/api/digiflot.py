@@ -279,6 +279,26 @@ def restart_stage(request: Request, payload: dict | None = None):
         raise api_error(error) from error
 
 
+@router.get("/system/health")
+def system_health(request: Request):
+    """Read-only, lightweight health endpoint for the Edge UI and DigiFlot Server.
+
+    The existing /health response is deliberately preserved for compatibility.
+    """
+    return get_digiflot(request).system_health()
+
+
+@router.post("/storage/estimate")
+def estimate_storage(request: Request, payload: dict):
+    experiment = payload.get("experiment", payload)
+    if not isinstance(experiment, dict):
+        raise HTTPException(status_code=422, detail="An experiment object is required.")
+    try:
+        return get_digiflot(request).estimate_storage(experiment)
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.get("/settings")
 def settings(request: Request):
     return _settings_payload(request)
