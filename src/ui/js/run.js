@@ -65,7 +65,7 @@ async function refreshRunStorage() {
         const timestamp = Date.parse(sample.timestamp || "");
         const stale = !data.telemetry?.running || !Number.isFinite(timestamp)
             || Date.now() - timestamp > Math.max(60000, Number(data.telemetry?.experiment_interval_s || 10) * 2500);
-        const critical = Number(data.storage?.free_bytes) < 2 ** 30 * Number(data.telemetry?.min_disk_free_gb ?? 2);
+        const critical = Number(data.storage?.free_bytes) < 2 ** 30 * Number(data.storage?.min_free_gb ?? 2);
         ui.run_storage_status.textContent = stale ? "Telemetry unavailable" : (critical ? "Critical disk space" : "Monitoring");
     } catch (error) {
         ui.run_storage_status.textContent = "Unavailable";

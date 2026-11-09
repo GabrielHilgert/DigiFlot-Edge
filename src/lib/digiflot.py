@@ -2732,6 +2732,7 @@ class DigiFlot:
         health = self.performance.system_health() if self.performance is not None else {
             "system": None, "telemetry": {"running": False, "recording": False, "error": "Unavailable"}}
         disk = self.storage_estimator.disk()
+        disk["min_free_gb"] = health.get("min_disk_free_gb", 2.0)
         return {"status": "ok", "state": state, "acquisition_active": running,
                 "storage_id": experiment_id, "system": health["system"],
                 "telemetry": health["telemetry"], "storage": disk}

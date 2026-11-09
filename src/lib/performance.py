@@ -815,12 +815,12 @@ class PerformanceManager:
                 throttled = sample.get("throttled") or {}
                 free_gb = (sample.get("disk") or {}).get("free_gb")
                 warning = None
-                if throttled.get("current"):
+                if free_gb is not None and free_gb < self.min_disk_free_gb:
+                    warning = "Disk free space is below the configured safety threshold."
+                elif throttled.get("current"):
                     warning = "System throttling detected during experiment."
                 elif sample.get("temperature_c") is not None and sample["temperature_c"] >= self.max_temperature_c:
                     warning = f"System temperature reached {sample['temperature_c']:.1f} °C."
-                elif free_gb is not None and free_gb < self.min_disk_free_gb:
-                    warning = "Disk free space is below the configured safety threshold."
                 with self.telemetry_lock:
                     callback = self.telemetry_event_callback
                     recording = self.telemetry_path is not None
