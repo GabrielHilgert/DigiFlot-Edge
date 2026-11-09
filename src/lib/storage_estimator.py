@@ -7,10 +7,11 @@ import json
 import math
 import os
 import shutil
+from itertools import islice
 from pathlib import Path
 
 GIB = 1024 ** 3
-DEFAULT_BYTES_PER_PIXEL = 0.5
+DEFAULT_BYTES_PER_PIXEL = 0.08
 DEFAULT_AUX_BYTES_PER_SECOND = 8 * 1024
 FIXED_BYTES = 64 * 1024
 VIDEO_SUFFIXES = {".mp4", ".m4v", ".avi", ".mjpeg", ".mjpg", ".mov", ".mkv", ".webm"}
@@ -46,12 +47,17 @@ class StorageEstimator:
         self.profiles.setdefault("version", 1)
         self.profiles.setdefault("cameras", {})
         self.profiles.setdefault("auxiliary", {"bytes_per_second": DEFAULT_AUX_BYTES_PER_SECOND, "samples": 0})
+        self._migrate_profile_keys()
+        if not self.profiles.get("bootstrap_scanned"):
+            self._bootstrap_existing_runs()
 
     @staticmethod
     def camera_signature(camera, output_quality=90):
         if isinstance(camera, dict):
             ident = camera.get("id")
-            size = camera.get("frame_size") or camera.get("size") or [640, 480]
+            crop = camera.get("crop_region")
+            size = [crop[2], crop[3]] if isinstance(crop, (list, tuple)) and len(crop) == 4 else (
+                camera.get("frame_size") or camera.get("size") or [640, 480])
             fps = camera.get("frame_rate", 10)
             quality = camera.get("quality", output_quality)
             output_type = (camera.get("recording") or {}).get("output_type", "mp4")
@@ -67,15 +73,132 @@ class StorageEstimator:
 
     @staticmethod
     def _key(signature):
-        return json.dumps(signature, sort_keys=True, separators=(",", ":"))
+        # FPS changes the data rate but not the encoded size of an individual
+        # JPEG. A profile recorded at 10 fps can be reused at 15 fps.
+        return json.dumps({key: value for key, value in signature.items() if key != "fps"},
+                          sort_keys=True, separators=(",", ":"))
+
+    def _add_observation(self, signature, bytes_per_frame):
+        key = self._key(signature)
+        old_profile = self.profiles["cameras"].get(key, {})
+        count = int(old_profile.get("samples") or 0)
+        previous = _positive(old_profile.get("bytes_per_frame"), bytes_per_frame)
+        sample_weight = min(count, 4)
+        self.profiles["cameras"][key] = {
+            "bytes_per_frame": (previous * sample_weight + bytes_per_frame) / (sample_weight + 1),
+            "samples": count + 1,
+        }
+
+    def _migrate_profile_keys(self):
+        # Older profiles included FPS in their keys. Keep those observations
+        # when upgrading rather than losing already learned camera sizes.
+        old = self.profiles.get("cameras", {})
+        if not isinstance(old, dict):
+            self.profiles["cameras"] = {}
+            return
+        normalized = {}
+        for raw_key, profile in old.items():
+            try:
+                signature = json.loads(raw_key)
+                size = _positive(profile.get("bytes_per_frame"), None)
+                if not isinstance(signature, dict) or size is None:
+                    continue
+                key = self._key(signature)
+                previous = normalized.get(key)
+                if previous is None:
+                    normalized[key] = dict(profile)
+                else:
+                    normalized[key] = {"bytes_per_frame": (size + previous["bytes_per_frame"]) / 2,
+                                       "samples": int(profile.get("samples", 1)) + int(previous.get("samples", 1))}
+            except (ValueError, TypeError, AttributeError, KeyError):
+                continue
+        self.profiles["cameras"] = normalized
+
+    @staticmethod
+    def _load_json(path):
+        try:
+            with Path(path).open(encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, ValueError, TypeError):
+            return None
+
+    def _bootstrap_existing_runs(self):
+        # One bounded, metadata-only scan when upgrading. No ffprobe, decoding,
+        # or reading video bytes; future samples come from recorder counters.
+        try:
+            runs = sorted((path for path in self.storage_root.iterdir()
+                           if path.is_dir() and path.name != "performance"), reverse=True)
+        except OSError:
+            return
+        imported = 0
+        for run in runs[:16]:
+            runtime = self._load_json(run / "runtime.json") or {}
+            if str(runtime.get("state", "")).lower() != "completed":
+                continue
+            snapshot = self._load_json(run / "config_snapshot.json") or {}
+            output_quality = (snapshot.get("output") or {}).get("quality", 90)
+            cameras = {str(item.get("id")): item for item in snapshot.get("cameras", [])
+                       if isinstance(item, dict) and item.get("id") is not None}
+            camera_dir = run / "cameras"
+            if not camera_dir.is_dir():
+                continue
+            for sidecar in islice(camera_dir.rglob("*.json"), 60):
+                video = Path(str(sidecar)[:-5])
+                if video.suffix.lower() not in VIDEO_SUFFIXES:
+                    continue
+                metadata = self._load_json(sidecar) or {}
+                config = cameras.get(str(metadata.get("camera_id")))
+                if config is None:
+                    continue
+                duration = None
+                for start_key, end_key in (("start_monotonic_ns", "end_monotonic_ns"),
+                                           ("start_timestamp_ns", "end_timestamp_ns")):
+                    try:
+                        elapsed = (int(metadata[end_key]) - int(metadata[start_key])) / 1e9
+                        if 0.2 < elapsed < 86400:
+                            duration = elapsed
+                            break
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                if duration is None:
+                    continue
+                try:
+                    size = video.stat().st_size
+                    signature = self.camera_signature(config, output_quality)
+                    frame_count = duration * signature["fps"]
+                    if size <= 0 or frame_count < 1:
+                        continue
+                    self._add_observation(signature, size / frame_count)
+                    imported += 1
+                except (OSError, ValueError, TypeError):
+                    continue
+        self.profiles["bootstrap_scanned"] = True
+        try:
+            _save_json(self.profile_path, self.profiles)
+        except OSError:
+            pass
+        return imported
 
     def camera_bytes_per_frame(self, signature):
         profile = self.profiles["cameras"].get(self._key(signature), {})
         recorded = _positive(profile.get("bytes_per_frame"), None)
         if recorded is not None:
             return recorded, "history"
+        # If only the crop size changed, scale a matching camera's historical
+        # JPEG bytes/pixel. Quality and output type must still match.
+        for key, item in self.profiles["cameras"].items():
+            try:
+                known = json.loads(key)
+                if all(known.get(field) == signature[field]
+                       for field in ("camera_id", "quality", "output_type")):
+                    previous_pixels = int(known["width"]) * int(known["height"])
+                    previous_size = _positive(item.get("bytes_per_frame"), None)
+                    if previous_pixels > 0 and previous_size is not None:
+                        return previous_size * signature["width"] * signature["height"] / previous_pixels, "history"
+            except (ValueError, TypeError, KeyError):
+                pass
         pixels = signature["width"] * signature["height"]
-        return max(64 * 1024, pixels * DEFAULT_BYTES_PER_PIXEL), "default"
+        return max(8 * 1024, pixels * DEFAULT_BYTES_PER_PIXEL), "default"
 
     def disk(self):
         try:
@@ -156,14 +279,7 @@ class StorageEstimator:
             signature = item.get("signature")
             if not isinstance(signature, dict) or frames <= 0 or size <= 0:
                 continue
-            key = self._key(signature)
-            cameras = self.profiles["cameras"]
-            previous = cameras.get(key, {})
-            current = size / frames
-            count = int(previous.get("samples") or 0)
-            old = _positive(previous.get("bytes_per_frame"), current)
-            cameras[key] = {"bytes_per_frame": (old * min(count, 4) + current) / (min(count, 4) + 1),
-                            "samples": count + 1}
+            self._add_observation(signature, size / frames)
             updated = True
         duration = _positive(duration_s, None)
         if duration is not None:
