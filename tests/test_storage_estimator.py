@@ -73,7 +73,7 @@ class StorageEstimatorTests(unittest.TestCase):
         import json
         root = Path(self.temp.name)
         file = root / "performance" / "storage_profiles.json"
-        file.parent.mkdir()
+        file.parent.mkdir(parents=True, exist_ok=True)
         old_sig = self.storage.camera_signature(self.camera)
         file.write_text(json.dumps({"version":1, "bootstrap_scanned":True,
             "cameras":{json.dumps(old_sig, sort_keys=True, separators=(",",":")):{

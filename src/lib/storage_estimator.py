@@ -172,11 +172,12 @@ class StorageEstimator:
                     imported += 1
                 except (OSError, ValueError, TypeError):
                     continue
-        self.profiles["bootstrap_scanned"] = True
-        try:
-            _save_json(self.profile_path, self.profiles)
-        except OSError:
-            pass
+        if imported:
+            self.profiles["bootstrap_scanned"] = True
+            try:
+                _save_json(self.profile_path, self.profiles)
+            except OSError:
+                pass
         return imported
 
     def camera_bytes_per_frame(self, signature):
