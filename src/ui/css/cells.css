@@ -82,6 +82,7 @@ a { color: inherit; text-decoration: none; }
 .cell-vision-page .cv-mono { margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-soft); padding: 9px 12px; color: var(--text-soft); font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
 .cell-vision-page .cv-action-end { display: flex; align-items: flex-end; }
 .cell-vision-page .cv-action-end .button { width: 100%; }
+.cell-vision-page .cv-field-group > .cv-description + .cv-three { margin-top: 14px; }
 .cell-vision-page .cv-camera-fields > .cv-two { margin-top: 20px; }
 .cell-vision-page .cv-camera-fields > .cv-inline, .cell-vision-page .cv-camera-fields > label { margin-top: 20px; }
 .cell-vision-page .cv-camera-fields > .cv-inline-row { margin-top: 20px; }
@@ -120,6 +121,7 @@ a { color: inherit; text-decoration: none; }
 .cell-vision-page .cv-metrics dt { color: var(--text-soft); }
 .cell-vision-page .cv-metrics dd { min-width: 0; margin: 0; color: var(--text); font-weight: 710; text-align: right; overflow-wrap: anywhere; }
 .cell-vision-page #calibration_message { padding: 9px 0 0; }
+.cell-vision-page .cv-toast:empty { display: none; }
 .cell-vision-page .cv-toast:not(:empty) {
     margin: 18px 0 0; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
     border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--text); font-size: .87rem;
