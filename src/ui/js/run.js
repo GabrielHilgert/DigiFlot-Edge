@@ -9,6 +9,9 @@ const lastSensorPlotTimestamp = new Map();
 let measurementData = { revision: 0, count: 0, variables: [], observations: [] };
 let measurementFetchInFlight = false;
 let measurementSourceSignature = null;
+let requiredInputsSignature = null;
+let stageTimelineSignature = null;
+let readyViewSignature = null;
 let runStorageEstimateFor = null;
 
 function cacheUi() {
@@ -260,6 +263,9 @@ function renderMiniStageTimeline(state) {
     if (!ui.run_stage_timeline) return;
     const stages = Array.isArray(state.stages) ? state.stages : [];
     const currentIndex = Number.isInteger(state.current_stage_index) ? state.current_stage_index : -1;
+    const signature = JSON.stringify([stages, currentIndex, state.stage_state, state.state === "Paused"]);
+    if (signature === stageTimelineSignature) return;
+    stageTimelineSignature = signature;
     if (!stages.length) {
         ui.run_stage_timeline.innerHTML = `<span class="mini-stage-empty">No stage metadata available.</span>`;
         if (ui.run_stage_position) ui.run_stage_position.textContent = "—";
@@ -597,16 +603,59 @@ async function loadMeasurements() {
     }
 }
 
-function renderRequiredInputs(state) {
+function updateRequiredSensorLabels(state) {
+    const sensors = new Map(sensorSnapshots(state).map(sensor => [String(sensor.id), sensor]));
+    ui.required_inputs_panel?.querySelectorAll("[data-required-source] option").forEach(option => {
+        const sensor = sensors.get(option.value);
+        if (sensor) option.textContent = `${sensor.name || sensor.id} · ${sensorDisplayValue(sensor)}`;
+    });
+}
+
+function renderRequiredInputs(state, {force = false, savedField = null} = {}) {
+    const panel = ui.required_inputs_panel;
+    if (!panel) return;
     const data = state.execution_inputs || {};
     const items = data.items || [];
     const suggestions = data.cell_suggestions || [];
-    if (!ui.required_inputs_panel) return;
     if (!items.length) {
-        ui.required_inputs_panel.hidden = true;
+        panel.hidden = true;
+        requiredInputsSignature = null;
         return;
     }
-    ui.required_inputs_panel.hidden = false;
+    panel.hidden = false;
+    // Live sensor values are deliberately excluded: changing the plot must
+    // never replace input DOM nodes or discard an operator's unsaved text.
+    const sensorStructure = sensorSnapshots(state).map(sensor => [
+        String(sensor.id), sensor.name, sensor.unit, sensor.status, sensor.value != null,
+    ]);
+    const signature = JSON.stringify([data, sensorStructure]);
+    if (!force && signature === requiredInputsSignature) {
+        updateRequiredSensorLabels(state);
+        return;
+    }
+    // If a sensor appears or a remote input changes while someone is typing,
+    // defer reconciliation until focus leaves this panel.
+    if (!force && panel.contains(document.activeElement)) {
+        updateRequiredSensorLabels(state);
+        return;
+    }
+
+    const drafts = new Map();
+    panel.querySelectorAll("input[data-required-value], #execution_cell_name").forEach(input => {
+        const key = input.id === "execution_cell_name" ? "cell" : input.dataset.requiredValue;
+        const changed = input.value !== input.defaultValue ||
+            (key === "cell" && input.dataset.physicalId !== input.getAttribute("data-physical-id"));
+        if (changed && key !== savedField) {
+            drafts.set(key, {value: input.value, physicalId: input.dataset.physicalId});
+        }
+    });
+    const selectedSources = new Map();
+    panel.querySelectorAll("[data-required-source]").forEach(select => {
+        if (select.dataset.requiredSource !== savedField) {
+            selectedSources.set(select.dataset.requiredSource, select.value);
+        }
+    });
+    const selectedCell = panel.querySelector("#execution_cell_suggestion")?.value ?? "";
     const profile = data.cell_profile || {};
     const derived = Object.values(data.derived_metrics || {}).filter(item => item && Number.isFinite(Number(item.value)));
     const derivedMarkup = derived.length ? `
@@ -666,6 +715,26 @@ function renderRequiredInputs(state) {
             }).join("")}
         </div>
         ${derivedMarkup}`;
+    requiredInputsSignature = signature;
+    for (const [key, draft] of drafts) {
+        const input = key === "cell" ? panel.querySelector("#execution_cell_name")
+            : panel.querySelector(`[data-required-value="${CSS.escape(key)}"]`);
+        if (!input) continue;
+        input.value = draft.value;
+        if (key === "cell") input.dataset.physicalId = draft.physicalId || "";
+    }
+    for (const [key, value] of selectedSources) {
+        const select = panel.querySelector(`[data-required-source="${CSS.escape(key)}"]`);
+        if (!select || ![...select.options].some(option => option.value === value && !option.disabled)) continue;
+        select.value = value;
+        const input = panel.querySelector(`[data-required-value="${CSS.escape(key)}"]`);
+        if (input) input.disabled = value !== "manual";
+    }
+    const cellSelect = panel.querySelector("#execution_cell_suggestion");
+    if (cellSelect && [...cellSelect.options].some(option => option.value === selectedCell)) {
+        cellSelect.value = selectedCell;
+    }
+    updateRequiredSensorLabels(state);
 }
 
 function renderMeasurements(state) {
@@ -681,6 +750,10 @@ function renderMeasurements(state) {
 function renderReady(state) {
     ui.ready_panel.hidden = false;
     const stage = state.next_stage;
+    const executionInputs = state.execution_inputs || {};
+    const signature = JSON.stringify([stage, state.stage_attempt, executionInputs.complete, executionInputs.items]);
+    if (signature === readyViewSignature) return;
+    readyViewSignature = signature;
     if (!stage) {
         ui.ready_stage.innerHTML = "<h3>No stage available</h3>";
         ui.start_first_stage.disabled = true;
@@ -691,7 +764,6 @@ function renderReady(state) {
         <h3>${escapeHtml(stage.name || `Stage ${stage.id}`)}</h3>
         <p>${escapeHtml(stage.type || "")}</p>
         <div class="parameter-grid">${stageParameters(stage, state)}</div>`;
-    const executionInputs = state.execution_inputs || {};
     ui.start_first_stage.disabled = executionInputs.complete === false;
     if (executionInputs.complete === false) {
         const labels = (executionInputs.items || []).filter(item => item.value == null).map(item => item.label);
@@ -992,6 +1064,16 @@ function bindActions() {
         if (volumeInput && !volumeInput.value && volume) volumeInput.value = volume;
     });
 
+    // When the user leaves the required-input area, apply any deferred state
+    // changes. Draft values are retained by renderRequiredInputs().
+    ui.required_inputs_panel.addEventListener("focusout", () => {
+        window.setTimeout(() => {
+            if (latestState && !ui.required_inputs_panel.contains(document.activeElement)) {
+                renderRequiredInputs(latestState);
+            }
+        }, 0);
+    });
+
     ui.required_inputs_panel.addEventListener("input", (event) => {
         if (event.target.id === "execution_cell_name") {
             // A manually renamed vessel must not keep another vessel's stable ID.
@@ -1016,7 +1098,7 @@ function bindActions() {
                     body:JSON.stringify(payload)
                 });
                 if (latestState) latestState.execution_inputs = result.execution_inputs;
-                renderRequiredInputs(latestState || {});
+                renderRequiredInputs(latestState || {}, {force: true, savedField: id});
                 showToast(`${item?.label || id} updated.`);
             } catch (error) { showToast(error.message); } finally { saveInput.disabled = false; }
             return;
@@ -1032,7 +1114,7 @@ function bindActions() {
                     method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({cell_name:cellName, physical_cell_id:physicalCellId})
                 });
                 if (latestState) latestState.execution_inputs = result;
-                renderRequiredInputs(latestState || {});
+                renderRequiredInputs(latestState || {}, {force: true, savedField: "cell"});
                 showToast("Cell identity saved for this execution.");
             } catch (error) { showToast(error.message); } finally { saveCell.disabled = false; }
         }
