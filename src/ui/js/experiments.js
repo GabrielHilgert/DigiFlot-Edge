@@ -10,12 +10,28 @@ const state = {
     loadingKey: null,
     activeRun: null,
     collapsedGroups: new Set(),
+    systemHealth: null,
 };
 
 
 const elements = {
     status: document.getElementById("server_status"),
     statusText: document.getElementById("server_status_text"),
+    healthStatus: document.getElementById("system_health_status"),
+    healthDiskFree: document.getElementById("system_disk_free"),
+    healthDiskTotal: document.getElementById("system_disk_total"),
+    healthTemperature: document.getElementById("system_temperature"),
+    healthThrottling: document.getElementById("system_throttling"),
+    healthLoad: document.getElementById("system_load"),
+    healthLoadDetail: document.getElementById("system_load_detail"),
+    healthTelemetry: document.getElementById("system_telemetry"),
+    healthLastSample: document.getElementById("system_last_sample"),
+    estimateSection: document.getElementById("storage_estimate_section"),
+    estimatedTotal: document.getElementById("estimated_total"),
+    estimatedVideo: document.getElementById("estimated_video"),
+    estimatedAuxiliary: document.getElementById("estimated_auxiliary"),
+    estimatedCapacity: document.getElementById("estimated_capacity"),
+    estimatedNote: document.getElementById("estimated_note"),
     refresh: document.getElementById("refresh_button"),
     sync: document.getElementById("sync_button"),
     upload: document.getElementById("upload_button"),
@@ -93,6 +109,67 @@ async function saveExperiment(experiment) {
     });
 }
 
+
+function formatStorageBytes(value) {
+    const bytes = Number(value);
+    if (!Number.isFinite(bytes) || bytes < 0) return "—";
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+    if (bytes < 1024 ** 3) return `${(bytes / (1024 ** 2)).toFixed(1)} MiB`;
+    return `${(bytes / (1024 ** 3)).toFixed(2)} GiB`;
+}
+
+async function loadSystemHealth() {
+    if (document.hidden) return;
+    try {
+        const health = await requestJson("/api/digiflot/system/health");
+        state.systemHealth = health;
+        const disk = health.storage || {};
+        const system = health.system || {};
+        const thermal = system.throttled || {};
+        const updated = Date.parse(system.timestamp || "");
+        const age = Number.isFinite(updated) ? Math.max(0, (Date.now() - updated) / 1000) : Infinity;
+        const allowedAge = Math.max(60, Number(health.telemetry?.idle_interval_s || 30) * 2.5);
+        const fresh = health.telemetry?.running && age <= allowedAge;
+        elements.healthStatus.textContent = fresh ? "Monitoring" : "Telemetry unavailable / stale";
+        elements.healthDiskFree.textContent = formatStorageBytes(disk.free_bytes);
+        elements.healthDiskTotal.textContent = disk.total_bytes == null ? "Storage unavailable" : `${formatStorageBytes(disk.total_bytes)} total`;
+        elements.healthTemperature.textContent = system.temperature_c == null ? "—" : `${Number(system.temperature_c).toFixed(1)} °C`;
+        elements.healthThrottling.textContent = thermal.current ? "Throttling detected" : (thermal.raw == null ? "Throttling status unavailable" : "No active throttling");
+        elements.healthLoad.textContent = system.load1 == null ? "—" : Number(system.load1).toFixed(2);
+        const normalized = system.load1 != null && system.cpu_count ? Number(system.load1) / Number(system.cpu_count) * 100 : null;
+        elements.healthLoadDetail.textContent = normalized == null ? "System load unavailable" : `${normalized.toFixed(0)}% of ${system.cpu_count} CPU cores`;
+        elements.healthTelemetry.textContent = health.telemetry?.recording ? "Recording" : (fresh ? "Idle monitoring" : "Unavailable");
+        elements.healthLastSample.textContent = Number.isFinite(age) ? `Last sample ${Math.round(age)} s ago` : "No sample yet";
+    } catch (error) {
+        elements.healthStatus.textContent = "Unavailable";
+        elements.healthLastSample.textContent = error.message;
+    }
+}
+
+async function loadStorageEstimate(experiment, selectedKey) {
+    elements.estimateSection.hidden = false;
+    elements.estimatedCapacity.textContent = "Checking…";
+    elements.estimatedNote.textContent = "Calculating required storage…";
+    try {
+        const estimate = await requestJson("/api/digiflot/storage/estimate", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ experiment }),
+        });
+        if (state.selectedKey !== selectedKey) return;
+        elements.estimatedTotal.textContent = formatStorageBytes(estimate.estimated_bytes);
+        elements.estimatedVideo.textContent = formatStorageBytes(estimate.video_bytes);
+        elements.estimatedAuxiliary.textContent = formatStorageBytes(estimate.auxiliary_bytes);
+        elements.estimatedCapacity.textContent = estimate.sufficient == null ? "Unknown" : (estimate.sufficient ? "Sufficient" : "Insufficient");
+        const source = (estimate.cameras || []).some(item => item.source === "history") ? "Historical camera data used." : "Default camera rates used.";
+        const transitions = estimate.unplanned_transitions ? " Manual transition duration is not included." : "";
+        elements.estimatedNote.textContent = `${source} Includes ${estimate.margin_percent}% margin and ${formatStorageBytes(estimate.reserve_bytes)} reserved space.${transitions}`;
+    } catch (error) {
+        if (state.selectedKey === selectedKey) {
+            elements.estimatedCapacity.textContent = "Unavailable";
+            elements.estimatedNote.textContent = error.message;
+        }
+    }
+}
 
 /* -------------------------------------------------------------------------- */
 /* Loading                                                                    */
@@ -864,6 +941,7 @@ async function openExperiment(
             experiment,
             row,
         );
+        loadStorageEstimate(experiment, key);
 
     } catch (error) {
         showDetailError(
@@ -1382,6 +1460,7 @@ function showDetailError(
 
 
 function clearExperimentDetails() {
+    elements.estimateSection.hidden = true;
     elements.placeholder.hidden = false;
     elements.content.hidden = true;
     elements.error.hidden = true;
@@ -2225,3 +2304,5 @@ elements.start.addEventListener(
 
 
 loadExperiments();
+loadSystemHealth();
+window.setInterval(loadSystemHealth, 30000);

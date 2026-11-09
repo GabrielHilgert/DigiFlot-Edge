@@ -14,12 +14,12 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260928c">
     <link
         rel="stylesheet"
-        href="{{ url_for('static', path='css/experiments.css') }}?v=20261005a"
+        href="{{ url_for('static', path='css/experiments.css') }}?v=20261109a"
     >
 
     <script
         defer
-        src="{{ url_for('static', path='js/experiments.js') }}?v=20261012a"
+        src="{{ url_for('static', path='js/experiments.js') }}?v=20261109a"
     ></script>
 </head>
 
@@ -74,6 +74,16 @@
                 </div>
             </div>
             <a class="button button-primary" href="/run">Open active run</a>
+        </section>
+
+        <section class="card system-health-panel" aria-label="System health">
+            <div class="system-health-title"><div><span class="status-label">Raspberry Pi</span><h2>System Health</h2></div><span id="system_health_status">Checking…</span></div>
+            <div class="system-health-grid">
+                <div><span>Available disk space</span><strong id="system_disk_free">—</strong><small id="system_disk_total">Storage status unavailable</small></div>
+                <div><span>CPU temperature</span><strong id="system_temperature">—</strong><small id="system_throttling">Thermal status unavailable</small></div>
+                <div><span>System load (1 min)</span><strong id="system_load">—</strong><small id="system_load_detail">Normalized by CPU cores</small></div>
+                <div><span>Telemetry</span><strong id="system_telemetry">—</strong><small id="system_last_sample">No sample yet</small></div>
+            </div>
         </section>
 
         <section class="experiments-layout">
@@ -334,6 +344,17 @@
 
                     </div>
 
+
+                    <div class="detail-section storage-estimate-section" id="storage_estimate_section" hidden>
+                        <div class="subsection-heading"><div><h4>Storage estimate</h4><p>Based on the stages that record video and the auxiliary data rate.</p></div></div>
+                        <div class="storage-estimate-grid">
+                            <span>Estimated total <strong id="estimated_total">—</strong></span>
+                            <span>Video <strong id="estimated_video">—</strong></span>
+                            <span>Auxiliary <strong id="estimated_auxiliary">—</strong></span>
+                            <span>Disk check <strong id="estimated_capacity">—</strong></span>
+                        </div>
+                        <p id="estimated_note" class="storage-estimate-note">Computing estimate…</p>
+                    </div>
 
                     <div class="detail-section execution-section">
 

@@ -1154,3 +1154,20 @@ button:disabled {
   .hierarchy-level-3 .experiment-name-cell { padding-left: 28px; }
   .catalog-summary-counts { gap: 5px 11px; }
 }
+
+/* Lightweight read-only system summary; no additional acquisition work. */
+.system-health-panel { margin-bottom: 24px; padding: 20px 24px; }
+.system-health-title { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 15px; }
+.system-health-title h2 { margin: 0; font-size: 1.15rem; }
+.system-health-title > span { font-size: .8rem; color: var(--text-soft); }
+.system-health-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.system-health-grid > div { border: 1px solid var(--border); border-radius: var(--radius-md); padding: 14px; background: var(--surface-soft); min-width: 0; }
+.system-health-grid span, .system-health-grid small { display: block; color: var(--text-soft); font-size: .78rem; }
+.system-health-grid strong { display: block; font-size: 1.25rem; margin: 4px 0; }
+.system-health-grid small { font-size: .72rem; }
+.storage-estimate-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.storage-estimate-grid span { display: flex; flex-direction: column; gap: 5px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-soft); font-size: .8rem; }
+.storage-estimate-grid strong { color: var(--text); font-size: 1rem; }
+.storage-estimate-note { margin: 12px 0 0; color: var(--text-soft); font-size: .82rem; }
+@media (max-width: 900px) { .system-health-grid, .storage-estimate-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 520px) { .system-health-grid, .storage-estimate-grid { grid-template-columns: 1fr; } }
