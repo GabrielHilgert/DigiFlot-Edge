@@ -12,6 +12,8 @@ from api.local import router as local_router
 from api.sensors import router as sensor_router
 from api.server import router as server_router
 from api.results import router as results_router
+from api.vision import router as vision_router
+from lib.vision.service import VisionService
 from lib.digiflot import DigiFlot, load_config
 from lib.server import Server
 from lib.server_sync import ServerSync
@@ -33,6 +35,8 @@ async def lifespan(app: FastAPI):
         local_storage_dir=LOCAL_STORAGE_DIR,
     )
     digiflot.start()
+    app.state.vision = VisionService(digiflot, LOCAL_STORAGE_DIR)
+    app.state.vision.start()
 
     app.state.digiflot = digiflot
 
@@ -61,6 +65,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        app.state.vision.stop()
         app.state.server_sync.stop()
         digiflot.close()
 
@@ -79,9 +84,10 @@ app.include_router(camera_router)
 app.include_router(sensor_router)
 app.include_router(digiflot_router)
 app.include_router(results_router)
+app.include_router(vision_router)
 
 
-LOCKED_PAGE_PATHS = {"/", "/cameras", "/sensors", "/performance", "/settings"}
+LOCKED_PAGE_PATHS = {"/", "/cells", "/cameras", "/sensors", "/performance", "/settings"}
 LOCKED_PAGE_PREFIXES = ("/results/",)
 LOCKED_API_PREFIXES = (
     "/api/cameras",
@@ -92,6 +98,10 @@ LOCKED_API_PREFIXES = (
     "/api/digiflot/settings",
     "/api/digiflot/devices",
     "/api/results",
+    "/api/vision/settings",
+    "/api/vision/cells",
+    "/api/vision/cameras",
+    "/api/vision/associations",
 )
 
 
@@ -190,3 +200,8 @@ def health(request: Request):
         "status": "ok",
         "digiflot": digiflot.status,
     }
+
+
+@app.get("/cells", response_class=HTMLResponse)
+def cells(request: Request):
+    return templates.TemplateResponse(request=request, name="cells.html", context={})
