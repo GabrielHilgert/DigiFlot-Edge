@@ -6,7 +6,7 @@
     <title>DigiFlot Edge | Settings</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20260922a">
     <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20260922a">
-    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20260922a"></script>
+    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20261109a"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -41,6 +41,31 @@
                 </label>
             </div>
             <p id="auto_advance_hint" class="field-help"></p>
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <div>
+                    <p class="eyebrow">Monitoring</p><h2>System Telemetry &amp; Storage</h2>
+                    <p>Sampling runs independently of the cameras. Storage estimates are automatically adjusted after completed experiments.</p>
+                </div>
+                <button id="save_performance" class="button button-primary" type="button">Save telemetry settings</button>
+            </div>
+            <div class="settings-grid">
+                <label>Experiment telemetry interval
+                    <span class="input-unit"><input id="telemetry_interval_s" type="number" min="1" max="3600" step="1"><span>s</span></span>
+                </label>
+                <label>Idle telemetry interval
+                    <span class="input-unit"><input id="idle_telemetry_interval_s" type="number" min="5" max="3600" step="1"><span>s</span></span>
+                </label>
+                <label>Minimum free disk space
+                    <span class="input-unit"><input id="min_disk_free_gb" type="number" min="0.1" max="1000" step="0.1"><span>GiB</span></span>
+                </label>
+                <label>Storage estimation safety margin
+                    <span class="input-unit"><input id="storage_safety_margin_pct" type="number" min="0" max="300" step="1"><span>%</span></span>
+                </label>
+            </div>
+            <p class="field-help">Defaults: 10 s while recording, 30 s while idle, 2 GiB reserve, and 30% storage margin. Changes take effect without restarting DigiFlot.</p>
         </section>
 
         <section class="card">

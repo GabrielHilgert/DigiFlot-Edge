@@ -1,6 +1,7 @@
 const state = { settings: null, discovery: null };
 const el = Object.fromEntries([
     "settings_state", "auto_advance_enabled", "transition_timeout_s", "scraping_interval", "scraping_method",
+    "save_performance", "telemetry_interval_s", "idle_telemetry_interval_s", "min_disk_free_gb", "storage_safety_margin_pct",
     "save_settings", "auto_advance_hint", "server_ip", "server_id", "server_name", "server_token",
     "server_status", "server_runtime_error", "server_restart_notice", "save_server", "autodetect", "save_devices",
     "camera_devices", "scale_devices", "atlas_devices", "discovery_errors", "restart_notice", "restart_program",
@@ -108,6 +109,12 @@ function applySettings(payload, resetDiscovery = false) {
     el.scraping_interval.value = orchestration.scraping_interval ?? 5;
     el.scraping_method.value = orchestration.scraping_method || "audio";
     updateAutoHint();
+
+    const performance = payload.performance || {};
+    el.telemetry_interval_s.value = performance.telemetry_interval_s ?? 10;
+    el.idle_telemetry_interval_s.value = performance.idle_telemetry_interval_s ?? 30;
+    el.min_disk_free_gb.value = performance.min_disk_free_gb ?? 2;
+    el.storage_safety_margin_pct.value = performance.storage_safety_margin_pct ?? 30;
 
     const server = payload.server || {};
     el.server_ip.value = server.ip || "";
@@ -333,6 +340,33 @@ el.save_settings.addEventListener("click", async () => {
         toast(error.message);
     } finally {
         el.save_settings.disabled = false;
+    }
+});
+
+el.save_performance.addEventListener("click", async () => {
+    el.save_performance.disabled = true;
+    try {
+        const performance = {
+            telemetry_interval_s: Number(el.telemetry_interval_s.value),
+            idle_telemetry_interval_s: Number(el.idle_telemetry_interval_s.value),
+            min_disk_free_gb: Number(el.min_disk_free_gb.value),
+            storage_safety_margin_pct: Number(el.storage_safety_margin_pct.value),
+        };
+        for (const [key, value] of Object.entries(performance)) {
+            if (!Number.isFinite(value) || el[key].value.trim() === "") {
+                throw new Error("Please enter valid telemetry and storage values.");
+            }
+        }
+        await json("/api/digiflot/settings", {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ performance }),
+        });
+        await load(false);
+        toast("Telemetry settings saved.");
+    } catch (error) {
+        toast(error.message);
+    } finally {
+        el.save_performance.disabled = false;
     }
 });
 
