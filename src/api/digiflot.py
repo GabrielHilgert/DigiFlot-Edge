@@ -109,6 +109,11 @@ def stream(request: Request):
     )
 
 
+@router.post("/calibration/cell/select")
+def select_physical_cell(request: Request, payload: dict):
+    return get_digiflot(request).select_physical_cell(payload.get("cell_id"), payload.get("camera_id"))
+
+
 @router.post("/calibration/cameras/{camera_id}/reopen")
 def reopen_camera_calibration(camera_id: int, request: Request):
     try:
