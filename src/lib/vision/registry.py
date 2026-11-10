@@ -156,10 +156,43 @@ class VisionRegistry:
             _write(self.root / "cameras" / f"{current['camera_id']}.json", result)
             return result
 
+    def analysis_roi(self, camera_id, cell_id):
+        """Selection is independent of calibration history and survives recalibration."""
+        with self.lock:
+            folder = self.root / "associations" / f"{_safe_id(camera_id)}__{_safe_id(cell_id)}"
+            return _read(folder / "analysis_roi.json", {"roi_cm": None, "revision": 0})
+
+    def save_analysis_roi(self, camera_id, cell_id, roi_cm):
+        with self.lock:
+            if self.association(camera_id, cell_id) is None:
+                raise KeyError("Confirm the camera-cell calibration before saving an analysis ROI")
+            if roi_cm is not None:
+                if not isinstance(roi_cm, (list, tuple)) or len(roi_cm) != 4:
+                    raise ValueError("Analysis ROI must be [x0_cm,y0_cm,x1_cm,y1_cm]")
+                try:
+                    roi_cm = [float(v) for v in roi_cm]
+                except (ValueError, TypeError):
+                    raise ValueError("Invalid analysis ROI coordinates") from None
+                if not all(math.isfinite(v) and abs(v) <= 2000 for v in roi_cm):
+                    raise ValueError("Analysis ROI coordinates must be finite and within 20 m of the reference")
+                if roi_cm[2] <= roi_cm[0] or roi_cm[3] <= roi_cm[1]:
+                    raise ValueError("Analysis ROI must have positive width and height")
+            current = self.analysis_roi(camera_id, cell_id)
+            result = {"schema_version": 1, "roi_cm": roi_cm, "revision": current["revision"] + 1,
+                      "updated_at": _timestamp()}
+            folder = self.root / "associations" / f"{_safe_id(camera_id)}__{_safe_id(cell_id)}"
+            _write(folder / "analysis_roi.json", result)
+            return result
+
     def association(self, camera_id, cell_id):
         with self.lock:
-            _safe_id(camera_id); _safe_id(cell_id)
-            return _read(self.root / "associations" / f"{camera_id}__{cell_id}" / "latest.json")
+            folder = self.root / "associations" / f"{_safe_id(camera_id)}__{_safe_id(cell_id)}"
+            record = _read(folder / "latest.json")
+            if record is not None:
+                selection = self.analysis_roi(camera_id, cell_id)
+                record["analysis_roi_cm"] = selection["roi_cm"]
+                record["analysis_roi_revision"] = selection["revision"]
+            return record
 
     def save_association(self, camera_id, cell_id, calibration):
         with self.lock:
