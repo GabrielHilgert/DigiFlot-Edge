@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     )
     digiflot.start()
     app.state.vision = VisionService(digiflot, LOCAL_STORAGE_DIR)
+    digiflot.vision = app.state.vision
     app.state.vision.start()
 
     app.state.digiflot = digiflot
