@@ -68,6 +68,7 @@ function statusLabel(status) {
 }
 
 function formatValue(value, snapshot = {}) {
+    if (value == null || value === "") return "—";
     const numeric = Number(value);
     if (!Number.isFinite(numeric)) return "—";
     return numeric.toFixed(Number(snapshot.decimals ?? 2));
@@ -374,14 +375,16 @@ function calibrationMarkup(snapshot) {
 
 function sensorCard(snapshot) {
     const status = snapshot.status || "stopped";
-    const hasValue = Number.isFinite(Number(snapshot.value));
+    const hasValue = snapshot.value != null && Number.isFinite(Number(snapshot.value));
+    const virtual = snapshot.type === "virtual_froth_interface";
+    const source = virtual ? `Camera ${snapshot.source_camera_id ?? "—"} · Cell ${snapshot.physical_cell_id || "—"}` : "";
     return `
-        <article class="sensor-card" id="sensor-card-${escapeHtml(snapshot.id)}" data-sensor-id="${escapeHtml(snapshot.id)}">
+        <article class="sensor-card ${virtual ? "sensor-virtual" : ""}" id="sensor-card-${escapeHtml(snapshot.id)}" data-sensor-id="${escapeHtml(snapshot.id)}">
             <header class="sensor-card-header">
                 <div>
-                    <span class="sensor-type">${escapeHtml(snapshot.type || "sensor")}</span>
+                    <span class="sensor-type">${virtual ? "Virtual camera sensor" : escapeHtml(snapshot.type || "sensor")}</span>
                     <h2>${escapeHtml(snapshot.name || snapshot.id)}</h2>
-                    <span class="sensor-device">${escapeHtml(snapshot.interface || "")} · ${escapeHtml(snapshot.device || "—")}</span>
+                    <span class="sensor-device">${virtual ? escapeHtml(source) : `${escapeHtml(snapshot.interface || "")} · ${escapeHtml(snapshot.device || "—")}`}</span>
                 </div>
                 <span class="sensor-status status-${escapeHtml(status)}"><span></span>${escapeHtml(statusLabel(status))}</span>
             </header>
@@ -398,9 +401,14 @@ function sensorCard(snapshot) {
                 </div>
             </div>
 
+            ${virtual ? `<div class="virtual-live-channels">
+                <div><span>Froth surface</span><strong class="virtual-froth">—</strong></div>
+                <div><span>Pulp–froth interface</span><strong class="virtual-pulp">—</strong></div>
+                <div><span>Froth thickness</span><strong class="virtual-thickness">—</strong></div>
+            </div><div class="virtual-chart-legend"><span class="virtual-legend-froth">Froth surface</span><span class="virtual-legend-pulp">Pulp–froth interface</span><small>Live · cm</small></div>` : ""}
             <div class="chart-frame">
                 <canvas class="sensor-chart" aria-label="Live signal for ${escapeHtml(snapshot.name || snapshot.id)}"></canvas>
-                <div class="chart-empty">${status === "offline" ? "Sensor offline" : "Waiting for measurements…"}</div>
+                <div class="chart-empty">${status === "offline" ? "Sensor offline" : virtual ? "Live acquisition starts after confirmation. Test frames are not plotted." : "Waiting for measurements…"}</div>
             </div>
             <div class="chart-footer"><span class="chart-min">Min —</span><span class="chart-span">Span —</span><span class="chart-max">Max —</span></div>
 
@@ -445,6 +453,15 @@ function updateCard(snapshot) {
     statusNode.innerHTML = `<span></span>${escapeHtml(statusLabel(status))}`;
 
     card.querySelector(".reading-value").textContent = formatValue(snapshot.value, snapshot);
+    if (snapshot.type === "virtual_froth_interface") {
+        const unitValue = key => snapshot.channels?.[key] == null ? "—" : `${formatValue(snapshot.channels[key], snapshot)} cm`;
+        card.querySelector(".virtual-froth").textContent = unitValue("froth_surface_cm");
+        card.querySelector(".virtual-pulp").textContent = unitValue("pulp_froth_interface_cm");
+        card.querySelector(".virtual-thickness").textContent = unitValue("froth_thickness_cm");
+        card.querySelector(".chart-empty").textContent = snapshot.status === "offline" ? "Camera unavailable" :
+            snapshot.measurement_mode === "waiting" ? "Waiting for live lores acquisition. Test results are not plotted." :
+            snapshot.reading_valid === false ? "Detection invalid: waiting for a valid interface" : "Acquiring live interface positions…";
+    }
     card.querySelector(".reading-unit").textContent = snapshot.unit || "";
     card.querySelector(".last-update").textContent = snapshot.timestamp_ms ? new Date(snapshot.timestamp_ms).toLocaleTimeString() : "—";
     card.querySelector(".sample-count").textContent = snapshot.sample_count ?? 0;
@@ -453,8 +470,11 @@ function updateCard(snapshot) {
     message.textContent = snapshot.error || "";
     message.classList.toggle("visible", Boolean(snapshot.error));
 
-    const numeric = Number(snapshot.value);
-    if (Number.isFinite(numeric) && snapshot.timestamp_ms) {
+    const numeric = snapshot.value == null ? NaN : Number(snapshot.value);
+    if (snapshot.type === "virtual_froth_interface" && snapshot.timestamp_ms) {
+        appendVirtualHistory(snapshot);
+        updateRate(snapshot.id, snapshot.timestamp_ms);
+    } else if (Number.isFinite(numeric) && snapshot.timestamp_ms) {
         appendHistory(snapshot.id, snapshot.timestamp_ms, numeric, snapshot.unit || "");
         updateRate(snapshot.id, snapshot.timestamp_ms);
     } else {
@@ -481,6 +501,46 @@ function appendHistory(sensorId, timestamp, value, unit) {
     if (history.length > HISTORY_LIMIT) history.shift();
     state.histories.set(id, history);
     drawChart(id);
+}
+
+function appendVirtualHistory(snapshot) {
+    const id = String(snapshot.id), history = state.histories.get(id) || [];
+    if (history.at(-1)?.timestamp === snapshot.timestamp_ms) return;
+    const numberOrNull = value => value == null || !Number.isFinite(Number(value)) ? null : Number(value);
+    history.push({timestamp:snapshot.timestamp_ms, upper:numberOrNull(snapshot.channels?.froth_surface_cm),
+        lower:numberOrNull(snapshot.channels?.pulp_froth_interface_cm), unit:"cm"});
+    if (history.length > HISTORY_LIMIT) history.shift();
+    state.histories.set(id, history);
+    drawChart(id);
+}
+
+function drawVirtualChart(ctx, width, height, history, card) {
+    const values = history.flatMap(sample => [sample.upper,sample.lower]).filter(value => value != null);
+    const empty = card.querySelector(".chart-empty");
+    if (!values.length) { empty.hidden=false; return; }
+    empty.hidden=true;
+    const minData=Math.min(...values), maxData=Math.max(...values), span=maxData-minData;
+    const padding=Math.max(.06,span*.12);
+    const bottom=minData-padding, top=maxData+padding;
+    const t0=history[0].timestamp, t1=history.at(-1).timestamp;
+    const left=14, right=14, upper=12, lower=14, plotWidth=width-left-right, plotHeight=height-upper-lower;
+    const xOf=(sample,index)=>left+plotWidth*(t1>t0 ? (sample.timestamp-t0)/(t1-t0) : index/Math.max(1,history.length-1));
+    const yOf=value=>upper+plotHeight*(1-(value-bottom)/(top-bottom));
+    const css=getComputedStyle(document.documentElement);
+    ctx.strokeStyle=css.getPropertyValue("--chart-grid").trim() || "#394350";
+    ctx.lineWidth=1;
+    for(let i=0;i<=3;i++){const y=upper+i*plotHeight/3;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(width-right,y);ctx.stroke();}
+    for(const [key,color] of [["upper","#0ea5e9"],["lower","#f59e0b"]]){
+        ctx.beginPath();let started=false;
+        for(let i=0;i<history.length;i++){const value=history[i][key];if(value==null){started=false;continue;}
+            const x=xOf(history[i],i),y=yOf(value);
+            if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);
+        }
+        ctx.strokeStyle=color;ctx.lineWidth=2.2;ctx.lineCap="round";ctx.lineJoin="round";ctx.stroke();
+    }
+    card.querySelector(".chart-min").textContent=`Min ${minData.toFixed(2)} cm`;
+    card.querySelector(".chart-max").textContent=`Max ${maxData.toFixed(2)} cm`;
+    card.querySelector(".chart-span").textContent=`Span ${span.toFixed(2)} cm`;
 }
 
 function updateRate(sensorId, timestamp) {
@@ -514,6 +574,9 @@ function drawChart(sensorId) {
     ctx.clearRect(0, 0, width, height);
 
     const history = state.histories.get(id) || [];
+    if (state.sensors.get(id)?.type === "virtual_froth_interface") {
+        drawVirtualChart(ctx, width, height, history, card); return;
+    }
     const empty = card.querySelector(".chart-empty");
     if (history.length < 2) {
         empty.hidden = history.length > 0;
