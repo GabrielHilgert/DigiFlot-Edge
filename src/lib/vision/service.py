@@ -739,6 +739,15 @@ class VisionService:
             raise RuntimeError("Cell vertical reference cannot change during an active run")
         result = self.registry.save_cell_vertical_reference(cell_id, values)
         self.clear_virtual_test()
+        with self.digiflot.lock:
+            if str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id):
+                item = self.digiflot.sensor_calibration.get("froth_interface")
+                if item and item.get("status") == "passed":
+                    item["status"] = "pending"
+                    item["confirmed_at"] = None
+                    item.pop("benchmark", None)
+                    self.digiflot._touch_unlocked("CELL_VERTICAL_REFERENCE_UPDATED",
+                                                  {"cell_id": str(cell_id), "revision": result["revision"]})
         return result
 
     def camera_profile(self, camera_id):
