@@ -18,6 +18,8 @@ COLOR_METHODS = frozenset(METHODS[3:])
 DEFAULTS = {
     "schema_version": 1, "method": "mean_derivative", "resolution_px": 320,
     "detection_roi_cm": None, "height_reference_offset_cm": 10.0,
+    "vertical_reference_mode": "cell_default", "vertical_reference_y_cm": None,
+    "vertical_reference_confirmed": False,
     "sampling_interval_s": 1.0, "entropy_radius": 20, "entropy_bins": 32,
     "sigma": 1.0, "threshold_froth": 0.0, "threshold_pulp": 1.0,
     "min_row": 10, "cdf_foam": 0.5, "cdf_pulp": 0.8,
@@ -46,6 +48,7 @@ LIMITS = {
     "vote_sigma_px": (1, 100), "outlier_mad": (.1, 20),
 }
 OPTIONS = {
+    "vertical_reference_mode": ("cell_default", "aruco_bottom", "cell_top", "cell_bottom", "historical_offset"),
     "selection_criteria": ("strong_candidates", "next_tp_after_pulp", "hybrid", "interpolate"),
     "simplification_alg": ("turning_point", "reumann_witkam", "douglas_peucker", "opheim", "lang"),
 }
@@ -80,6 +83,19 @@ def normalized_config(values=None):
         if not math.isfinite(value) or not lo <= value <= hi:
             raise ValueError(f"{key} outside permitted range [{lo}, {hi}]")
         config[key] = value
+    value = config.get("vertical_reference_y_cm")
+    if value not in (None, ""):
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Reference Y must be a numeric centimetre coordinate") from exc
+        if not math.isfinite(value) or abs(value) > 2000:
+            raise ValueError("Reference Y must be finite and within ±2000 cm")
+    else:
+        value = None
+    config["vertical_reference_y_cm"] = value
+    if not isinstance(config["vertical_reference_confirmed"], bool):
+        raise ValueError("Reference confirmation must be true or false")
     if config["x1_frac"] <= config["x0_frac"] or config["lower_search_end"] <= config["lower_search_start"]:
         raise ValueError("Invalid search window")
     roi = config.get("detection_roi_cm")
@@ -113,11 +129,12 @@ def config_signature(config, association, camera_geometry=None):
                "roi_revision": association.get("analysis_roi_revision"),
                "camera_revision": association.get("camera_revision"),
                "cell_revision": association.get("cell_revision"),
+               "vertical_reference": association.get("cell_vertical_reference"),
                "geometry": camera_geometry}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def detect_interface(image, config, roi_cm, px_per_cm, *, diagnostics=False):
+def detect_interface(image, config, roi_cm, px_per_cm, *, diagnostics=False, vertical_reference=None):
     """Return physical heights and validity without requiring plot IO."""
     conf = normalized_config(config)
     if not isinstance(image, np.ndarray) or image.ndim not in (2, 3):
@@ -181,11 +198,24 @@ def detect_interface(image, config, roi_cm, px_per_cm, *, diagnostics=False):
     upper, lower = valid_row(upper), valid_row(lower)
     valid = upper is not None and lower is not None and lower > upper
     oy = float(roi_cm[1])
-    offset = float(conf["height_reference_offset_cm"])
+    if vertical_reference is None:
+        from lib.vision.aruco import DEFAULT_LAYOUT
+        from lib.vision.reference import resolve_vertical_reference
+        vertical_reference = resolve_vertical_reference(conf, {"calibration": {"layout": DEFAULT_LAYOUT}})
+    direction = vertical_reference["direction"]
+    ref_y = vertical_reference.get("y_cm")
+    offset = float(vertical_reference.get("offset_cm", 0.0))
+    def position(row):
+        if row is None:
+            return None
+        absolute_y = oy + row / px_per_cm
+        if ref_y is None:
+            return absolute_y + offset
+        return absolute_y - ref_y if direction == "down" else ref_y - absolute_y
     output = {
-        "froth_surface_cm": oy + upper / px_per_cm + offset if upper is not None else None,
-        "pulp_froth_interface_cm": oy + lower / px_per_cm + offset if lower is not None else None,
-        "height_reference_offset_cm": offset,
+        "froth_surface_cm": position(upper),
+        "pulp_froth_interface_cm": position(lower),
+        "vertical_reference": vertical_reference,
         "froth_thickness_cm": (lower - upper) / px_per_cm if valid else None,
         "froth_surface_row_px": upper, "pulp_froth_row_px": lower,
         "valid": bool(valid), "method": method, "quality": quality,

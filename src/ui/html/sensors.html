@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026a">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261110roi1">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261110roi1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261110datum2">
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261110datum2"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -76,6 +76,27 @@
                         <canvas id="virtual_roi_canvas" aria-label="Drag here to select Detection ROI on the calibrated plane"></canvas>
                     </div>
                     <div id="virtual_roi_label" class="virtual-roi-caption">Loading calibrated camera plane…</div>
+                </section>
+                <section class="virtual-reference-config">
+                  <div class="virtual-roi-heading"><div><h3>Vertical reference</h3>
+                    <p>Choose the physical datum before testing. Y increases downward in the calibrated ArUco plane. References can lie outside the camera view.</p></div></div>
+                  <div class="virtual-reference-fields">
+                    <label>Position reference <select id="virtual_reference_mode">
+                      <option value="cell_default">Use cell reference (default: lowest ArUco marker)</option>
+                      <option value="aruco_bottom">ArUco reference — lowest marker</option>
+                      <option value="cell_bottom">Cell bottom — height above base</option>
+                      <option value="cell_top">Cell top — depth below rim</option>
+                    </select></label>
+                    <label>Reference Y override (cm) <input id="virtual_reference_y" type="number" step="any" placeholder="Use cell reference if blank"></label>
+                  </div>
+                  <div id="virtual_reference_description" class="virtual-roi-caption"></div>
+                  <label class="virtual-reference-confirm"><input id="virtual_reference_confirm" type="checkbox">
+                    I confirm the physical reference and its coordinate</label>
+                  <div class="virtual-reference-geometry">
+                    <a id="virtual_recalibrate_camera" class="button button-secondary" target="_blank" rel="noopener noreferrer" href="/cells">Recalibrate optics / ArUco</a>
+                    <button id="virtual_refresh_geometry" class="button button-secondary" type="button">Reload camera / cell calibration</button>
+                  </div>
+                  <p class="virtual-reference-help">Camera optics and ArUco geometry can be updated in Cells. Afterwards return here, reload the geometry and test again. Changing only the cell vertical reference does not require an ArUco recalibration.</p>
                 </section>
                 <div id="virtual_advanced_fields" class="virtual-advanced"></div>
                 <div class="virtual-actions">

@@ -85,10 +85,32 @@ class VisionRegistry:
 
     def get_cell(self, cell_id):
         with self.lock:
-            cell = _read(self.root / "cells" / f"{_safe_id(cell_id)}.json")
+            cell_id = _safe_id(cell_id)
+            cell = _read(self.root / "cells" / f"{cell_id}.json")
             if cell is None:
                 raise KeyError(f"Cell not found: {cell_id}")
+            cell["vertical_reference"] = self.cell_vertical_reference(cell_id)
             return cell
+
+    def cell_vertical_reference(self, cell_id):
+        from .reference import normalize_cell_reference
+        with self.lock:
+            cell_id = _safe_id(cell_id)
+            record = _read(self.root / "cell_references" / f"{cell_id}.json", {})
+            return {**normalize_cell_reference(record), "revision": int(record.get("revision", 0)),
+                    "updated_at": record.get("updated_at")}
+
+    def save_cell_vertical_reference(self, cell_id, values):
+        from .reference import normalize_cell_reference
+        with self.lock:
+            self.get_cell(cell_id)
+            current = self.cell_vertical_reference(cell_id)
+            updated = normalize_cell_reference(values)
+            if all(current.get(key) == value for key, value in updated.items()):
+                return current
+            result = {**updated, "revision": current["revision"] + 1, "updated_at": _timestamp()}
+            _write(self.root / "cell_references" / f"{_safe_id(cell_id)}.json", result)
+            return result
 
     def save_cell(self, record):
         if not isinstance(record, dict):
@@ -219,6 +241,7 @@ class VisionRegistry:
                 selection = self.analysis_roi(camera_id, cell_id)
                 record["analysis_roi_cm"] = selection["roi_cm"]
                 record["analysis_roi_revision"] = selection["revision"]
+                record["cell_vertical_reference"] = self.cell_vertical_reference(cell_id)
             return record
 
     def save_association(self, camera_id, cell_id, calibration):

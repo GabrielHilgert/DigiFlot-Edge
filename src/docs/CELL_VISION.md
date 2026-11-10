@@ -122,3 +122,39 @@ invalidates the mandatory benchmark. Old experiment snapshots without the datum
 field are restored with an offset of 0 cm, maintaining historical results. The
 Sensors card's primary reading is `froth_thickness_cm`, with the two positions
 shown as secondary values and plotted as independent live series.
+
+## Physical vertical datum (bottom, top, ArUco reference)
+
+The **Cells** screen now has a separately versioned physical vertical reference
+with three choices: lowest ArUco marker (default), cell bottom, and cell top.
+The marker reference is the largest Y value among the three markers' physical
+corners, *not* the bottom edge of the rectified output including its margin.
+Cell top and bottom are measured as physical Y coordinates in centimetres in
+the local ArUco plane. They may be outside the camera field of view. If one
+coordinate is known and `geometry.height_mm` is available, the opposite
+boundary can be derived from the physical cell height. A separate revision
+in `vision/cell_references/<cell_id>.json` prevents these adjustments from
+invalidating the camera homography.
+
+During virtual sensor calibration, the operator explicitly selects and
+confirms a physical vertical reference before running the mandatory timing
+test. `cell_default` inherits the current Cells reference; selecting
+`aruco_bottom`, `cell_top`, or `cell_bottom` overrides it for that
+camera-cell virtual sensor. A top/bottom override can specify its own Y
+coordinate. Camera optics and marker geometry may be reviewed/recalibrated
+through the linked **Cells** calibration page, then reloaded in Sensors.
+Any change requires repeating the detector benchmark.
+
+For a physical source-image Y coordinate increasing downward:
+
+- ArUco-bottom and cell-bottom reference: `height_cm = datum_y_cm - detected_y_cm`
+- Cell-top reference: `depth_cm = detected_y_cm - datum_y_cm`
+- Froth thickness: `(lower_row_px - upper_row_px) / px_per_cm`, unchanged
+
+Thus absolute position is defined relative to a real physical datum, even
+when the reference is outside the image. The original `+10 cm` shift
+continues **only** for restored historical run snapshots without a vertical
+reference mode. For new calibrations, the datum and its direction are saved
+explicitly in `virtual_sensors/froth_interface.json` and the latest
+physical-cell snapshot is written before the experiment. Old experiment
+measurements are never silently recomputed using an updated cell datum.
