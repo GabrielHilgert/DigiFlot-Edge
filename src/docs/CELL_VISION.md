@@ -61,3 +61,40 @@ Before deploying enabled analysis in an actual experiment, perform a Pi 5 camera
 3. With Vision disabled, compare baseline recording FPS and throughput. Then enable Vision (1 s sampling) and confirm the main encoder retains its original output resolution and stable frame rate.
 4. Verify that `/api/vision/status` reports `roi_processed=true`, `roi_size`, `roi_coverage`, and `processing_ms`. Processing failures must not interrupt the main recorder.
 5. If lens/focus/crop changes, recalibrate before interpreting the ROI's coordinates physically. Neither an optical preset nor planar homography can correct out-of-plane foam displacement.
+
+## Froth-interface calibration diagnostics
+
+The current detector lives in `src/lib/virtual_sensors/interface_detection.py` (numerical algorithms);
+`interface.py` validates settings, converts rows to local centimetres, and optionally exposes
+intermediate arrays. The word *legacy* does not designate a separate sensor or preview mode.
+Existing per-camera/per-cell profiles remain unchanged, including stored
+`dual_entropy_hybrid` choices, and the stored experiment snapshot is authoritative.
+
+`Run calibration test` verifies the requested acquisition period with temporary
+main+lores recording. Its output includes one temporal series per measured sample
+(upper/lower positions, thickness, validity and elapsed time), and a single fully
+diagnostic frame. This temporal plot is **test data**, not persisted as experiment
+measurements. The last benchmark sample captures the normal detector's already
+computed entropy map and internal row profiles; image compression and plotting
+are excluded from the timed acceptance criteria.
+
+Opening the virtual calibration editor starts a **short-lived diagnostic lease**
+via `POST /api/vision/virtual-sensors/froth-interface/diagnostics` with
+`{"enabled":true,"last_revision":0}`; polling renews the lease. `{"enabled":false}`
+stops it. Diagnostic images update at most every five seconds, on the same
+rectified ROI and from the **same lores frame** as the virtual sensor. An optional
+single background encoding thread creates two compact JPEGs (rectified source
+and entropy map) plus normalized profiles for browser-side plots, transparent
+physical grid, and measured boundary overlays. No separate Picamera2 request,
+second detector pass, per-frame disk plot, or extra main recording is required.
+The lease expires if the browser stops polling; if calibration is not yet
+confirmed, its diagnostic-only preview is then closed.
+
+The hybrid detector uses a striped upper boundary and a global lower
+boundary. Its diagnostic row plot shows upper vote and lower score (and entropy
+profile); the grayscale mean-derivative method shows row entropy and its
+derivative. The selection-criteria and curve-simplification parameters are
+retained in the saved configuration, but the present hybrid detector does not
+use the heuristic simplification branch. The diagnostic may be turned off
+without stopping virtual sensor acquisition, real-time plots or experimental
+TSV storage.
