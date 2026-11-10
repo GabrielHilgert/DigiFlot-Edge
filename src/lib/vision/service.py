@@ -176,6 +176,8 @@ class VisionService:
             if context is None:
                 return False
             camera = context["camera"]
+            if self._benchmarking:
+                return False
             if camera.state in (camera.PREVIEW, camera.RECORDING):
                 return True
             if camera.state != camera.IDLE or self._benchmarking:
@@ -459,10 +461,17 @@ class VisionService:
             raise RuntimeError("Stop recording before testing this sensor")
         planned_size = self._desired_lores_size(camera, association, config)
         camera.analysis_target_size = planned_size
-        if self.digiflot.preview_camera_id is not None:
-            self.digiflot.stop_preview()
-        if camera.state != camera.IDLE:
-            raise RuntimeError("Source camera must be idle for a representative recording benchmark")
+        # Reserve the camera before stopping preview to avoid the live worker
+        # racing to restart Picamera2 while the main encoder is being prepared.
+        self._benchmarking = True
+        try:
+            if self.digiflot.preview_camera_id is not None:
+                self.digiflot.stop_preview()
+            if camera.state != camera.IDLE:
+                raise RuntimeError("Source camera must be idle for a representative recording benchmark")
+        except Exception:
+            self._benchmarking = False
+            raise
         self._map_key, self._roi_map = None, None
         interval = float(config["sampling_interval_s"])
         errors, timings, valid_count, sensor_times, test_series = [], [], 0, [], []
@@ -470,7 +479,6 @@ class VisionService:
         count = max(12, min(60, int(samples)))
         warmup = 3
         original_enabled = camera.analysis_enabled
-        self._benchmarking = True
         camera.analysis_enabled = True
         recording_metrics = {}
         try:
