@@ -159,7 +159,7 @@ function virtualCollectInputs() {
 
 function renderVirtualFields() {
     const main = document.getElementById("virtual_main_fields");
-    main.innerHTML = ["method","resolution_px","sampling_interval_s"].map(virtualField).join("");
+    main.innerHTML = ["method","resolution_px","sampling_interval_s","height_reference_offset_cm"].map(virtualField).join("");
     document.getElementById("virtual_advanced_fields").innerHTML = virtualFieldGroups.map(([name,keys]) =>
         `<details ${name === "Entropy and profile" ? "open" : ""}><summary>${escapeHtml(name)}</summary>
         <div class="virtual-field-grid">${keys.map(virtualField).join("")}</div></details>`).join("");
@@ -337,6 +337,7 @@ async function pollVirtualDiagnostics() {
 
 async function startVirtualDiagnostics() {
     if(virtualDiagnosticsActive)return;
+    if(!virtualEffectiveRoi())throw new Error("Select and save a Detection ROI before starting live diagnostics");
     virtualDiagnosticsActive=true;virtualDiagRevision=0;
     document.getElementById("virtual_diagnostics_toggle").textContent="Stop live diagnostics";
     await pollVirtualDiagnostics();
@@ -491,11 +492,17 @@ async function openVirtualCalibration() {
             `${cellId} · Camera ${cameraId} · Geometry ${virtualProfileData.geometry.calibration_id} · ${virtualProfileData.source} profile`;
         missing.hidden = true; editor.hidden = false;
         renderVirtualFields();
+        virtualRoiPlane=null;virtualRoiDirty=false;
+        document.getElementById("virtual_roi_stage").hidden=true;
+        renderVirtualRoiCaption();
         virtualBenchmarkMarkup(virtualProfileData.test);
         renderVirtualTestTimeline(virtualProfileData.test?.series || []);
         if(virtualProfileData.test_diagnostic)
             renderVirtualDiagnostic(virtualProfileData.test_diagnostic,"Last calibration test");
-        startVirtualDiagnostics().catch(error=>showToast(error.message));
+        try {await loadVirtualRoiPlane();} catch(error){
+            document.getElementById("virtual_roi_label").textContent="Unable to load calibrated plane: "+error.message;
+        }
+        if(virtualEffectiveRoi())startVirtualDiagnostics().catch(error=>showToast(error.message));
     } catch (error) {
         missing.hidden = false; editor.hidden = true;
         stopVirtualDiagnostics();
@@ -508,6 +515,8 @@ async function virtualSaveConfiguration() {
     await requestJson("/api/vision/virtual-sensors/froth-interface/profile", {
         method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(config)
     });
+    virtualRoiDirty=false;
+    renderVirtualRoiCaption();
     virtualBenchmarkMarkup(null);
     renderVirtualTestTimeline([]);
     virtualDiagnostic=null;
@@ -1157,7 +1166,36 @@ document.getElementById("virtual_diagnostics_toggle").addEventListener("click", 
     if(virtualDiagnosticsActive)stopVirtualDiagnostics();
     else startVirtualDiagnostics().catch(error=>showToast(error.message));
 });
-document.getElementById("virtual_show_grid").addEventListener("change", drawVirtualOverlays);
+document.getElementById("virtual_show_grid").addEventListener("change", () => {
+    drawVirtualOverlays();drawVirtualRoiOverlay();
+});
+document.getElementById("virtual_roi_refresh").addEventListener("click", () =>
+    loadVirtualRoiPlane().catch(error=>showToast(error.message)));
+document.getElementById("virtual_roi_reset").addEventListener("click", () => {
+    if(!virtualDraft)return;
+    virtualDraft.detection_roi_cm=null;virtualRoiDirty=true;
+    virtualBenchmarkMarkup(null);
+    renderVirtualRoiCaption();drawVirtualRoiOverlay();
+});
+const virtualRoiCanvas=document.getElementById("virtual_roi_canvas");
+virtualRoiCanvas.addEventListener("pointerdown", event=>{
+    if(!virtualRoiPlane||!virtualDraft)return;
+    const point=virtualRoiPointerPoint(event);
+    if(!point)return;
+    event.preventDefault();
+    virtualRoiDrag={start:point,end:point};
+    virtualRoiCanvas.setPointerCapture(event.pointerId);
+    drawVirtualRoiOverlay();
+});
+virtualRoiCanvas.addEventListener("pointermove", event=>{
+    if(!virtualRoiDrag)return;
+    virtualRoiDrag.end=virtualRoiPointerPoint(event)||virtualRoiDrag.end;
+    drawVirtualRoiOverlay();
+});
+virtualRoiCanvas.addEventListener("pointerup", finishVirtualRoiDrag);
+virtualRoiCanvas.addEventListener("pointercancel", ()=>{
+    virtualRoiDrag=null;drawVirtualRoiOverlay();
+});
 window.addEventListener("resize", () => {
     if(virtualTestSeries.length)window.requestAnimationFrame(drawVirtualTestTimeline);
 });
