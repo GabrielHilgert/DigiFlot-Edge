@@ -8,6 +8,7 @@ import time
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import cv2
@@ -46,6 +47,7 @@ class VisionService:
         self._run_virtual = None
         self._last_virtual_measurement = None
         self._virtual_sample_count = 0
+        self._benchmarking = False
         self._sync_camera_flags()
 
     def _sync_camera_flags(self):
@@ -97,6 +99,8 @@ class VisionService:
                 break
             # Respect scheduled acquisition start times; discard missed slots.
             next_due = max(next_due + interval, time.monotonic())
+            if self._benchmarking:
+                continue
             settings = self.registry.settings()
             active = self._run_virtual
             if not settings["enabled"] or settings["camera_id"] is None:
@@ -271,34 +275,48 @@ class VisionService:
         camera.analysis_target_size = planned_size
         if self.digiflot.preview_camera_id is not None:
             self.digiflot.stop_preview()
-        self.digiflot.start_preview(camera.id)
-        if camera.state != camera.PREVIEW:
-            raise RuntimeError("Source camera preview is not running")
+        if camera.state != camera.IDLE:
+            raise RuntimeError("Source camera must be idle for a representative recording benchmark")
         self._map_key, self._roi_map = None, None
         interval = float(config["sampling_interval_s"])
         errors, timings, valid_count = [], [], 0
         last_reading, last_preview = None, None
         count = max(12, min(60, int(samples)))
-        for index in range(count+3):
-            begin = time.perf_counter()
-            try:
-                color = config["method"] in COLOR_METHODS
-                raw, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
-                maps = self._compiled_roi(camera, cell_id, association, frame, config)
-                patch = (remap_yuv420_roi(raw, maps, frame["size"]) if color else remap_roi(raw, maps))
-                density = maps["size"][0] / (association["analysis_roi_cm"][2] - association["analysis_roi_cm"][0])
-                reading = detect_interface(patch, config, association["analysis_roi_cm"], density)
-                if index >= 3:
-                    valid_count += int(reading["valid"])
-                    last_reading, last_preview = reading, patch
-            except Exception as error:
-                if index >= 3:
-                    errors.append(str(error))
-            elapsed_ms = (time.perf_counter() - begin)*1000
-            if index >= 3:
-                timings.append(elapsed_ms)
-            if index < count+2:
-                time.sleep(min(.10, interval / 4))
+        original_enabled = camera.analysis_enabled
+        self._benchmarking = True
+        camera.analysis_enabled = True
+        try:
+            # This temporary recording exercises the real main encoder and
+            # low-resolution analysis stream simultaneously, without adding
+            # any video to the user's experiment.
+            with TemporaryDirectory(prefix="digiflot-virtual-benchmark-") as temp_dir:
+                camera.start_recording(Path(temp_dir) / "benchmark")
+                try:
+                    for index in range(count + 3):
+                        begin = time.perf_counter()
+                        try:
+                            color = config["method"] in COLOR_METHODS
+                            raw, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
+                            maps = self._compiled_roi(camera, cell_id, association, frame, config)
+                            patch = (remap_yuv420_roi(raw, maps, frame["size"]) if color else remap_roi(raw, maps))
+                            density = maps["size"][0] / (association["analysis_roi_cm"][2] - association["analysis_roi_cm"][0])
+                            reading = detect_interface(patch, config, association["analysis_roi_cm"], density)
+                            if index >= 3:
+                                valid_count += int(reading["valid"])
+                                last_reading, last_preview = reading, patch
+                        except Exception as error:
+                            if index >= 3:
+                                errors.append(str(error))
+                        elapsed_ms = (time.perf_counter() - begin) * 1000
+                        if index >= 3:
+                            timings.append(elapsed_ms)
+                        if index < count + 2:
+                            time.sleep(min(.10, interval / 4))
+                finally:
+                    camera.stop_recording()
+        finally:
+            camera.analysis_enabled = original_enabled
+            self._benchmarking = False
         if not timings:
             raise RuntimeError("Unable to sample the detector")
         p95, p99 = np.percentile(timings, [95, 99])
@@ -309,10 +327,10 @@ class VisionService:
             "p95_ms": round(float(p95), 2), "p99_ms": round(float(p99), 2),
             "mean_ms": round(float(np.mean(timings)), 2), "max_ms": round(max(timings), 2),
             "deadline_ms": round(interval * 1000, 2),
-            "lores_size": list(planned_size), "roi_resolution": list(self._roi_map["size"]),
-            "roi_coverage": self._roi_map["coverage"], "method": config["method"],
+            "lores_size": list(planned_size), "roi_resolution": list((self._roi_map or {"size":[0,0]})["size"]),
+            "roi_coverage": (self._roi_map or {"coverage":0})["coverage"], "method": config["method"],
             "errors": errors[:5], "tested_at": _utc(),
-            "mode": "preview_pipeline_not_main_encoder_load",
+            "mode": "temporary_main_encoder_and_lores",
         }
         result["signature"] = self._virtual_signature()
         self._virtual_test = result
