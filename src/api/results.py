@@ -388,6 +388,7 @@ def _sensor_file_metadata(path: Path, directory: Path, config: dict):
     }
 
     series_stats = {}
+    series_units = {}
     try:
         with path.open("r", encoding="utf-8", errors="replace", newline="") as file:
             reader = csv.DictReader(file, delimiter="\t")
@@ -403,6 +404,8 @@ def _sensor_file_metadata(path: Path, directory: Path, config: dict):
                     result["end_elapsed_s"] = elapsed
 
                 key = str(row.get("sensor") or "value") if atlas_style else "value"
+                if row.get("unit"):
+                    series_units[key] = str(row["unit"])
                 value = _parse_number(row.get("value"))
                 stats = series_stats.setdefault(key, {
                     "count": 0,
@@ -431,9 +434,9 @@ def _sensor_file_metadata(path: Path, directory: Path, config: dict):
     for key, stats in sorted(series_stats.items()):
         numeric_count = stats["numeric_count"]
         unit = (
-            _series_unit_for_sensor(config, key)
+            series_units.get(key) or _series_unit_for_sensor(config, key)
             if atlas_style
-            else _scale_unit_for_file(config, path.name)
+            else (series_units.get(key) or _scale_unit_for_file(config, path.name))
         )
         result["series"].append({
             "id": key,
