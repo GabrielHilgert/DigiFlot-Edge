@@ -633,6 +633,9 @@ class VisionService:
                     "config": config, "benchmark": self.virtual_test_result(),
                     "lores_size": list(camera.analysis_target_size), "frozen_at": _utc()}
         directory = Path(directory)
+        # Cell reference can be refined after the physical cell was selected.
+        # Freeze its most recent definition alongside the exact sensor datum.
+        _write(directory / "physical_cell_snapshot.json", self.registry.get_cell(cell_id))
         _write(directory / "virtual_sensors" / "froth_interface.json", snapshot)
         self._virtual_sample_count = 0
         self._last_virtual_measurement = None
