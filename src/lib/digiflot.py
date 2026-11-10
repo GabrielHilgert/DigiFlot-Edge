@@ -2318,6 +2318,8 @@ class DigiFlot:
             # newly available devices start a fresh camera segment or append to
             # their sensor TSV without changing stage timing.
             if self.state in {self.RUNNING, self.PAUSED}:
+                if self.vision is not None and self.run_directory is not None:
+                    self.vision.restore_run_config(self.run_directory)
                 try:
                     self._start_sensor_recording_unlocked()
                 except Exception as error:
@@ -2353,7 +2355,8 @@ class DigiFlot:
             context = self.recovery_context or {}
             previous_stage_state = context.get("previous_stage_state") or self.stage_state
             now = time.monotonic()
-
+            if self.vision is not None and self.run_directory is not None:
+                self.vision.restore_run_config(self.run_directory)
             self._start_sensor_recording_unlocked()
             self._start_performance_telemetry_unlocked()
 
