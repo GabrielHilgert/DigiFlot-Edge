@@ -335,8 +335,12 @@
     $('vision_enabled').checked=Boolean(data.settings.enabled);
     $('sample_interval').value=data.settings.sampling_interval_s;
     text('vision_state',data.settings.enabled ? 'Vision enabled' : 'Vision idle');
-    if (data.settings.camera_id != null) $('camera_select').value=data.settings.camera_id;
-    await refreshCells(data.settings.cell_id);
+    const initial = new URLSearchParams(window.location.search);
+    $('return_to_sensor_calibration').hidden = !initial.has('cell') && !initial.has('camera');
+    const cameraId = initial.get('camera') || data.settings.camera_id;
+    const cellId = initial.get('cell') || data.settings.cell_id;
+    if (cameraId != null) $('camera_select').value=cameraId;
+    await refreshCells(cellId);
     await loadCamera($('camera_select').value);
   }
 

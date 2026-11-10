@@ -8,14 +8,16 @@ import time
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import cv2
 import numpy as np
 
-from .aruco import calibrate, detect_markers, grid_overlay
-from .roi import compile_roi_maps, full_plane_geometry, remap_roi
+from .aruco import calibrate, detect_markers, grid_overlay, project_rectified, source_geometry
+from .roi import compile_roi_maps, full_plane_geometry, remap_roi, remap_yuv420_roi
 from .registry import VisionRegistry, _write
+from lib.virtual_sensors.interface import COLOR_METHODS, DEFAULTS, config_signature, detect_interface, normalized_config
 
 
 def _utc():
@@ -41,6 +43,11 @@ class VisionService:
         self._seen_runs = set()
         self._map_key = None
         self._roi_map = None
+        self._virtual_test = None
+        self._run_virtual = None
+        self._last_virtual_measurement = None
+        self._virtual_sample_count = 0
+        self._benchmarking = False
         self._sync_camera_flags()
 
     def _sync_camera_flags(self):
@@ -60,16 +67,19 @@ class VisionService:
             self._thread.join(timeout=3)
             self._thread = None
 
-    def _compiled_roi(self, camera, cell_id, association, frame):
+    def _compiled_roi(self, camera, cell_id, association, frame, config=None):
         roi = association["analysis_roi_cm"]
         key = (str(camera.id), str(cell_id), association["calibration_id"],
-               association["analysis_roi_revision"], tuple(frame["size"]), tuple(frame["sensor_crop"]))
+               association["analysis_roi_revision"], tuple(frame["size"]), tuple(frame["sensor_crop"]),
+               (config or {}).get("resolution_px"))
         if key != self._map_key:
             # Preserve centimetres, but never upscale beyond the lores stream.
             from math import sqrt
             span_x, span_y = roi[2] - roi[0], roi[3] - roi[1]
             source_w, source_h = frame["size"]
             density = float(association["calibration"]["px_per_cm"])
+            if config is not None:
+                density = float(config["resolution_px"]) / span_x
             density = min(density, min(source_w, 1280) / span_x,
                           min(source_h, 960) / span_y, sqrt(1_000_000 / (span_x * span_y)))
             compiled = compile_roi_maps(association["calibration"],
@@ -80,9 +90,19 @@ class VisionService:
         return self._roi_map
 
     def _loop(self):
-        # No queue or per-frame geometry calculations; failures never stop recording.
-        while not self._stop.wait(max(.2, float(self.registry.settings()["sampling_interval_s"]))):
+        # No queued frames; acquisition and recording always take priority.
+        next_due = time.monotonic()
+        while not self._stop.is_set():
+            interval = max(.2, float((self._run_virtual or {}).get("config", {}).get(
+                "sampling_interval_s", self.registry.settings()["sampling_interval_s"])))
+            if self._stop.wait(max(0., next_due - time.monotonic())):
+                break
+            # Respect scheduled acquisition start times; discard missed slots.
+            next_due = max(next_due + interval, time.monotonic())
+            if self._benchmarking:
+                continue
             settings = self.registry.settings()
+            active = self._run_virtual
             if not settings["enabled"] or settings["camera_id"] is None:
                 continue
             camera = self.digiflot.cameras.get(int(settings["camera_id"]))
@@ -90,26 +110,50 @@ class VisionService:
                 continue
             try:
                 started = time.perf_counter()
-                # Copy luminance only; avoid full-frame YUV420 -> BGR conversion.
-                image, meta = camera.capture_analysis_frame(grayscale=True)
-                cell_id = settings.get("cell_id")
-                association = self.registry.association(camera.id, cell_id) if cell_id else None
+                association = (active or {}).get("association")
+                cell_id = (active or {}).get("cell_id") or settings.get("cell_id")
+                if association is None and cell_id:
+                    association = self.registry.association(camera.id, cell_id)
                 roi = (association or {}).get("analysis_roi_cm")
+                config = (active or {}).get("config")
+                color = bool(config and config["method"] in COLOR_METHODS and roi)
+                image, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
                 status = {"state": "running", "camera_id": camera.id, "cell_id": cell_id,
                           "associated_calibration": (association or {}).get("calibration_id"),
                           "updated_at": _utc(), "error": None}
                 if roi is not None:
-                    compiled = self._compiled_roi(camera, cell_id, association, meta)
-                    transformed = remap_roi(image, compiled)
-                    # This output is ready for a future soft sensor; do not write images per frame.
-                    status.update({"roi_processed": True, "roi_size": list(transformed.shape[::-1]),
+                    compiled = self._compiled_roi(camera, cell_id, association, frame, config)
+                    transformed = (remap_yuv420_roi(image, compiled, frame["size"]) if color
+                                   else remap_roi(image, compiled))
+                    status.update({"roi_processed": True, "roi_size": list(transformed.shape[1::-1]),
                                    "roi_coverage": compiled["coverage"], "markers_detected": None})
+                    if config:
+                        density = compiled["size"][0] / (roi[2] - roi[0])
+                        try:
+                            reading = detect_interface(transformed, config, roi, density)
+                        except Exception as error:
+                            reading = {"valid": False, "error": str(error),
+                                       "froth_surface_cm": None, "pulp_froth_interface_cm": None,
+                                       "froth_thickness_cm": None}
+                        reading.update({"timestamp_ns": frame["captured_timestamp_ns"],
+                                        "sensor_timestamp_ns": frame.get("sensor_timestamp_ns"),
+                                        "camera_id": camera.id, "cell_id": cell_id,
+                                        "calibration_id": association["calibration_id"]})
+                        self._virtual_sample_count += 1
+                        reading["sample_count"] = self._virtual_sample_count
+                        self._last_virtual_measurement = reading
+                        self._write_virtual_sample(active, reading, frame)
+                        status["virtual_sensor"] = {"valid": reading["valid"],
+                                                    "pulp_froth_interface_cm": reading.get("pulp_froth_interface_cm"),
+                                                    "froth_surface_cm": reading.get("froth_surface_cm"),
+                                                    "error": reading.get("error")}
                 else:
                     layout = self.registry.get_cell(cell_id)["marker_layout"] if cell_id else None
                     detected = detect_markers(image, (layout or {}).get("dictionary", "DICT_4X4_50"),
                                               self.registry.camera_profile(camera.id)["invert"])
                     status.update({"roi_processed": False, "markers_detected": sorted(detected)})
                 status["processing_ms"] = round((time.perf_counter() - started) * 1000, 2)
+                status["deadline_met"] = status["processing_ms"] <= interval * 1000
                 self._latest = status
                 directory = self.digiflot.run_directory
                 if directory is not None and association is not None and str(directory) not in self._seen_runs:
@@ -117,6 +161,277 @@ class VisionService:
                     self._seen_runs.add(str(directory))
             except Exception as error:
                 self._latest = {"state": "error", "error": str(error), "updated_at": _utc()}
+
+    def _virtual_context(self):
+        camera_id = self.digiflot.virtual_camera_id
+        cell_id = (self.digiflot.cell_profile or {}).get("physical_cell_id")
+        if camera_id is None or not cell_id:
+            raise ValueError("Select a physical cell and source camera first")
+        camera = self.digiflot.get_camera(int(camera_id))
+        association = self.registry.association(camera.id, cell_id)
+        if association is not None and (association["cell_revision"] != self.registry.get_cell(cell_id)["revision"]
+                or association["camera_revision"] != self.registry.camera_profile(camera.id)["revision"]):
+            raise ValueError("Camera or cell geometry changed; recalibrate ArUco and select ROI again")
+        if association is None or not association.get("analysis_roi_cm"):
+            raise ValueError("Confirm ArUco geometry and the physical ROI in Cells before testing")
+        profile = self.registry.virtual_profile(camera.id, cell_id)
+        return camera, cell_id, association, profile
+
+    def virtual_profile(self):
+        camera, cell_id, assoc, profile = self._virtual_context()
+        return {**profile, "geometry": {"calibration_id": assoc["calibration_id"],
+                                        "analysis_roi_cm": assoc["analysis_roi_cm"],
+                                        "analysis_roi_revision": assoc["analysis_roi_revision"]},
+                "camera_name": camera.name, "test": self.virtual_test_result()}
+
+    def save_virtual_profile(self, values):
+        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
+            raise RuntimeError("Configure the virtual sensor during the sensor calibration stage")
+        camera, cell_id, _, _ = self._virtual_context()
+        if camera.recording:
+            raise RuntimeError("Stop recording before updating the virtual sensor")
+        result = self.registry.save_virtual_profile(camera.id, cell_id, values)
+        self.clear_virtual_test()
+        with self.digiflot.lock:
+            item = self.digiflot.sensor_calibration.get("froth_interface")
+            if item is not None:
+                item["status"] = "pending"
+                item["confirmed_at"] = None
+                item.pop("benchmark", None)
+                self.digiflot._touch_unlocked("VIRTUAL_SENSOR_PROFILE_UPDATED",
+                                              {"sensor_id": "froth_interface", "revision": result["revision"]})
+        return result
+
+    def clear_virtual_test(self):
+        self._virtual_test = None
+
+    def _virtual_signature(self):
+        camera, cell_id, assoc, profile = self._virtual_context()
+        camera_geometry = {
+            "frame_size": list(camera.frame_size), "crop_region": list(camera.crop_region or []),
+            "format": camera.format, "fps": camera.frame_rate,
+            "exposure_time_us": camera.exposure_time_us,
+            "analogue_gain": camera.analogue_gain,
+            "target_size": list(camera.analysis_target_size or []),
+        }
+        return config_signature(profile["config"], assoc, camera_geometry)
+
+    def virtual_test_passed(self):
+        try:
+            result = self._virtual_test
+            return bool(result and result.get("passed") and result["signature"] == self._virtual_signature())
+        except (ValueError, KeyError, RuntimeError):
+            return False
+
+    def virtual_test_result(self):
+        result = deepcopy(self._virtual_test) if self._virtual_test else None
+        if result is not None:
+            result.pop("signature", None)
+            result["current"] = self.virtual_test_passed()
+        return result
+
+    def virtual_sensor_snapshot(self):
+        camera_id = self.digiflot.virtual_camera_id
+        cell_id = (self.digiflot.cell_profile or {}).get("physical_cell_id")
+        camera = self.digiflot.cameras.get(int(camera_id)) if camera_id is not None else None
+        reading = self._last_virtual_measurement or {}
+        return {"id": "froth_interface", "name": "Froth Interface",
+                "type": "virtual_froth_interface", "virtual": True,
+                "source_camera_id": camera_id, "physical_cell_id": cell_id,
+                "status": "connected" if camera else "offline",
+                "value": reading.get("pulp_froth_interface_cm"), "unit": "cm",
+                "timestamp_ms": int(reading["timestamp_ns"]/1e6) if reading.get("timestamp_ns") else None,
+                "sample_count": reading.get("sample_count", 0), "revision": reading.get("sample_count", 0),
+                "benchmark": self.virtual_test_result(),
+                "error": reading.get("error") if reading else (None if camera else "Source camera is unavailable")}
+
+    def _desired_lores_size(self, camera, association, config):
+        roi = association["analysis_roi_cm"]
+        x0, y0, x1, y1 = roi
+        corners = np.asarray([[x0,y0],[x1,y0],[x1,y1],[x0,y1]], np.float32)
+        cal = association["calibration"]
+        coords = (corners - np.asarray(cal["min_xy_cm"], np.float32)) * float(cal["px_per_cm"])
+        native = source_geometry(camera.frame_size, camera.crop_region or camera.full_sensor_crop())
+        mapped = project_rectified(coords, cal, association["camera_profile"], native)
+        roi_width = float(np.max(mapped[:,0])-np.min(mapped[:,0]))
+        fraction = max(.03, min(1., roi_width / native["size"][0]))
+        target = max(64, int(config["resolution_px"]))
+        full_width = max(2, int(camera.frame_size[0]))
+        width = min(full_width, max(128, int(np.ceil(target / fraction))))
+        width = width + width % 2
+        width = min(full_width - full_width%2, width)
+        height = max(2, int(round(width * camera.frame_size[1] / full_width / 2)) * 2)
+        height = min(int(camera.frame_size[1])//2*2, height)
+        return width, height
+
+    def benchmark_virtual_sensor(self, samples=20):
+        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
+            raise RuntimeError("Virtual sensor benchmark is only allowed during sensor calibration")
+        camera, cell_id, association, profile = self._virtual_context()
+        config = normalized_config(profile["config"])
+        if camera.recording:
+            raise RuntimeError("Stop recording before testing this sensor")
+        planned_size = self._desired_lores_size(camera, association, config)
+        camera.analysis_target_size = planned_size
+        if self.digiflot.preview_camera_id is not None:
+            self.digiflot.stop_preview()
+        if camera.state != camera.IDLE:
+            raise RuntimeError("Source camera must be idle for a representative recording benchmark")
+        self._map_key, self._roi_map = None, None
+        interval = float(config["sampling_interval_s"])
+        errors, timings, valid_count = [], [], 0
+        last_reading, last_preview = None, None
+        count = max(12, min(60, int(samples)))
+        original_enabled = camera.analysis_enabled
+        self._benchmarking = True
+        camera.analysis_enabled = True
+        try:
+            # This temporary recording exercises the real main encoder and
+            # low-resolution analysis stream simultaneously, without adding
+            # any video to the user's experiment.
+            with TemporaryDirectory(prefix="digiflot-virtual-benchmark-") as temp_dir:
+                camera.start_recording(Path(temp_dir) / "benchmark")
+                try:
+                    for index in range(count + 3):
+                        begin = time.perf_counter()
+                        try:
+                            color = config["method"] in COLOR_METHODS
+                            raw, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
+                            maps = self._compiled_roi(camera, cell_id, association, frame, config)
+                            patch = (remap_yuv420_roi(raw, maps, frame["size"]) if color else remap_roi(raw, maps))
+                            density = maps["size"][0] / (association["analysis_roi_cm"][2] - association["analysis_roi_cm"][0])
+                            reading = detect_interface(patch, config, association["analysis_roi_cm"], density)
+                            if index >= 3:
+                                valid_count += int(reading["valid"])
+                                last_reading, last_preview = reading, patch
+                        except Exception as error:
+                            if index >= 3:
+                                errors.append(str(error))
+                        elapsed_ms = (time.perf_counter() - begin) * 1000
+                        if index >= 3:
+                            timings.append(elapsed_ms)
+                        if index < count + 2:
+                            time.sleep(min(.10, interval / 4))
+                finally:
+                    camera.stop_recording()
+        finally:
+            camera.analysis_enabled = original_enabled
+            self._benchmarking = False
+        if not timings:
+            raise RuntimeError("Unable to sample the detector")
+        p95, p99 = np.percentile(timings, [95, 99])
+        valid_fraction = valid_count / count
+        passed = bool(valid_fraction >= .7 and p95 <= .70 * interval*1000 and p99 < interval*1000)
+        result = {
+            "passed": passed, "samples": count, "valid_fraction": round(valid_fraction, 3),
+            "p95_ms": round(float(p95), 2), "p99_ms": round(float(p99), 2),
+            "mean_ms": round(float(np.mean(timings)), 2), "max_ms": round(max(timings), 2),
+            "deadline_ms": round(interval * 1000, 2),
+            "lores_size": list(planned_size), "roi_resolution": list((self._roi_map or {"size":[0,0]})["size"]),
+            "roi_coverage": (self._roi_map or {"coverage":0})["coverage"], "method": config["method"],
+            "errors": errors[:5], "tested_at": _utc(),
+            "mode": "temporary_main_encoder_and_lores",
+        }
+        result["signature"] = self._virtual_signature()
+        self._virtual_test = result
+        if last_preview is not None and last_reading:
+            preview = (cv2.cvtColor(last_preview, cv2.COLOR_GRAY2BGR) if last_preview.ndim == 2
+                       else last_preview.copy())
+            for key, color in [("froth_surface_row_px", (220, 220, 30)),
+                               ("pulp_froth_row_px", (10, 110, 255))]:
+                y = last_reading.get(key)
+                if y is not None:
+                    cv2.line(preview, (0, int(y)), (preview.shape[1]-1, int(y)), color, 2)
+            result["preview_jpeg_base64"] = _jpeg_base64(preview)
+            result["last_reading"] = last_reading
+        # Keep huge preview out of in-memory calibration state / runtime snapshots.
+        self._virtual_test = {k:v for k,v in result.items() if k not in {"preview_jpeg_base64","last_reading"}}
+        return result
+
+    def freeze_run_config(self, directory):
+        """Write the validated sensor + geometry snapshot before acquisition."""
+        if not self.virtual_test_passed():
+            raise RuntimeError("Virtual sensor test expired; recalibrate before starting")
+        camera, cell_id, association, profile = self._virtual_context()
+        config = deepcopy(profile["config"])
+        camera.analysis_target_size = self._desired_lores_size(camera, association, config)
+        self.registry.save_settings({"camera_id": camera.id, "cell_id": cell_id,
+                                     "enabled": True, "sampling_interval_s": config["sampling_interval_s"]})
+        self._sync_camera_flags()
+        snapshot = {"schema_version": 1, "sensor_id": "froth_interface",
+                    "camera_id": camera.id, "cell_id": cell_id,
+                    "association": deepcopy(association), "profile": deepcopy(profile),
+                    "config": config, "benchmark": self.virtual_test_result(),
+                    "lores_size": list(camera.analysis_target_size), "frozen_at": _utc()}
+        directory = Path(directory)
+        _write(directory / "virtual_sensors" / "froth_interface.json", snapshot)
+        self._virtual_sample_count = 0
+        self._last_virtual_measurement = None
+        self._run_virtual = {"config": config, "association": deepcopy(association),
+                             "cell_id": cell_id, "directory": str(directory)}
+        return snapshot
+
+    def restore_run_config(self, directory):
+        """Restore the exact frozen virtual configuration after a run interruption.
+
+        Do not consult or overwrite the newer camera-cell profile: the original
+        experiment snapshot is authoritative for resumed and offline processing.
+        """
+        directory = Path(directory)
+        path = directory / "virtual_sensors" / "froth_interface.json"
+        if not path.is_file():
+            self.disable_run_sensor()
+            return False
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+        config = normalized_config(snapshot["config"])
+        camera_id, cell_id = int(snapshot["camera_id"]), str(snapshot["cell_id"])
+        camera = self.digiflot.cameras.get(camera_id)
+        if camera is not None:
+            camera.analysis_target_size = tuple(snapshot["lores_size"])
+        self.registry.save_settings({"camera_id": camera_id, "cell_id": cell_id,
+                                     "enabled": True, "sampling_interval_s": config["sampling_interval_s"]})
+        self._sync_camera_flags()
+        self._run_virtual = {"config": config, "association": deepcopy(snapshot["association"]),
+                             "cell_id": cell_id, "directory": str(directory)}
+        self._map_key, self._roi_map = None, None
+        return True
+
+    def disable_run_sensor(self):
+        self._run_virtual = None
+        self._virtual_sample_count = 0
+        self._last_virtual_measurement = None
+        settings = self.registry.settings()
+        if settings["enabled"]:
+            self.registry.save_settings({"enabled": False})
+            self._sync_camera_flags()
+
+    def _write_virtual_sample(self, active, reading, frame):
+        if active is None:
+            return
+        import csv
+        directory = Path(active["directory"])
+        if self.digiflot.run_directory is None or Path(self.digiflot.run_directory) != directory:
+            return
+        path = directory / "sensors" / "froth_interface.tsv"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        header = ["timestamp_ns","sensor_timestamp_ns","run_elapsed_s","stage_id",
+                  "stage_attempt","sensor","value","unit","valid","calibration_id"]
+        elapsed = (frame["captured_monotonic_ns"]/1e9 - self.digiflot.run_started_monotonic
+                   if self.digiflot.run_started_monotonic else "")
+        stage = self.digiflot.current_stage
+        shared = {"timestamp_ns": frame["captured_timestamp_ns"],
+                  "sensor_timestamp_ns": frame.get("sensor_timestamp_ns") or "",
+                  "run_elapsed_s": elapsed, "stage_id": (stage or {}).get("id",""),
+                  "stage_attempt": self.digiflot.stage_attempt or "",
+                  "unit": "cm", "valid": reading["valid"],
+                  "calibration_id": reading["calibration_id"]}
+        with path.open("a", encoding="utf-8", newline="") as output:
+            writer = csv.DictWriter(output, fieldnames=header, delimiter="\t")
+            if path.stat().st_size == 0:
+                writer.writeheader()
+            for key in ("froth_surface_cm","pulp_froth_interface_cm","froth_thickness_cm"):
+                writer.writerow({**shared, "sensor": key,
+                                 "value": reading.get(key) if reading.get(key) is not None else ""})
 
     def status(self):
         return {"settings": self.registry.settings(), "latest": deepcopy(self._latest),

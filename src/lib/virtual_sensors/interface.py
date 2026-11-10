@@ -1,0 +1,165 @@
+"""Froth-interface virtual sensor, compatible with the supplied depth_estimation(3).py.
+
+This module never plots or opens files per sample. Legacy numerical behaviour
+is retained; the validated detector can be optimized in a later revision.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from copy import deepcopy
+
+import numpy as np
+
+METHODS = ("mean_derivative", "cumulative_distribution", "heuristic_entropy",
+           "dual_entropy", "dual_entropy_striped", "dual_entropy_hybrid")
+COLOR_METHODS = frozenset(METHODS[3:])
+DEFAULTS = {
+    "schema_version": 1, "method": "mean_derivative", "resolution_px": 320,
+    "sampling_interval_s": 1.0, "entropy_radius": 20, "entropy_bins": 32,
+    "sigma": 1.0, "threshold_froth": 0.0, "threshold_pulp": 1.0,
+    "min_row": 10, "cdf_foam": 0.5, "cdf_pulp": 0.8,
+    "selection_criteria": "hybrid", "simplification_alg": "turning_point",
+    "simplification_tol": 0.2,
+    "x0_frac": .12, "x1_frac": .95, "min_y_frac": .18,
+    "lower_search_start": .40, "lower_search_end": .92, "min_thickness_px": 25,
+    "sigma_rows": 7.0, "dual_entropy_radius": 11, "dual_entropy_bins": 16,
+    "texture_ksize": 21, "upper_threshold_q": 62., "lower_bias": 0.,
+    "n_stripes": 7, "stripe_overlap": .40, "min_valid_stripes": 3,
+    "vote_sigma_px": 12., "outlier_mad": 2.5,
+}
+LIMITS = {
+    "resolution_px": (64, 1920), "sampling_interval_s": (.2, 60.),
+    "entropy_radius": (1, 100), "entropy_bins": (2, 256),
+    "sigma": (0.0, 100), "threshold_froth": (-5, 5), "threshold_pulp": (-5, 5),
+    "min_row": (0, 2000), "cdf_foam": (0, 1), "cdf_pulp": (0, 1),
+    "simplification_tol": (0, 100), "x0_frac": (0, 1), "x1_frac": (0, 1),
+    "min_y_frac": (0, 1), "lower_search_start": (0, 1), "lower_search_end": (0, 1),
+    "min_thickness_px": (1, 1000), "sigma_rows": (0, 100),
+    "dual_entropy_radius": (1, 100), "dual_entropy_bins": (4, 64),
+    "texture_ksize": (3, 201), "upper_threshold_q": (0, 100),
+    "lower_bias": (-10, 10), "n_stripes": (3, 30),
+    "stripe_overlap": (0, .9), "min_valid_stripes": (1, 30),
+    "vote_sigma_px": (1, 100), "outlier_mad": (.1, 20),
+}
+OPTIONS = {
+    "selection_criteria": ("strong_candidates", "next_tp_after_pulp", "hybrid", "interpolate"),
+    "simplification_alg": ("turning_point", "reumann_witkam", "douglas_peucker", "opheim", "lang"),
+}
+
+
+def normalized_config(values=None):
+    config = deepcopy(DEFAULTS)
+    if values is not None:
+        if not isinstance(values, dict):
+            raise ValueError("Detector configuration must be an object")
+        unknown = set(values) - set(DEFAULTS)
+        if unknown:
+            raise ValueError("Unknown detector settings: " + ", ".join(sorted(unknown)))
+        config.update(values)
+    if config["method"] not in METHODS:
+        raise ValueError("Unsupported detector method")
+    for key, choices in OPTIONS.items():
+        if config[key] not in choices:
+            raise ValueError(f"Invalid {key}")
+    for key, (lo, hi) in LIMITS.items():
+        value = config[key]
+        if isinstance(value, bool):
+            raise ValueError(f"Invalid {key}")
+        if key in {"resolution_px","entropy_radius","entropy_bins","min_row",
+                   "min_thickness_px","dual_entropy_radius","dual_entropy_bins",
+                   "texture_ksize","n_stripes","min_valid_stripes"}:
+            if isinstance(value, float) and not value.is_integer():
+                raise ValueError(f"{key} requires an integer")
+            value = int(value)
+        else:
+            value = float(value)
+        if not math.isfinite(value) or not lo <= value <= hi:
+            raise ValueError(f"{key} outside permitted range [{lo}, {hi}]")
+        config[key] = value
+    if config["x1_frac"] <= config["x0_frac"] or config["lower_search_end"] <= config["lower_search_start"]:
+        raise ValueError("Invalid search window")
+    return config
+
+
+def config_signature(config, association, camera_geometry=None):
+    payload = {"config": normalized_config(config), "calibration_id": association["calibration_id"],
+               "roi_cm": association.get("analysis_roi_cm"),
+               "roi_revision": association.get("analysis_roi_revision"),
+               "camera_revision": association.get("camera_revision"),
+               "cell_revision": association.get("cell_revision"),
+               "geometry": camera_geometry}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def detect_interface(image, config, roi_cm, px_per_cm):
+    """Return physical heights and validity without requiring plot IO."""
+    conf = normalized_config(config)
+    if not isinstance(image, np.ndarray) or image.ndim not in (2, 3):
+        raise ValueError("Expected a grayscale or BGR ROI image")
+    if image.size == 0 or not math.isfinite(px_per_cm) or px_per_cm <= 0:
+        raise ValueError("Invalid ROI image or physical scale")
+    from . import depth_estimation_legacy as legacy
+    method = conf["method"]
+    scale = image.shape[1] / max(1.0, conf["resolution_px"])
+    # The configured parameters refer to the chosen ROI processing width.
+    # When the processing width is re-negotiated, pixel kernels retain a
+    # predictable physical footprint through this scale.
+    scale = max(.05, scale)
+    if method in COLOR_METHODS:
+        if image.ndim != 3 or image.shape[2] != 3:
+            raise ValueError("This method requires BGR color frames")
+        kwargs = {
+            "x0_frac": conf["x0_frac"], "x1_frac": conf["x1_frac"],
+            "min_y_frac": conf["min_y_frac"],
+            "lower_search_start": conf["lower_search_start"],
+            "lower_search_end": conf["lower_search_end"],
+            "min_thickness_px": max(1, round(conf["min_thickness_px"] * scale)),
+            "sigma_rows": max(.1, conf["sigma_rows"] * scale),
+            "entropy_radius": max(1, round(conf["dual_entropy_radius"] * scale)),
+            "entropy_bins": conf["dual_entropy_bins"],
+            "texture_ksize": max(3, round(conf["texture_ksize"] * scale)) | 1,
+            "upper_threshold_q": conf["upper_threshold_q"], "lower_bias": conf["lower_bias"]}
+        if method in {"dual_entropy_striped", "dual_entropy_hybrid"}:
+            kwargs.update(n_stripes=conf["n_stripes"], stripe_overlap=conf["stripe_overlap"],
+                          min_valid_stripes=conf["min_valid_stripes"],
+                          vote_sigma_px=max(1, conf["vote_sigma_px"] * scale),
+                          outlier_mad=conf["outlier_mad"])
+        func = getattr(legacy, {"dual_entropy": "detect_dual_entropy_boundaries",
+                                "dual_entropy_striped": "detect_dual_entropy_striped_boundaries",
+                                "dual_entropy_hybrid": "detect_dual_entropy_hybrid_boundaries"}[method])
+        result = func(image, **kwargs)
+        upper, lower = result["upper_row_px"], result["lower_row_px"]
+        quality = {"valid_stripes": result.get("valid_stripes"), "combine_method": result.get("combine_method")}
+    else:
+        detector = legacy.EntropyFoamDetector(px_per_cm=float(px_per_cm), origin_y_cm=float(roi_cm[1]))
+        result = detector.entropy_foam_detection(
+            image, method=method, entropy_radius=max(1, round(conf["entropy_radius"] * scale)),
+            entropy_bins=conf["entropy_bins"], sigma=conf["sigma"] * scale,
+            threshold_froth=conf["threshold_froth"], threshold_pulp=conf["threshold_pulp"],
+            min_row=round(conf["min_row"] * scale), simplification_alg=conf["simplification_alg"],
+            simplification_tol=conf["simplification_tol"], save_plot=False, show_plot=False,
+            options={"cdf_foam":conf["cdf_foam"],"cdf_pulp":conf["cdf_pulp"],
+                     "threshold_froth":conf["threshold_froth"],
+                     "threshold_pulp":conf["threshold_pulp"],
+                     "selection_criteria":conf["selection_criteria"]})
+        upper, lower = result.froth_row_px, result.pulp_row_px
+        quality = {}
+    height = image.shape[0]
+    def valid_row(x):
+        try:
+            n = float(x)
+            return n if math.isfinite(n) and 0 <= n < height else None
+        except (ValueError, TypeError):
+            return None
+    upper, lower = valid_row(upper), valid_row(lower)
+    valid = upper is not None and lower is not None and lower > upper
+    oy = float(roi_cm[1])
+    return {
+        "froth_surface_cm": oy + upper / px_per_cm if upper is not None else None,
+        "pulp_froth_interface_cm": oy + lower / px_per_cm if lower is not None else None,
+        "froth_thickness_cm": (lower - upper) / px_per_cm if valid else None,
+        "froth_surface_row_px": upper, "pulp_froth_row_px": lower,
+        "valid": bool(valid), "method": method, "quality": quality,
+    }

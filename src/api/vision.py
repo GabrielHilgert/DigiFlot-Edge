@@ -34,6 +34,21 @@ def save_settings(request: Request, payload: dict):
     return _invoke(service(request).save_settings, payload)
 
 
+@router.get("/virtual-sensors/froth-interface/profile")
+def froth_interface_profile(request: Request):
+    return _invoke(service(request).virtual_profile)
+
+
+@router.put("/virtual-sensors/froth-interface/profile")
+def save_froth_interface_profile(request: Request, payload: dict):
+    return _invoke(service(request).save_virtual_profile, payload)
+
+
+@router.post("/virtual-sensors/froth-interface/benchmark")
+def benchmark_froth_interface(request: Request, payload: dict | None = None):
+    return _invoke(service(request).benchmark_virtual_sensor, (payload or {}).get("samples", 20))
+
+
 @router.get("/cells")
 def list_cells(request: Request):
     return service(request).registry.list_cells()

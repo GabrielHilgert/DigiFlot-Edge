@@ -5,14 +5,14 @@
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261109b">
-  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261110a"></script>
+  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261110b"></script>
 </head>
 <body>
 {% include "_navbar.html" %}
 <main class="page-shell cell-vision-page">
   <header class="page-header"><div><p class="eyebrow">DigiFlot / Vision</p><h1>Cells</h1>
   <p class="page-description">Physical cells, reusable ArUco geometry and a planar analysis ROI for real-time vision.</p></div>
-  <span class="state-badge" id="vision_state">Loading</span></header>
+  <div class="cv-inline-row"><a id="return_to_sensor_calibration" class="button button-secondary" href="/sensors?calibration=1" hidden>Back to sensor calibration</a><span class="state-badge" id="vision_state">Loading</span></div></header>
   <div class="cell-vision-grid">
     <section class="card cell-profile-card"><div class="cv-card-head"><div><p class="eyebrow">01 / Physical cell</p><h2>Cell registry</h2></div><button type="button" class="button button-secondary" id="new_cell">New cell</button></div>
       <div class="cv-select-panel"><label>Stored cell <select id="cell_select"><option value="">Select a cell</option></select></label></div>

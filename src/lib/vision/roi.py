@@ -98,6 +98,40 @@ def compile_roi_maps(calibration, camera_profile, target_geometry, roi_cm, px_pe
             "size": [width, height], "roi_cm": roi.tolist(), "coverage": float(np.mean(valid))}
 
 
+def remap_yuv420_roi(yuv, compiled, frame_size):
+    """Convert only the YUV420 source footprint required by a physical ROI.
+
+    Chroma subsampling requires an even-aligned source box; maps remain relative
+    to the exact original bounding box after clipping.
+    """
+    width, height = map(int, frame_size)
+    x0, y0, x1, y1 = compiled["source_bbox"]
+    left, top = max(0, x0 // 2 * 2), max(0, y0 // 2 * 2)
+    right, bottom = min(width, (x1 + 1) // 2 * 2), min(height, (y1 + 1) // 2 * 2)
+    if right - left < 2 or bottom - top < 2:
+        raise ValueError("Insufficient YUV420 ROI chroma coverage")
+    plane = np.asarray(yuv, np.uint8)
+    if plane.shape[0] < height * 3 // 2 or plane.shape[1] < width:
+        raise ValueError("Unexpected YUV420 plane layout")
+    uv_h, uv_w = height // 2, width // 2
+    chroma = np.ascontiguousarray(plane[height:height * 3 // 2, :width]).ravel()
+    count = uv_h * uv_w
+    if chroma.size < 2 * count:
+        raise ValueError("Incomplete YUV420 chroma planes")
+    U = chroma[:count].reshape(uv_h, uv_w)
+    V = chroma[count:2 * count].reshape(uv_h, uv_w)
+    y_crop = np.ascontiguousarray(plane[top:bottom, left:right])
+    u_crop = np.ascontiguousarray(U[top//2:bottom//2, left//2:right//2])
+    v_crop = np.ascontiguousarray(V[top//2:bottom//2, left//2:right//2])
+    crop_h, crop_w = y_crop.shape
+    packed = np.concatenate((y_crop.ravel(), u_crop.ravel(), v_crop.ravel())).reshape(crop_h * 3 // 2, crop_w)
+    bgr = cv2.cvtColor(packed, cv2.COLOR_YUV2BGR_I420)
+    map_x, map_y = cv2.convertMaps(compiled["map1"], compiled["map2"], cv2.CV_32FC1)
+    map_x += x0 - left
+    map_y += y0 - top
+    return cv2.remap(bgr, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
+
+
 def remap_roi(image, compiled):
     """Apply only the precompiled ROI mapping (supports Y-plane or BGR)."""
     x0, y0, x1, y1 = compiled["source_bbox"]

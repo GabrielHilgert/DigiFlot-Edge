@@ -6,7 +6,7 @@
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026b">
     <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261109a">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261109b"></script>
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261110c"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -27,23 +27,25 @@
         </header>
 
         <section class="workflow-card card">
-            <div class="workflow-step" data-step="camera">
-                <span>01</span>
+            <div class="workflow-step" data-step="cell"><span>01</span><strong>Cell</strong></div>
+<div class="workflow-line"></div>
+<div class="workflow-step" data-step="camera">
+                <span>02</span>
                 <strong>Cameras</strong>
             </div>
             <div class="workflow-line"></div>
             <div class="workflow-step" data-step="sensor">
-                <span>02</span>
+                <span>03</span>
                 <strong>Sensors</strong>
             </div>
             <div class="workflow-line"></div>
             <div class="workflow-step" data-step="ready">
-                <span>03</span>
+                <span>04</span>
                 <strong>Ready</strong>
             </div>
             <div class="workflow-line"></div>
             <div class="workflow-step" data-step="run">
-                <span>04</span>
+                <span>05</span>
                 <strong>Run</strong>
             </div>
         </section>
@@ -82,7 +84,18 @@
             <div id="warning_list"></div>
         </section>
 
-        <section id="camera_panel" class="card panel" hidden>
+        <section id="cell_panel" class="card panel" hidden>
+<div class="card-header"><div><span class="section-index">01</span><div><h2>Select physical cell</h2>
+<p>Choose the cell before camera and sensor calibration. The selected cell is propagated to the experiment and used for geometry and virtual sensors.</p>
+</div></div></div>
+<div class="card-body">
+<form id="select_physical_cell_form" class="cell-selection-form">
+<label>Physical cell<select id="select_physical_cell" required><option value="">Select a cell</option></select></label>
+<label>Virtual sensor source camera<select id="select_virtual_camera"><option value="">Auto-select camera</option><option value="none">No virtual sensor</option></select></label>
+<div class="button-group"><button class="button button-primary" type="submit">Confirm cell and continue</button>
+<a class="button button-secondary" href="/cells">Create or edit cell / ArUco layout</a></div>
+</form></div></section>
+<section id="camera_panel" class="card panel" hidden>
             <div class="card-header">
                 <div>
                     <span class="section-index">01</span>

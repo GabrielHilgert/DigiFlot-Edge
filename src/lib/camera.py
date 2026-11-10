@@ -207,7 +207,8 @@ class Camera:
 
         self.id = int(config["id"])
         self.picam2 = Picamera2(self.id)
-        self.analysis_enabled = False  # opt-in for the selected Vision camera
+        self.analysis_enabled = False
+        self.analysis_target_size = None  # opt-in for the selected Vision camera
 
         self.preview_encoder = None
         self.preview_output = None
@@ -1027,13 +1028,16 @@ class Camera:
             frame_rate=self.preview_frame_rate,
         )
 
+        analysis_preview = self.analysis_target_size or self.preview_size
+        main_preview = (max(int(self.preview_size[0]), int(analysis_preview[0])),
+                        max(int(self.preview_size[1]), int(analysis_preview[1])))
         return self.picam2.create_video_configuration(
             main={
-                "size": self.preview_size,
+                "size": main_preview,
                 "format": "YUV420",
             },
             lores={
-                "size": self.preview_size,
+                "size": analysis_preview,
                 "format": "YUV420",
             },
             controls={
@@ -1054,7 +1058,7 @@ class Camera:
         # One optional low-resolution stream accompanies the unchanged main recording.
         lores = None
         if self.analysis_enabled:
-            width = min(int(self.preview_size[0]), int(self.frame_size[0]))
+            width = min(int((self.analysis_target_size or self.preview_size)[0]), int(self.frame_size[0]))
             width = max(2, width - width % 2)
             height = max(2, int(round(width * self.frame_size[1] / self.frame_size[0] / 2)) * 2)
             height = min(height, int(self.frame_size[1]) // 2 * 2)
@@ -1556,7 +1560,7 @@ class Camera:
             "last_frame_age_s": last_age,
         }
 
-    def capture_analysis_frame(self, grayscale=False):
+    def capture_analysis_frame(self, grayscale=False, raw_yuv=False):
         """Copy only the Y plane when requested; never alter the main encoder."""
         from lib.vision.aruco import source_geometry
         with self.lock:
@@ -1569,7 +1573,9 @@ class Camera:
             request = self.picam2.capture_request()
             try:
                 plane = request.make_array("lores")
-                if grayscale:
+                if raw_yuv:
+                    image = plane.copy()
+                elif grayscale:
                     if plane.shape[0] < height or plane.shape[1] < width:
                         raise RuntimeError("Unexpected lores Y-plane geometry")
                     image = plane[:height, :width].copy()
@@ -1579,12 +1585,16 @@ class Camera:
                 metadata = request.get_metadata()
             finally:
                 request.release()
-            if image.shape[:2] != (height, width):
+            if not raw_yuv and image.shape[:2] != (height, width):
                 raise RuntimeError("Unexpected lores buffer geometry")
             crop = self._rectangle_to_tuple(metadata.get("ScalerCrop"))
             if crop is None:
                 crop = self.full_sensor_crop() if self.state == self.PREVIEW else (self.crop_region or self.full_sensor_crop())
-            return image, source_geometry([width, height], crop)
+            frame = source_geometry([width, height], crop)
+            frame["captured_timestamp_ns"] = time.time_ns()
+            frame["captured_monotonic_ns"] = time.monotonic_ns()
+            frame["sensor_timestamp_ns"] = metadata.get("SensorTimestamp")
+            return image, frame
 
     def close(self):
         with self.lock:

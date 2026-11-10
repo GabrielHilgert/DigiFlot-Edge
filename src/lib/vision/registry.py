@@ -184,6 +184,33 @@ class VisionRegistry:
             _write(folder / "analysis_roi.json", result)
             return result
 
+    def virtual_profile(self, camera_id, cell_id, sensor_id="froth_interface"):
+        from lib.virtual_sensors.interface import DEFAULTS, normalized_config
+        with self.lock:
+            camera_id, cell_id, sensor_id = _safe_id(camera_id), _safe_id(cell_id), _safe_id(sensor_id)
+            path = self.root / "virtual_sensors" / sensor_id / f"{camera_id}__{cell_id}.json"
+            saved = _read(path, {})
+            return {"sensor_id": sensor_id, "camera_id": camera_id, "cell_id": cell_id,
+                    "revision": int(saved.get("revision", 0)),
+                    "config": normalized_config(saved.get("config", DEFAULTS)),
+                    "updated_at": saved.get("updated_at"), "source": "saved" if saved else "default"}
+
+    def save_virtual_profile(self, camera_id, cell_id, config, sensor_id="froth_interface"):
+        from lib.virtual_sensors.interface import normalized_config
+        with self.lock:
+            camera_id, cell_id, sensor_id = _safe_id(camera_id), _safe_id(cell_id), _safe_id(sensor_id)
+            self.get_cell(cell_id)
+            if self.association(camera_id, cell_id) is None:
+                raise ValueError("A confirmed camera-cell calibration is required")
+            normalized = normalized_config(config)
+            previous = self.virtual_profile(camera_id, cell_id, sensor_id)
+            value = {"schema_version": 1, "sensor_id": sensor_id, "camera_id": camera_id,
+                     "cell_id": cell_id, "revision": previous["revision"] + 1,
+                     "updated_at": _timestamp(), "config": normalized}
+            path = self.root / "virtual_sensors" / sensor_id / f"{camera_id}__{cell_id}.json"
+            _write(path, value)
+            return {**value, "source": "saved"}
+
     def association(self, camera_id, cell_id):
         with self.lock:
             folder = self.root / "associations" / f"{_safe_id(camera_id)}__{_safe_id(cell_id)}"

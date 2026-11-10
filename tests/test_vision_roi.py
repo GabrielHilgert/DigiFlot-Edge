@@ -7,7 +7,7 @@ import numpy as np
 
 from lib.vision.aruco import DEFAULT_LAYOUT, calibrate, source_geometry
 from lib.vision.registry import VisionRegistry
-from lib.vision.roi import compile_roi_maps, full_plane_geometry, remap_roi
+from lib.vision.roi import compile_roi_maps, full_plane_geometry, remap_roi, remap_yuv420_roi
 from test_vision_aruco import synthetic_ruler
 
 
@@ -42,6 +42,16 @@ class PhysicalRoiTests(unittest.TestCase):
         self.assertLess((x1 - x0) * (y1 - y0), self.image.size)
         colored = cv2.cvtColor(self.image, cv2.COLOR_GRAY2BGR)
         self.assertEqual(remap_roi(colored, maps).shape[:2], patch.shape)
+
+    def test_yuv420_color_crop_matches_full_frame_conversion(self):
+        maps = compile_roi_maps(self.calibration, self.profile, self.geometry, [2, 2, 10, 10])
+        source_bgr = cv2.cvtColor(self.image, cv2.COLOR_GRAY2BGR)
+        yuv = cv2.cvtColor(source_bgr, cv2.COLOR_BGR2YUV_I420)
+        full_bgr = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
+        expected = remap_roi(full_bgr, maps)
+        actual = remap_yuv420_roi(yuv, maps, self.geometry["size"])
+        self.assertEqual(actual.shape, expected.shape)
+        self.assertLess(np.mean(np.abs(actual.astype(np.float32) - expected.astype(np.float32))), 2)
 
     def test_maps_reject_invalid_roi_and_excessive_allocation(self):
         for coords in ([3, 4, 3, 5], [2, 5, 4, 2], [np.nan, 0, 1, 1]):

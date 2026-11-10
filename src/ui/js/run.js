@@ -1,5 +1,7 @@
 const ui = {};
 let latestState = null;
+let physicalCells = [];
+let physicalCellChoicesSignature = "";
 let lastScrapingSequence = null;
 let audioContext = null;
 let scrapeFlashTimer = null;
@@ -17,6 +19,7 @@ let runStorageEstimateFor = null;
 function cacheUi() {
     [
         "experiment_name", "experiment_meta", "state_badge", "state_text",
+        "cell_panel", "select_physical_cell_form", "select_physical_cell", "select_virtual_camera",
         "camera_panel", "camera_list", "sensor_panel", "sensor_list",
         "ready_panel", "ready_stage", "start_first_stage", "run_panel",
         "stage_type", "stage_name", "camera_indicator", "sensor_indicator",
@@ -126,11 +129,12 @@ function formatTime(seconds) {
 }
 
 function setWorkflow(state) {
-    const order = ["camera", "sensor", "ready", "run"];
+    const order = ["cell", "camera", "sensor", "ready", "run"];
     let active = 0;
-    if (state === "SensorCalibration") active = 1;
-    else if (state === "Ready") active = 2;
-    else if (["Running", "Paused", "Completed", "Aborted", "Error", "RecoveryRequired"].includes(state)) active = 3;
+    if (state === "CameraCalibration") active = 1;
+    else if (state === "SensorCalibration") active = 2;
+    else if (state === "Ready") active = 3;
+    else if (["Running", "Paused", "Completed", "Aborted", "Error", "RecoveryRequired"].includes(state)) active = 4;
 
     ui.workflowSteps.forEach((element) => {
         const index = order.indexOf(element.dataset.step);
@@ -140,8 +144,33 @@ function setWorkflow(state) {
 }
 
 function hidePanels() {
-    [ui.camera_panel, ui.sensor_panel, ui.ready_panel, ui.run_panel, ui.completed_panel, ui.error_panel]
+    [ui.cell_panel, ui.camera_panel, ui.sensor_panel, ui.ready_panel, ui.run_panel, ui.completed_panel, ui.error_panel]
         .forEach((panel) => { panel.hidden = true; });
+}
+
+async function loadPhysicalCells() {
+    try {
+        const payload = await requestJson("/api/vision/cells");
+        physicalCells = Array.isArray(payload) ? payload : (payload.cells || []);
+        physicalCellChoicesSignature = "";
+        if (latestState?.state === "CellSelection") renderCellSelection(latestState);
+    } catch (error) { console.warn("Unable to load physical cells", error); }
+}
+
+function renderCellSelection(state) {
+    ui.cell_panel.hidden = false;
+    const cameras = state.cameras || [];
+    const signature = JSON.stringify([physicalCells, cameras.map(camera => [camera.id, camera.name])]);
+    if (signature === physicalCellChoicesSignature) return;
+    physicalCellChoicesSignature = signature;
+    const selectedId = state.cell_selection?.cell_id || state.execution_inputs?.cell_profile?.physical_cell_id || "";
+    const selectedCamera = state.cell_selection?.camera_id ?? state.execution_inputs?.cell_profile?.virtual_camera_id;
+    ui.select_physical_cell.innerHTML = '<option value="">Select a cell</option>' +
+        physicalCells.map(cell => `<option value="${escapeHtml(cell.id)}">${escapeHtml(cell.name)} (${escapeHtml(cell.id)})</option>`).join("");
+    ui.select_virtual_camera.innerHTML = '<option value="">Auto-select camera</option><option value="none">No virtual sensor</option>' +
+        cameras.map(cam => `<option value="${escapeHtml(cam.id)}">${escapeHtml(cam.name)} · Camera ${escapeHtml(cam.id)}</option>`).join("");
+    ui.select_physical_cell.value = selectedId;
+    ui.select_virtual_camera.value = selectedCamera == null ? "" : String(selectedCamera);
 }
 
 function renderCameraCalibration(state) {
@@ -177,7 +206,8 @@ function renderCameraCalibration(state) {
 function findSensorSnapshot(state, id) {
     const scale = (state.scales || []).find((item) => String(item.id) === String(id));
     if (scale) return scale;
-    return (state.atlas || []).find((item) => String(item.id) === String(id));
+    return (state.atlas || []).find((item) => String(item.id) === String(id)) ||
+        (state.virtual_sensors || []).find((item) => String(item.id) === String(id));
 }
 
 function renderSensorCalibration(state) {
@@ -316,6 +346,7 @@ function sensorSnapshots(state) {
     return [
         ...(state.scales || []),
         ...(state.atlas || []),
+        ...(state.virtual_sensors || []),
     ].filter((item) => item && item.id != null);
 }
 
@@ -867,7 +898,8 @@ function render(state) {
         : "No local execution selected.";
 
     hidePanels();
-    if (state.state === "CameraCalibration") renderCameraCalibration(state);
+    if (state.state === "CellSelection") renderCellSelection(state);
+    else if (state.state === "CameraCalibration") renderCameraCalibration(state);
     else if (state.state === "SensorCalibration") renderSensorCalibration(state);
     else if (state.state === "Ready") renderReady(state);
     else if (["Running", "Paused"].includes(state.state)) renderRun(state);
@@ -879,7 +911,7 @@ function render(state) {
         ui.error_message.textContent = "Select an experiment from the experiment list.";
     }
 
-    ui.abort_bar.hidden = !["CameraCalibration", "SensorCalibration", "Ready", "Running", "Paused", "RecoveryRequired"].includes(state.state);
+    ui.abort_bar.hidden = !["CellSelection", "CameraCalibration", "SensorCalibration", "Ready", "Running", "Paused", "RecoveryRequired"].includes(state.state);
     renderLiveSensors(state);
     renderMeasurements(state);
     handleScrapingSignal(state);
@@ -937,6 +969,18 @@ async function action(url, body = null) {
 }
 
 function bindActions() {
+    ui.select_physical_cell_form.addEventListener("submit", async event => {
+        event.preventDefault();
+        const cellId = ui.select_physical_cell.value;
+        if (!cellId) { showToast("Select a physical cell."); return; }
+        const button = ui.select_physical_cell_form.querySelector('[type="submit"]');
+        button.disabled = true;
+        try {
+            const cameraId = ui.select_virtual_camera.value;
+            await action("/api/digiflot/calibration/cell/select",
+                {cell_id:cellId, camera_id:cameraId === "none" ? "none" : (cameraId ? Number(cameraId) : null)});
+        } catch (_) { button.disabled = false; }
+    });
     document.addEventListener("click", async (event) => {
         const cameraButton = event.target.closest("[data-edit-camera]");
         if (cameraButton) {
@@ -1188,7 +1232,7 @@ async function initialise() {
     bindActions();
     try {
         render(await requestJson("/api/digiflot/state"));
-        await loadMeasurements();
+        await Promise.all([loadPhysicalCells(), loadMeasurements()]);
     } catch (error) {
         showToast(error.message);
     }

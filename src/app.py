@@ -36,6 +36,12 @@ async def lifespan(app: FastAPI):
     )
     digiflot.start()
     app.state.vision = VisionService(digiflot, LOCAL_STORAGE_DIR)
+    digiflot.vision = app.state.vision
+    if digiflot.state == digiflot.RECOVERY_REQUIRED and digiflot.run_directory is not None:
+        try:
+            app.state.vision.restore_run_config(digiflot.run_directory)
+        except Exception as error:
+            print(f"[Vision] Could not restore frozen virtual sensor: {error}")
     app.state.vision.start()
 
     app.state.digiflot = digiflot

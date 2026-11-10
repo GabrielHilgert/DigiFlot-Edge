@@ -331,6 +331,8 @@ def _scale_configs(config: dict):
 
 
 def _series_unit_for_sensor(config: dict, sensor_name: str):
+    if sensor_name in {"froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm"}:
+        return "cm"
     atlas = _atlas_config(config)
     for sensor in atlas.get("sensors") or []:
         if str(sensor.get("name", "")).strip() == str(sensor_name).strip():

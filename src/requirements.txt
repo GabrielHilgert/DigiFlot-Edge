@@ -13,6 +13,8 @@ pydantic
 # Numerical processing
 numpy
 scipy
+pandas
+scikit-image
 
 # Image processing
 opencv-python-headless
