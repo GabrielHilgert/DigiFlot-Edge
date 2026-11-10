@@ -160,3 +160,6 @@ a { color: inherit; text-decoration: none; }
     .cell-vision-page .cv-image-surface { min-height: 230px; }
     .cell-vision-page .cv-tools { padding: 15px; }
 }
+
+.cv-reference-action { display:flex; flex-direction:column; align-items:flex-start; justify-content:end; gap:7px; padding-top:10px; }
+.cv-reference-action .cv-mono { font-size:.75rem; color:var(--text-muted,var(--text-soft)); }
