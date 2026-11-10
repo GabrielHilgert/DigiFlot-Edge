@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -24,11 +25,51 @@ def _utc():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
-def _jpeg_base64(image):
-    ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85])
+def _jpeg_base64(image, quality=85):
+    ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, int(quality)])
     if not ok:
         raise RuntimeError("Could not encode camera image")
     return base64.b64encode(buf).decode("ascii")
+
+
+def build_interface_diagnostic(image, reading, roi_cm, timestamp_ns):
+    """Encode a single already-detected ROI, without calling the detector again."""
+    source = reading.get("_diagnostics") or {}
+    entropy = source.get("entropy_map")
+    if entropy is None:
+        return None
+    entropy = np.asarray(entropy, np.float32)
+    if entropy.shape != image.shape[:2]:
+        raise ValueError("Entropy diagnostics must align with the rectified input image")
+    if not np.isfinite(entropy).all():
+        entropy = np.nan_to_num(entropy, nan=0., posinf=0., neginf=0.)
+    lo, hi = float(entropy.min()), float(entropy.max())
+    entropy_u8 = np.clip((entropy-lo)*255./(hi-lo),0,255).astype(np.uint8) if hi>lo else np.zeros_like(entropy,dtype=np.uint8)
+    profiles = {}
+    for key, values in (source.get("profiles") or {}).items():
+        if values is None:
+            continue
+        series = np.asarray(values, dtype=np.float32).reshape(-1)
+        if series.size != image.shape[0]:
+            continue
+        finite = np.isfinite(series)
+        if not finite.any():
+            continue
+        mi, ma = float(np.min(series[finite])), float(np.max(series[finite]))
+        normal = np.clip((np.nan_to_num(series, nan=mi, posinf=ma, neginf=mi)-mi) /
+                         (ma-mi), 0., 1.) if ma>mi else np.zeros(series.size, dtype=np.float32)
+        profiles[key] = {"values": np.round(normal, 4).tolist(), "min": mi, "max": ma}
+    original = cv2.cvtColor(image,cv2.COLOR_GRAY2BGR) if image.ndim == 2 else image
+    return {"image_jpeg_base64": _jpeg_base64(original, 72),
+            "entropy_jpeg_base64": _jpeg_base64(entropy_u8, 72),
+            "image_size": [int(image.shape[1]), int(image.shape[0])],
+            "roi_cm": list(roi_cm), "method": source.get("method", reading.get("method")),
+            "x_range_used": source.get("x_range_used", [0, image.shape[1]]),
+            "profiles": profiles, "froth_row_px": reading.get("froth_surface_row_px"),
+            "pulp_row_px": reading.get("pulp_froth_row_px"),
+            "froth_surface_cm": reading.get("froth_surface_cm"),
+            "pulp_froth_interface_cm": reading.get("pulp_froth_interface_cm"),
+            "valid": bool(reading.get("valid")), "timestamp_ns": int(timestamp_ns or 0)}
 
 
 class VisionService:
@@ -48,6 +89,16 @@ class VisionService:
         self._last_virtual_measurement = None
         self._virtual_sample_count = 0
         self._benchmarking = False
+        self._benchmark_series = []
+        self._benchmark_diagnostic = None
+        self._diagnostic_until = 0.0
+        self._diagnostic_next_due = 0.0
+        self._diagnostic_preview_camera_id = None
+        self._diagnostic_revision = 0
+        self._diagnostic_latest = None
+        self._diagnostic_error = None
+        self._diagnostic_future = None
+        self._diagnostic_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vision-diagnostic")
         self._sync_camera_flags()
 
     def _sync_camera_flags(self):
@@ -66,6 +117,7 @@ class VisionService:
         if self._thread is not None:
             self._thread.join(timeout=3)
             self._thread = None
+        self._diagnostic_executor.shutdown(wait=False, cancel_futures=True)
 
     def _compiled_roi(self, camera, cell_id, association, frame, config=None):
         roi = association["analysis_roi_cm"]
@@ -106,7 +158,9 @@ class VisionService:
             if state not in (self.digiflot.SENSOR_CALIBRATION, self.digiflot.READY):
                 return None
             item = self.digiflot.sensor_calibration.get("froth_interface") or {}
-            if item.get("status") != "passed" or not self.virtual_test_passed():
+            approved = item.get("status") == "passed" and self.virtual_test_passed()
+            diagnosing = state == self.digiflot.SENSOR_CALIBRATION and time.monotonic() < self._diagnostic_until
+            if not (approved or diagnosing):
                 return None
             camera, cell_id, association, profile = self._virtual_context()
             return {"camera": camera, "cell_id": cell_id, "association": association,
@@ -123,6 +177,8 @@ class VisionService:
             if context is None:
                 return False
             camera = context["camera"]
+            if self._benchmarking:
+                return False
             if camera.state in (camera.PREVIEW, camera.RECORDING):
                 return True
             if camera.state != camera.IDLE or self._benchmarking:
@@ -135,6 +191,8 @@ class VisionService:
             camera.analysis_target_size = self._desired_lores_size(camera, context["association"], context["config"])
             camera.start_preview()
             self.digiflot.preview_camera_id = camera.id
+            if self.digiflot.state == self.digiflot.SENSOR_CALIBRATION and not self.virtual_test_passed():
+                self._diagnostic_preview_camera_id = camera.id
             return True
 
     def _loop(self):
@@ -150,6 +208,11 @@ class VisionService:
             except Exception as error:
                 self._latest = {"state": "error", "error": str(error), "updated_at": _utc()}
                 context, settings, interval = None, None, 1.0
+            if context is None and self._diagnostic_preview_camera_id is not None:
+                with self.digiflot.lock:
+                    if self.digiflot.preview_camera_id == self._diagnostic_preview_camera_id:
+                        self.digiflot.stop_preview()
+                    self._diagnostic_preview_camera_id = None
             if self._stop.wait(max(0, next_due - time.monotonic())):
                 break
             next_due = max(next_due + interval, time.monotonic())
@@ -190,12 +253,23 @@ class VisionService:
                                    "roi_coverage": compiled["coverage"], "markers_detected": None})
                     if config:
                         density = compiled["size"][0] / (roi[2] - roi[0])
+                        want_diag = bool(time.monotonic() < self._diagnostic_until and
+                            time.monotonic() >= self._diagnostic_next_due and
+                            (self._diagnostic_future is None or self._diagnostic_future.done()))
                         try:
-                            reading = detect_interface(transformed, config, roi, density)
+                            reading = detect_interface(transformed, config, roi, density, diagnostics=want_diag)
                         except Exception as error:
                             reading = {"valid": False, "error": str(error),
                                        "froth_surface_cm": None, "pulp_froth_interface_cm": None,
                                        "froth_thickness_cm": None}
+                        diagnostic = reading.pop("_diagnostics", None)
+                        if diagnostic and want_diag:
+                            self._diagnostic_next_due = time.monotonic() + 5.0
+                            diagnostic_reading = {**reading, "_diagnostics": diagnostic}
+                            self._diagnostic_future = self._diagnostic_executor.submit(
+                                build_interface_diagnostic, transformed, diagnostic_reading,
+                                list(roi), frame["captured_timestamp_ns"])
+                            self._diagnostic_future.add_done_callback(self._store_diagnostic)
                         reading.update({"timestamp_ns": frame["captured_timestamp_ns"],
                                         "sensor_timestamp_ns": frame.get("sensor_timestamp_ns"),
                                         "camera_id": camera.id, "cell_id": cell_id,
@@ -224,6 +298,36 @@ class VisionService:
             except Exception as error:
                 self._latest = {"state": "error", "error": str(error), "updated_at": _utc()}
 
+    def _store_diagnostic(self, future):
+        try:
+            result = future.result()
+            if result is not None:
+                with self._lock:
+                    self._diagnostic_revision += 1
+                    self._diagnostic_latest = {**result, "revision": self._diagnostic_revision}
+                    self._diagnostic_error = None
+        except Exception as error:
+            # Optional UI rendering must never mark the real sensor as failed.
+            with self._lock:
+                self._diagnostic_error = str(error)
+
+    def diagnostic_preview(self, enabled=True, last_revision=0):
+        """Renew a short-lived calibration UI lease; snapshots come from the existing worker."""
+        if enabled and self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
+            raise RuntimeError("Diagnostic preview is only available while calibrating sensors")
+        if enabled:
+            self._virtual_context()  # Reject an uncalibrated camera-cell association.
+        with self._lock:
+            self._diagnostic_until = time.monotonic() + 12.0 if enabled else 0.0
+            if not enabled:
+                return {"enabled": False, "revision": self._diagnostic_revision}
+            snapshot = self._diagnostic_latest
+            if snapshot is not None and int(last_revision or 0) != self._diagnostic_revision:
+                return {"enabled": True, "interval_s": 5, "diagnostic": deepcopy(snapshot),
+                        "revision": self._diagnostic_revision, "error": self._diagnostic_error}
+            return {"enabled": True, "interval_s": 5, "revision": self._diagnostic_revision,
+                    "error": self._diagnostic_error}
+
     def _virtual_context(self):
         camera_id = self.digiflot.virtual_camera_id
         cell_id = (self.digiflot.cell_profile or {}).get("physical_cell_id")
@@ -244,7 +348,8 @@ class VisionService:
         return {**profile, "geometry": {"calibration_id": assoc["calibration_id"],
                                         "analysis_roi_cm": assoc["analysis_roi_cm"],
                                         "analysis_roi_revision": assoc["analysis_roi_revision"]},
-                "camera_name": camera.name, "test": self.virtual_test_result()}
+                "camera_name": camera.name, "test": self.virtual_test_result(include_series=True),
+                "test_diagnostic": deepcopy(self._benchmark_diagnostic) if self.virtual_test_passed() else None}
 
     def save_virtual_profile(self, values):
         if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
@@ -266,6 +371,12 @@ class VisionService:
 
     def clear_virtual_test(self):
         self._virtual_test = None
+        self._benchmark_series = []
+        self._benchmark_diagnostic = None
+        with self._lock:
+            self._diagnostic_latest = None
+            self._diagnostic_error = None
+            self._diagnostic_next_due = 0.
 
     def _virtual_signature(self):
         camera, cell_id, assoc, profile = self._virtual_context()
@@ -285,11 +396,13 @@ class VisionService:
         except (ValueError, KeyError, RuntimeError):
             return False
 
-    def virtual_test_result(self):
+    def virtual_test_result(self, include_series=False):
         result = deepcopy(self._virtual_test) if self._virtual_test else None
         if result is not None:
             result.pop("signature", None)
             result["current"] = self.virtual_test_passed()
+            if include_series and result["current"]:
+                result["series"] = deepcopy(self._benchmark_series)
         return result
 
     def virtual_sensor_snapshot(self):
@@ -354,18 +467,25 @@ class VisionService:
             raise RuntimeError("Stop recording before testing this sensor")
         planned_size = self._desired_lores_size(camera, association, config)
         camera.analysis_target_size = planned_size
-        if self.digiflot.preview_camera_id is not None:
-            self.digiflot.stop_preview()
-        if camera.state != camera.IDLE:
-            raise RuntimeError("Source camera must be idle for a representative recording benchmark")
+        # Reserve the camera before stopping preview to avoid the live worker
+        # racing to restart Picamera2 while the main encoder is being prepared.
+        self._benchmarking = True
+        try:
+            if self.digiflot.preview_camera_id is not None:
+                self.digiflot.stop_preview()
+            if camera.state != camera.IDLE:
+                raise RuntimeError("Source camera must be idle for a representative recording benchmark")
+        except Exception:
+            self._benchmarking = False
+            raise
         self._map_key, self._roi_map = None, None
         interval = float(config["sampling_interval_s"])
-        errors, timings, valid_count, sensor_times = [], [], 0, []
-        last_reading, last_preview = None, None
+        self._benchmark_series, self._benchmark_diagnostic = [], None
+        errors, timings, valid_count, sensor_times, test_series = [], [], 0, [], []
+        last_reading, last_preview, last_diag, last_stamp = None, None, None, None
         count = max(12, min(60, int(samples)))
         warmup = 3
         original_enabled = camera.analysis_enabled
-        self._benchmarking = True
         camera.analysis_enabled = True
         recording_metrics = {}
         try:
@@ -381,23 +501,41 @@ class VisionService:
                             time.sleep(delay)
                         next_sample += interval
                         begin = time.perf_counter()
+                        sample = None
                         try:
                             color = config["method"] in COLOR_METHODS
                             raw, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
                             maps = self._compiled_roi(camera, cell_id, association, frame, config)
                             patch = (remap_yuv420_roi(raw, maps, frame["size"]) if color else remap_roi(raw, maps))
                             density = maps["size"][0] / (association["analysis_roi_cm"][2] - association["analysis_roi_cm"][0])
-                            reading = detect_interface(patch, config, association["analysis_roi_cm"], density)
+                            is_final = index == count + warmup - 1
+                            reading = detect_interface(patch, config, association["analysis_roi_cm"], density,
+                                                       diagnostics=is_final)
+                            diagnostic = reading.pop("_diagnostics", None)
                             if index >= warmup:
                                 valid_count += int(reading["valid"])
-                                last_reading, last_preview = reading, patch
+                                last_reading, last_preview = dict(reading), patch
+                                last_stamp = frame["captured_timestamp_ns"]
+                                if diagnostic is not None:
+                                    last_diag = diagnostic
+                                sample = {"time_s": round((index-warmup)*interval, 3),
+                                          "valid": bool(reading["valid"]),
+                                          "froth_surface_cm": reading.get("froth_surface_cm"),
+                                          "pulp_froth_interface_cm": reading.get("pulp_froth_interface_cm"),
+                                          "froth_thickness_cm": reading.get("froth_thickness_cm")}
                                 if frame.get("sensor_timestamp_ns") is not None:
                                     sensor_times.append(int(frame["sensor_timestamp_ns"]))
                         except Exception as error:
                             if index >= warmup:
                                 errors.append(str(error))
+                                sample = {"time_s": round((index-warmup)*interval, 3),
+                                          "valid": False, "error": str(error),
+                                          "froth_surface_cm": None, "pulp_froth_interface_cm": None,
+                                          "froth_thickness_cm": None}
                         if index >= warmup:
-                            timings.append((time.perf_counter() - begin) * 1000)
+                            elapsed_ms = (time.perf_counter()-begin)*1000
+                            timings.append(elapsed_ms)
+                            test_series.append({**sample, "latency_ms": round(elapsed_ms, 2)})
                     recording_metrics = camera.recording_metrics()
                 finally:
                     camera.stop_recording()
@@ -432,7 +570,16 @@ class VisionService:
             "mode": "paced_main_encoder_and_lores",
         }
         result["signature"] = self._virtual_signature()
-        self._virtual_test = result
+        self._benchmark_series = test_series
+        result["series"] = deepcopy(test_series)
+        if last_diag is not None and last_preview is not None and last_reading is not None:
+            try:
+                self._benchmark_diagnostic = build_interface_diagnostic(
+                    last_preview, {**last_reading, "_diagnostics": last_diag},
+                    association["analysis_roi_cm"], last_stamp)
+                result["diagnostic"] = self._benchmark_diagnostic
+            except Exception as error:
+                result["diagnostic_error"] = str(error)
         if last_preview is not None and last_reading:
             preview = (cv2.cvtColor(last_preview, cv2.COLOR_GRAY2BGR) if last_preview.ndim == 2
                        else last_preview.copy())
@@ -444,7 +591,8 @@ class VisionService:
             result["preview_jpeg_base64"] = _jpeg_base64(preview)
             result["last_reading"] = last_reading
         # Keep huge preview out of in-memory calibration state / runtime snapshots.
-        self._virtual_test = {k:v for k,v in result.items() if k not in {"preview_jpeg_base64","last_reading"}}
+        self._virtual_test = {k:v for k,v in result.items()
+                              if k not in {"preview_jpeg_base64","last_reading","series","diagnostic"}}
         return result
 
     def freeze_run_config(self, directory):

@@ -165,6 +165,193 @@ function renderVirtualFields() {
         <div class="virtual-field-grid">${keys.map(virtualField).join("")}</div></details>`).join("");
 }
 
+
+let virtualDiagnostic = null, virtualTestSeries = [];
+let virtualDiagnosticsActive = false, virtualDiagnosticsTimer = null, virtualDiagBusy = false, virtualDiagRevision = 0;
+
+function virtualCanvas(canvas, width, height) {
+    canvas.width = Math.max(1, Math.round(width)); canvas.height = Math.max(1, Math.round(height));
+    return canvas.getContext("2d");
+}
+
+function drawVirtualOverlays() {
+    if (!virtualDiagnostic) return;
+    const d = virtualDiagnostic, width = d.image_size[0], height = d.image_size[1];
+    for (const [name,dark] of [["virtual_image_overlay",false],["virtual_entropy_overlay",true]]) {
+        const ctx = virtualCanvas(document.getElementById(name),width,height);
+        if (document.getElementById("virtual_show_grid").checked && d.roi_cm?.length === 4) {
+            const [x0,y0,x1,y1] = d.roi_cm;
+            const spacing = Math.max(1, Math.ceil(Math.max(x1-x0,y1-y0)/14));
+            ctx.strokeStyle = dark ? "rgba(255,255,255,.38)" : "rgba(255,255,255,.32)";
+            ctx.lineWidth = 0.8;
+            for (let x=Math.ceil(x0/spacing)*spacing;x<=x1;x+=spacing) {
+                const px=(x-x0)/(x1-x0)*width;ctx.beginPath();ctx.moveTo(px,0);ctx.lineTo(px,height);ctx.stroke();
+            }
+            for (let y=Math.ceil(y0/spacing)*spacing;y<=y1;y+=spacing) {
+                const py=(y-y0)/(y1-y0)*height;ctx.beginPath();ctx.moveTo(0,py);ctx.lineTo(width,py);ctx.stroke();
+            }
+        }
+        const rows = [["froth_row_px","#38bdf8"],["pulp_row_px","#fbbf24"]];
+        for (const [key,color] of rows) {
+            if (d[key] == null || !Number.isFinite(Number(d[key]))) continue;
+            ctx.beginPath();ctx.moveTo(0,Number(d[key]));ctx.lineTo(width,Number(d[key]));
+            ctx.strokeStyle=color;ctx.lineWidth=2;ctx.stroke();
+        }
+    }
+    drawVirtualProfiles();
+}
+
+function diagnosticProfileKeys(d) {
+    const names = Object.keys(d.profiles || {});
+    const priority = d.method === "dual_entropy_hybrid" ? ["upper_vote","lower_score","entropy","foamness"] :
+        d.method === "dual_entropy_striped" ? ["upper_vote","lower_vote"] :
+        d.method === "dual_entropy" ? ["entropy","foamness","lower_score"] :
+        d.method === "mean_derivative" ? ["row_entropy","row_derivative"] :
+        d.method === "cumulative_distribution" ? ["row_entropy","cumulative_entropy"] : ["row_entropy"];
+    return priority.filter(key=>names.includes(key)).concat(names.filter(key=>!priority.includes(key))).slice(0,4);
+}
+
+function drawVirtualProfiles() {
+    const d = virtualDiagnostic; if (!d) return;
+    const width=360, height=d.image_size[1], canvas=document.getElementById("virtual_profile_canvas");
+    const ctx=virtualCanvas(canvas,width,height), names=diagnosticProfileKeys(d);
+    ctx.clearRect(0,0,width,height);
+    const css=getComputedStyle(document.documentElement);
+    ctx.strokeStyle=css.getPropertyValue("--chart-grid").trim()||"#9ca3af";
+    ctx.lineWidth=.8;ctx.globalAlpha=.65;
+    for(let i=0;i<=6;i++){const y=i*height/6;ctx.beginPath();ctx.moveTo(4,y);ctx.lineTo(width-5,y);ctx.stroke();}
+    ctx.globalAlpha=1;
+    const colors=["#f87171","#4ade80","#a78bfa","#fbbf24"];
+    const barStart=313, barWidth=14, plotStart=10, plotWidth=290;
+    for(let k=0;k<Math.min(2,names.length);k++){
+        const values=d.profiles[names[k]]?.values||[];
+        for(let j=0;j<values.length;j++){
+            const shade=Math.max(0,Math.min(255,Math.round(values[j]*255)));
+            const y=j/Math.max(1,values.length)*height;
+            ctx.fillStyle="rgb("+shade+","+shade+","+shade+")";
+            ctx.fillRect(barStart+k*(barWidth+5),y,barWidth,Math.max(1.2,height/Math.max(1,values.length)+.5));
+        }
+    }
+    names.forEach((name,index)=>{
+        const values=d.profiles[name]?.values||[]; if(!values.length)return;
+        ctx.beginPath();
+        values.forEach((value,i)=>{
+            const x=plotStart+Number(value)*plotWidth, y=i/Math.max(1,values.length-1)*height;
+            if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+        });
+        ctx.strokeStyle=colors[index%colors.length];ctx.lineWidth=1.8;ctx.stroke();
+    });
+    for(const [key,color] of [["froth_row_px","#38bdf8"],["pulp_row_px","#fbbf24"]]){
+        if(d[key]==null)continue;
+        ctx.beginPath();ctx.moveTo(0,d[key]);ctx.lineTo(width,d[key]);
+        ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.stroke();ctx.setLineDash([]);
+    }
+    document.getElementById("virtual_profile_legend").innerHTML=names.map((name,i)=>
+        '<span><i style="--signal-color:'+colors[i%colors.length]+'"></i>'+escapeHtml(name.replaceAll("_"," "))+'</span>').join("");
+}
+
+function renderVirtualDiagnostic(diagnostic, label) {
+    if (!diagnostic || !diagnostic.image_jpeg_base64 || !diagnostic.entropy_jpeg_base64) return;
+    virtualDiagnostic=diagnostic;
+    document.getElementById("virtual_diagnostic_grid").hidden=false;
+    const w=diagnostic.image_size[0],h=diagnostic.image_size[1];
+    document.querySelectorAll(".virtual-diagnostic-stage").forEach(node=>node.style.setProperty("--diagnostic-aspect",w+" / "+h));
+    const original=document.getElementById("virtual_image"), entropy=document.getElementById("virtual_entropy_image");
+    original.src="data:image/jpeg;base64,"+diagnostic.image_jpeg_base64;
+    entropy.src="data:image/jpeg;base64,"+diagnostic.entropy_jpeg_base64;
+    const positions=document.getElementById("virtual_diagnostic_positions");
+    const value=n=>n==null?"—":Number(n).toFixed(2)+" cm";
+    positions.hidden=false;
+    positions.innerHTML="<span>Froth surface <strong>"+value(diagnostic.froth_surface_cm)+"</strong></span>"+
+        "<span>Pulp–froth <strong>"+value(diagnostic.pulp_froth_interface_cm)+"</strong></span>";
+    const time=diagnostic.timestamp_ns ? new Date(diagnostic.timestamp_ns/1e6).toLocaleTimeString() : "—";
+    document.getElementById("virtual_diagnostics_status").textContent=label+" · "+time+" · "+diagnostic.method.replaceAll("_"," ");
+    window.requestAnimationFrame(drawVirtualOverlays);
+}
+
+function renderVirtualTestTimeline(series=[]) {
+    virtualTestSeries=Array.isArray(series)?series:[];
+    const section=document.getElementById("virtual_test_history");
+    section.hidden=!virtualTestSeries.length;
+    document.getElementById("virtual_test_history_count").textContent=virtualTestSeries.length+
+        " samples · "+virtualTestSeries.filter(x=>x.valid).length+" valid";
+    if(!section.hidden)window.requestAnimationFrame(drawVirtualTestTimeline);
+}
+
+function drawVirtualTestTimeline() {
+    if(!virtualTestSeries.length)return;
+    const canvas=document.getElementById("virtual_test_chart"), rect=canvas.getBoundingClientRect();
+    const dpr=Math.min(2,window.devicePixelRatio||1), w=Math.max(320,Math.round(rect.width*dpr)), h=Math.round(220*dpr);
+    const ctx=virtualCanvas(canvas,w,h);
+    ctx.scale(dpr,dpr);
+    const width=w/dpr,height=h/dpr,left=52,right=20,top=18,bottom=36;
+    const plotW=width-left-right,plotH=height-top-bottom,series=virtualTestSeries;
+    const keys=[["froth_surface_cm","#0ea5e9"],["pulp_froth_interface_cm","#f59e0b"]];
+    const points=series.flatMap(item=>keys.map(([key])=>item.valid?item[key]:null))
+        .filter(value=>value!=null&&Number.isFinite(Number(value))).map(Number);
+    if(!points.length){ctx.fillText("No valid boundaries in this test",left,top+40);return;}
+    const lo=Math.min(...points),hi=Math.max(...points),pad=Math.max((hi-lo)*.1,.1),ymin=lo-pad,ymax=hi+pad;
+    const tmax=Math.max(1,...series.map(item=>Number(item.time_s)||0));
+    const xOf=t=>left+(Number(t)||0)/tmax*plotW;
+    const yOf=v=>top+(ymax-Number(v))/(ymax-ymin)*plotH;
+    const css=getComputedStyle(document.documentElement);
+    ctx.font="11px system-ui";ctx.fillStyle=css.getPropertyValue("--text-soft").trim()||"#64748b";
+    ctx.strokeStyle=css.getPropertyValue("--chart-grid").trim()||"#cbd5e1";ctx.lineWidth=1;
+    for(let i=0;i<=4;i++){
+        const y=top+i*plotH/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(width-right,y);ctx.stroke();
+        ctx.fillText((ymax-i*(ymax-ymin)/4).toFixed(1),3,y+4);
+    }
+    for(let i=0;i<=4;i++){const t=i*tmax/4;ctx.fillText(t.toFixed(tmax<10?1:0)+" s",xOf(t)-12,height-10);}
+    keys.forEach(([key,color])=>{
+        ctx.beginPath();let ongoing=false;
+        series.forEach(item=>{
+            const value=item.valid?item[key]:null;
+            if(value==null||!Number.isFinite(Number(value))){ongoing=false;return;}
+            const x=xOf(item.time_s),y=yOf(value);
+            if(!ongoing){ctx.moveTo(x,y);ongoing=true;}else ctx.lineTo(x,y);
+        });
+        ctx.strokeStyle=color;ctx.lineWidth=2.2;ctx.stroke();
+        for(const item of series){const value=item.valid?item[key]:null;
+            if(value==null)continue;ctx.beginPath();ctx.arc(xOf(item.time_s),yOf(value),2.2,0,Math.PI*2);ctx.fillStyle=color;ctx.fill();}
+    });
+}
+
+async function pollVirtualDiagnostics() {
+    if(!virtualDiagnosticsActive||virtualDiagBusy||document.hidden||document.getElementById("virtual_panel").hidden)return;
+    virtualDiagBusy=true;
+    try {
+        const payload=await requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({enabled:true,last_revision:virtualDiagRevision})
+        });
+        if(!virtualDiagnosticsActive)return;
+        if(payload.diagnostic){virtualDiagRevision=payload.revision;renderVirtualDiagnostic(payload.diagnostic,"Live preview");}
+        if(payload.error)document.getElementById("virtual_diagnostics_status").textContent=
+            "Diagnostic rendering error: "+payload.error+" (sensor acquisition continues).";
+        else if(!virtualDiagnostic)document.getElementById("virtual_diagnostics_status").textContent=
+            "Waiting for the next lores diagnostic frame. Measurements continue independently.";
+    } catch(error){
+        document.getElementById("virtual_diagnostics_status").textContent="Live preview: "+error.message;
+    } finally {virtualDiagBusy=false;}
+}
+
+async function startVirtualDiagnostics() {
+    if(virtualDiagnosticsActive)return;
+    virtualDiagnosticsActive=true;virtualDiagRevision=0;
+    document.getElementById("virtual_diagnostics_toggle").textContent="Stop live diagnostics";
+    await pollVirtualDiagnostics();
+    virtualDiagnosticsTimer=window.setInterval(pollVirtualDiagnostics,2500);
+}
+
+function stopVirtualDiagnostics() {
+    virtualDiagnosticsActive=false;
+    if(virtualDiagnosticsTimer){window.clearInterval(virtualDiagnosticsTimer);virtualDiagnosticsTimer=null;}
+    document.getElementById("virtual_diagnostics_toggle").textContent="Start live diagnostics";
+    requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
+        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false})
+    }).catch(()=>{});
+}
+
 function virtualBenchmarkMarkup(result) {
     const target = document.getElementById("virtual_benchmark");
     target.dataset.passed = String(Boolean(result?.passed && result?.current !== false));
@@ -208,8 +395,13 @@ async function openVirtualCalibration() {
         missing.hidden = true; editor.hidden = false;
         renderVirtualFields();
         virtualBenchmarkMarkup(virtualProfileData.test);
+        renderVirtualTestTimeline(virtualProfileData.test?.series || []);
+        if(virtualProfileData.test_diagnostic)
+            renderVirtualDiagnostic(virtualProfileData.test_diagnostic,"Last calibration test");
+        startVirtualDiagnostics().catch(error=>showToast(error.message));
     } catch (error) {
         missing.hidden = false; editor.hidden = true;
+        stopVirtualDiagnostics();
         missing.querySelector("p").textContent = error.message;
     }
 }
@@ -220,20 +412,27 @@ async function virtualSaveConfiguration() {
         method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(config)
     });
     virtualBenchmarkMarkup(null);
+    renderVirtualTestTimeline([]);
+    virtualDiagnostic=null;
+    document.getElementById("virtual_diagnostic_grid").hidden=true;
+    document.getElementById("virtual_diagnostic_positions").hidden=true;
+    document.getElementById("virtual_diagnostics_status").textContent=
+        "Settings updated. Waiting for a diagnostic frame with the new parameters.";
 }
 
 async function virtualRunTest() {
     const button = document.getElementById("virtual_test");
-    button.disabled = true; button.textContent = "Testing acquisition and detection…";
+    button.disabled = true; button.textContent = "Running calibration test…";
     try {
         await virtualSaveConfiguration();
         const result = await requestJson("/api/vision/virtual-sensors/froth-interface/benchmark", {
             method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({samples:20})
         });
         virtualBenchmarkMarkup({...result, current:true});
-        const preview = document.getElementById("virtual_image");
-        preview.hidden = !result.preview_jpeg_base64;
-        if (result.preview_jpeg_base64) preview.src = `data:image/jpeg;base64,${result.preview_jpeg_base64}`;
+        renderVirtualTestTimeline(result.series || []);
+        if(result.diagnostic)renderVirtualDiagnostic(result.diagnostic,"Calibration test");
+        else document.getElementById("virtual_diagnostics_status").textContent=
+            result.diagnostic_error || "The test ran, but no diagnostic entropy map was produced.";
         state.digiflot = await requestJson("/api/digiflot/state");
         updateCalibrationProgress();
         showToast(result.passed ? "Live test passed. Inspect the preview before confirming." :
@@ -242,7 +441,7 @@ async function virtualRunTest() {
         virtualBenchmarkMarkup(null);
         showToast(error.message);
     } finally {
-        button.disabled = false; button.textContent = "Save & test detection + timing";
+        button.disabled = false; button.textContent = "Run calibration test";
     }
 }
 
@@ -854,7 +1053,16 @@ async function loadSensors() {
 }
 
 document.getElementById("virtual_close").addEventListener("click", () => {
+    stopVirtualDiagnostics();
     document.getElementById("virtual_panel").hidden = true;
+});
+document.getElementById("virtual_diagnostics_toggle").addEventListener("click", () => {
+    if(virtualDiagnosticsActive)stopVirtualDiagnostics();
+    else startVirtualDiagnostics().catch(error=>showToast(error.message));
+});
+document.getElementById("virtual_show_grid").addEventListener("change", drawVirtualOverlays);
+window.addEventListener("resize", () => {
+    if(virtualTestSeries.length)window.requestAnimationFrame(drawVirtualTestTimeline);
 });
 document.getElementById("virtual_save").addEventListener("click", async () => {
     try { await virtualSaveConfiguration(); showToast("Profile saved. A new live test is required."); }
@@ -867,6 +1075,7 @@ document.getElementById("virtual_confirm").addEventListener("click", async () =>
         updateCalibrationProgress();
         renderCards();
         showToast("Virtual sensor calibration confirmed.");
+        stopVirtualDiagnostics();
         document.getElementById("virtual_panel").hidden = true;
     } catch (error) { showToast(error.message); }
 });
@@ -895,6 +1104,7 @@ el.finishCalibration.addEventListener("click", async () => {
 });
 
 window.addEventListener("beforeunload", () => {
+    if(virtualDiagnosticsTimer)window.clearInterval(virtualDiagnosticsTimer);
     for (const source of state.streams.values()) source.close();
 });
 

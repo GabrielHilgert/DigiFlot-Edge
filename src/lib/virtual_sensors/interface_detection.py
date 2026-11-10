@@ -1,4 +1,4 @@
-"""Depth/height estimation on already-unwrapped images.
+"""Froth interface detection algorithms for calibrated planar ROI images.
 
 This module assumes the unwrapped ROI image is already in memory.
 Batch IO (loading/saving many files) should live in a separate script.
@@ -34,6 +34,7 @@ class EntropyFoamResult:
     froth_height_norm: Optional[float]
     pulp_height_norm: Optional[float]
     plot_path: Optional[str]
+    diagnostics: Optional[dict] = None
 
 
 @dataclass
@@ -68,6 +69,7 @@ class EntropyFoamDetector:
         show_plot: bool = True,
         ref_surface_px: Optional[float] = None,
         ref_interface_px: Optional[float] = None,
+        return_diagnostics: bool = False,
 
     ) -> EntropyFoamResult:
         """Estimate froth/pulp interface heights using entropy profile crossings.
@@ -110,7 +112,7 @@ class EntropyFoamDetector:
             img_u8 = np.clip((img - vmin) * (255.0 / (vmax - vmin)), 0, 255).astype(np.uint8)
 
         #ent_img = local_entropy_u8_fast(img_u8, radius=int(entropy_radius), bins=int(entropy_bins))
-        ent_img = local_entropy_u8_fast_legacy(img_u8, radius=int(entropy_radius), bins=int(entropy_bins))
+        ent_img = local_entropy_u8_compatible(img_u8, radius=int(entropy_radius), bins=int(entropy_bins))
 
         row_mean = ent_img.mean(axis=1)
         row_mean = gaussian_filter1d(row_mean, sigma=float(sigma))
@@ -658,6 +660,10 @@ class EntropyFoamDetector:
             plt.close(fig)
                 
 
+        diagnostic = ({"entropy_map": ent_img, "profiles": {"row_entropy": rs_norm,
+                       **({"row_derivative": signal2_norm} if method == "mean_derivative"
+                          else {"cumulative_entropy": signal2_norm} if method == "cumulative_distribution" else {})}}
+                      if return_diagnostics else None)
         return EntropyFoamResult(
             froth_row_px=froth_row,
             pulp_row_px=pulp_row,
@@ -666,6 +672,7 @@ class EntropyFoamDetector:
             froth_height_norm=froth_norm,
             pulp_height_norm=pulp_norm,
             plot_path=plot_path,
+            diagnostics=diagnostic,
         )
 
 
@@ -748,7 +755,7 @@ import numpy as np
 from skimage.filters.rank import entropy
 
 
-def local_entropy_u8_fast_legacy(
+def local_entropy_u8_compatible(
     img_u8: np.ndarray,
     radius: int = 20,
     bins: int = 32,
@@ -776,7 +783,7 @@ def local_entropy_u8_fast_legacy(
     if radius > 0:
         out = out[radius:-radius, radius:-radius]
 
-    # Reproduz a truncagem uint8 da função original
+    # Preserve the original uint8 truncation used in the validated detector.
     return out.astype(np.uint8).astype(np.float32)
 def crossings_1d(signal: np.ndarray, thr: float) -> np.ndarray:
     """Return subpixel indices where signal crosses threshold."""
@@ -831,7 +838,7 @@ def entropy_foam_detection(
 
 # -----------------------------------------------------------------------------
 # Dual entropy/profile foam boundary detector
-# Append this block to: markers/Aruco/module/depth_estimation.py
+# Dual entropy methods used by the virtual interface sensor.
 # -----------------------------------------------------------------------------
 
 import cv2
@@ -924,6 +931,7 @@ def detect_dual_entropy_boundaries(
     texture_ksize: int = 21,
     upper_threshold_q: float = 62.0,
     lower_bias: float = 0.0,
+    return_diagnostics: bool = False,
 ) -> dict:
     """Detect upper and lower foam boundaries without a trained classifier.
 
@@ -1043,7 +1051,13 @@ def detect_dual_entropy_boundaries(
     if y_upper >= y_lower:
         y_upper = max(0, y_lower - int(min_thickness_px))
 
+    full_entropy = None
+    if return_diagnostics:
+        full_entropy = np.zeros((h, w), dtype=np.float32)
+        full_entropy[:, x0:x1] = entropy_map
+
     return {
+        **({"entropy_map": full_entropy} if return_diagnostics else {}),
         "upper_row_px": y_upper,
         "lower_row_px": y_lower,
         "foam_thickness_px": max(0, y_lower - y_upper),
@@ -1149,6 +1163,7 @@ def detect_dual_entropy_striped_boundaries(
     min_valid_stripes: int = 3,
     vote_sigma_px: float = 12.0,
     outlier_mad: float = 2.5,
+    return_diagnostics: bool = False,
 ) -> dict:
     """Run the dual-entropy detector over several overlapping vertical stripes,
     then combine upper/lower boundaries by robust voting.
@@ -1185,6 +1200,8 @@ def detect_dual_entropy_striped_boundaries(
     lower_rows = []
     weights_upper = []
     weights_lower = []
+    ent_total = np.zeros((h,w), np.float32) if return_diagnostics else None
+    ent_weight = np.zeros((h,w), np.float32) if return_diagnostics else None
 
     for i, c in enumerate(centers):
         sx0 = int(round(max(x0, c - half)))
@@ -1205,8 +1222,11 @@ def detect_dual_entropy_striped_boundaries(
             entropy_bins=entropy_bins,
             texture_ksize=texture_ksize,
             upper_threshold_q=upper_threshold_q,
-            lower_bias=lower_bias,
+            lower_bias=lower_bias, return_diagnostics=return_diagnostics,
         )
+        if return_diagnostics and det.get("entropy_map") is not None:
+            ent_total[:,sx0:sx1] += det["entropy_map"][:,sx0:sx1]
+            ent_weight[:,sx0:sx1] += 1.0
 
         yu = int(det["upper_row_px"])
         yl = int(det["lower_row_px"])
@@ -1258,7 +1278,7 @@ def detect_dual_entropy_striped_boundaries(
             entropy_bins=entropy_bins,
             texture_ksize=texture_ksize,
             upper_threshold_q=upper_threshold_q,
-            lower_bias=lower_bias,
+            lower_bias=lower_bias, return_diagnostics=return_diagnostics,
         )
         base["stripes"] = stripes
         base["valid_stripes"] = 0
@@ -1306,6 +1326,7 @@ def detect_dual_entropy_striped_boundaries(
 
     # Keep a compact summary and a visualization-friendly stripe list.
     return {
+        **({"entropy_map": ent_total / np.maximum(1.0, ent_weight)} if return_diagnostics else {}),
         "upper_row_px": int(y_upper),
         "lower_row_px": int(y_lower),
         "foam_thickness_px": int(max(0, y_lower - y_upper)),
@@ -1404,6 +1425,7 @@ def detect_dual_entropy_hybrid_boundaries(
     min_valid_stripes: int = 3,
     vote_sigma_px: float = 12.0,
     outlier_mad: float = 2.5,
+    return_diagnostics: bool = False,
 ) -> dict:
     """Hybrid detector:
     - upper boundary from the striped detector (more robust to localized dirt)
@@ -1443,7 +1465,7 @@ def detect_dual_entropy_hybrid_boundaries(
         entropy_bins=entropy_bins,
         texture_ksize=texture_ksize,
         upper_threshold_q=upper_threshold_q,
-        lower_bias=lower_bias,
+        lower_bias=lower_bias, return_diagnostics=return_diagnostics,
     )
 
     yu = int(det_upper["upper_row_px"])
@@ -1469,6 +1491,7 @@ def detect_dual_entropy_hybrid_boundaries(
         pass
 
     return {
+        **({"entropy_map": det_lower["entropy_map"]} if return_diagnostics else {}),
         "upper_row_px": int(yu),
         "lower_row_px": int(yl),
         "foam_thickness_px": int(max(0, yl - yu)),

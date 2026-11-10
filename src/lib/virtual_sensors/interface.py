@@ -1,7 +1,7 @@
-"""Froth-interface virtual sensor, compatible with the supplied depth_estimation(3).py.
+"""Froth-interface virtual sensor configuration and physical measurement contract.
 
-This module never plots or opens files per sample. Legacy numerical behaviour
-is retained; the validated detector can be optimized in a later revision.
+The detection algorithms in interface_detection are shared by live acquisition,
+the calibration benchmark and optional diagnostics; no parallel plot-only detector.
 """
 from __future__ import annotations
 
@@ -93,14 +93,14 @@ def config_signature(config, association, camera_geometry=None):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def detect_interface(image, config, roi_cm, px_per_cm):
+def detect_interface(image, config, roi_cm, px_per_cm, *, diagnostics=False):
     """Return physical heights and validity without requiring plot IO."""
     conf = normalized_config(config)
     if not isinstance(image, np.ndarray) or image.ndim not in (2, 3):
         raise ValueError("Expected a grayscale or BGR ROI image")
     if image.size == 0 or not math.isfinite(px_per_cm) or px_per_cm <= 0:
         raise ValueError("Invalid ROI image or physical scale")
-    from . import depth_estimation_legacy as legacy
+    from . import interface_detection as algorithms
     method = conf["method"]
     scale = image.shape[1] / max(1.0, conf["resolution_px"])
     # The configured parameters refer to the chosen ROI processing width.
@@ -126,19 +126,20 @@ def detect_interface(image, config, roi_cm, px_per_cm):
                           min_valid_stripes=conf["min_valid_stripes"],
                           vote_sigma_px=max(1, conf["vote_sigma_px"] * scale),
                           outlier_mad=conf["outlier_mad"])
-        func = getattr(legacy, {"dual_entropy": "detect_dual_entropy_boundaries",
+        func = getattr(algorithms, {"dual_entropy": "detect_dual_entropy_boundaries",
                                 "dual_entropy_striped": "detect_dual_entropy_striped_boundaries",
                                 "dual_entropy_hybrid": "detect_dual_entropy_hybrid_boundaries"}[method])
-        result = func(image, **kwargs)
+        result = func(image, **kwargs, return_diagnostics=diagnostics)
         upper, lower = result["upper_row_px"], result["lower_row_px"]
         quality = {"valid_stripes": result.get("valid_stripes"), "combine_method": result.get("combine_method")}
     else:
-        detector = legacy.EntropyFoamDetector(px_per_cm=float(px_per_cm), origin_y_cm=float(roi_cm[1]))
+        detector = algorithms.EntropyFoamDetector(px_per_cm=float(px_per_cm), origin_y_cm=float(roi_cm[1]))
         result = detector.entropy_foam_detection(
             image, method=method, entropy_radius=max(1, round(conf["entropy_radius"] * scale)),
             entropy_bins=conf["entropy_bins"], sigma=conf["sigma"] * scale,
             threshold_froth=conf["threshold_froth"], threshold_pulp=conf["threshold_pulp"],
             min_row=round(conf["min_row"] * scale), simplification_alg=conf["simplification_alg"],
+            return_diagnostics=diagnostics,
             simplification_tol=conf["simplification_tol"], save_plot=False, show_plot=False,
             options={"cdf_foam":conf["cdf_foam"],"cdf_pulp":conf["cdf_pulp"],
                      "threshold_froth":conf["threshold_froth"],
@@ -156,10 +157,19 @@ def detect_interface(image, config, roi_cm, px_per_cm):
     upper, lower = valid_row(upper), valid_row(lower)
     valid = upper is not None and lower is not None and lower > upper
     oy = float(roi_cm[1])
-    return {
+    output = {
         "froth_surface_cm": oy + upper / px_per_cm if upper is not None else None,
         "pulp_froth_interface_cm": oy + lower / px_per_cm if lower is not None else None,
         "froth_thickness_cm": (lower - upper) / px_per_cm if valid else None,
         "froth_surface_row_px": upper, "pulp_froth_row_px": lower,
         "valid": bool(valid), "method": method, "quality": quality,
     }
+    if diagnostics:
+        source = result if method in COLOR_METHODS else result.diagnostics or {}
+        output["_diagnostics"] = {
+            "entropy_map": source.get("entropy_map"),
+            "profiles": source.get("profiles") or {},
+            "x_range_used": source.get("x_range_used", [0, image.shape[1]]),
+            "method": method,
+        }
+    return output
