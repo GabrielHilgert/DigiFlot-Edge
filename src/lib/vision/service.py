@@ -792,6 +792,30 @@ class VisionService:
             raise ValueError("Camera or cell changed since detection; detect again")
         return self.registry.save_association(camera_id, cell_id, pending["candidate"])
 
+    def virtual_detection_roi_preview(self):
+        """One configuration snapshot of the entire calibrated camera plane.
+
+        No detector pass, no full-frame rectification in the acquisition loop.
+        Selection is saved to the virtual sensor profile, not to Cells.
+        """
+        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
+            raise RuntimeError("Select the Detection ROI during sensor calibration")
+        camera, cell_id, association, _ = self._virtual_context()
+        with self.digiflot.lock:
+            if self._benchmarking or camera.state == camera.RECORDING:
+                raise RuntimeError("Camera is recording a benchmark; retry when the test has finished")
+            if self.digiflot.preview_camera_id not in (None, camera.id):
+                raise RuntimeError("Close the other camera preview before selecting the Detection ROI")
+            if camera.state == camera.IDLE:
+                camera.start_preview()
+                self.digiflot.preview_camera_id = camera.id
+            elif camera.state != camera.PREVIEW:
+                raise RuntimeError("Camera is unavailable for the planar preview")
+            result = self.rectified_snapshot(camera.id, cell_id)
+        config = self.registry.virtual_profile(camera.id, cell_id)["config"]
+        result["detection_roi_cm"] = config.get("detection_roi_cm")
+        return result
+
     def rectified_snapshot(self, camera_id, cell_id):
         association = self.registry.association(camera_id, cell_id)
         if association is None:
