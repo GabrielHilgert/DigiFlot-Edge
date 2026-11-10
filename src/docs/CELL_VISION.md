@@ -98,3 +98,27 @@ retained in the saved configuration, but the present hybrid detector does not
 use the heuristic simplification branch. The diagnostic may be turned off
 without stopping virtual sensor acquisition, real-time plots or experimental
 TSV storage.
+
+## Independent virtual Detection ROI and height datum
+
+**Cells ROI** remains an optional camera-cell processing reference. The Froth Interface
+sensor can use a different **Detection ROI**, saved with its detector parameters in
+`virtual_sensors/froth_interface/<camera>__<cell>.json`. Open **Calibrate Sensors**,
+load the full rectified camera plane, drag to select the sensor's physical region,
+and click **Save settings** (or **Run calibration test**, which saves first).
+The selection is in the *unchanged* ArUco local coordinate system, and the sensor
+compiles cropped remapping maps and negotiates lores geometry directly for this
+new region. It does not rewrite the Cells ROI, and the existing Cells ROI is the
+fallback when a profile has not selected its own Detection ROI. A geometry association
+is still mandatory; an ROI selection may be made before the virtual calibration
+benchmark and may extend beyond the markers if covered by the camera image.
+
+`height_reference_offset_cm` is a configurable **output datum offset**, initially
+10 cm for new or normalized saved profiles. It is added to the measured
+`froth_surface_cm` and `pulp_froth_interface_cm`; pixel rows, ArUco geometry,
+inverse maps and `froth_thickness_cm` are unchanged. The offset and Detection ROI
+are saved in the run's immutable virtual-sensor config snapshot and changing either
+invalidates the mandatory benchmark. Old experiment snapshots without the datum
+field are restored with an offset of 0 cm, maintaining historical results. The
+Sensors card's primary reading is `froth_thickness_cm`, with the two positions
+shown as secondary values and plotted as independent live series.

@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 
 from lib.vision.registry import VisionRegistry
-from lib.virtual_sensors.interface import DEFAULTS, config_signature, detect_interface, normalized_config
+from lib.virtual_sensors.interface import DEFAULTS, config_signature, detect_interface, detection_roi, normalized_config
 
 
 class VirtualSensorTests(unittest.TestCase):
@@ -15,7 +15,10 @@ class VirtualSensorTests(unittest.TestCase):
         self.assertEqual(DEFAULTS["resolution_px"], 320)
         for change in ({"resolution_px": 0}, {"sampling_interval_s": -1},
                        {"method": "not-a-detector"}, {"entropy_bins": 300},
-                       {"unknown_key": 12}, {"x0_frac": .9, "x1_frac": .2}):
+                       {"unknown_key": 12}, {"x0_frac": .9, "x1_frac": .2},
+                       {"detection_roi_cm": [1,2,1,4]}, {"detection_roi_cm": [0,0,1]},
+                       {"detection_roi_cm": [0,float("nan"),3,5]},
+                       {"height_reference_offset_cm": 99999}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 normalized_config(change)
 
@@ -34,7 +37,13 @@ class VirtualSensorTests(unittest.TestCase):
         self.assertIn("valid", result)
         if result["froth_surface_row_px"] is not None:
             self.assertAlmostEqual(result["froth_surface_cm"],
-                                   5. + result["froth_surface_row_px"] / 10.)
+                                   15. + result["froth_surface_row_px"] / 10.)
+        self.assertEqual(result["height_reference_offset_cm"], 10.)
+        zero = detect_interface(img, {**conf, "height_reference_offset_cm": 0.}, [0., 5., 8., 14.], 10.)
+        self.assertEqual(result["froth_thickness_cm"], zero["froth_thickness_cm"])
+        for key in ("froth_surface_cm","pulp_froth_interface_cm"):
+            if zero[key] is not None:
+                self.assertAlmostEqual(result[key]-zero[key], 10.)
 
     def test_per_camera_cell_defaults_profiles_and_signatures(self):
         cal = {"H": np.eye(3).tolist(), "H_inv": np.eye(3).tolist(),
@@ -61,6 +70,18 @@ class VirtualSensorTests(unittest.TestCase):
             self.assertNotEqual(sig1, config_signature(saved["config"], first, {"lores": [320, 240]}))
             store.save_association(1, a["id"], cal)
             self.assertEqual(store.virtual_profile(1, a["id"])["config"]["resolution_px"], 256)
+            # The sensor ROI is independent of the pre-existing Cells ROI.
+            selected = [-3., -4., 5., 9.]
+            updated = store.save_virtual_profile(1, a["id"], {
+                **store.virtual_profile(1, a["id"])["config"],
+                "method": "dual_entropy_hybrid", "detection_roi_cm": selected,
+                "height_reference_offset_cm": 10.})
+            self.assertEqual(updated["config"]["detection_roi_cm"], selected)
+            self.assertEqual(detection_roi(updated["config"], store.association(1,a["id"])),selected)
+            self.assertEqual(store.association(1,a["id"])["analysis_roi_cm"], [1,2,6,8])
+            self.assertIsNone(store.virtual_profile(1,b["id"])["config"]["detection_roi_cm"])
+            old_sig = config_signature(saved["config"], first)
+            self.assertNotEqual(old_sig, config_signature(updated["config"], first))
 
 
 if __name__ == "__main__":

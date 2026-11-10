@@ -56,6 +56,11 @@ def froth_interface_diagnostics(request: Request, payload: dict | None = None):
                    int(options.get("last_revision") or 0))
 
 
+@router.get("/virtual-sensors/froth-interface/detection-roi-preview")
+def froth_detection_roi_preview(request: Request):
+    return _invoke(service(request).virtual_detection_roi_preview)
+
+
 @router.get("/cells")
 def list_cells(request: Request):
     return service(request).registry.list_cells()
