@@ -181,6 +181,14 @@ class VisionService:
             raise RuntimeError("Stop recording before updating the virtual sensor")
         result = self.registry.save_virtual_profile(camera.id, cell_id, values)
         self.clear_virtual_test()
+        with self.digiflot.lock:
+            item = self.digiflot.sensor_calibration.get("froth_interface")
+            if item is not None:
+                item["status"] = "pending"
+                item["confirmed_at"] = None
+                item.pop("benchmark", None)
+                self.digiflot._touch_unlocked("VIRTUAL_SENSOR_PROFILE_UPDATED",
+                                              {"sensor_id": "froth_interface", "revision": result["revision"]})
         return result
 
     def clear_virtual_test(self):
@@ -368,7 +376,7 @@ class VisionService:
                   "unit": "cm", "valid": reading["valid"],
                   "calibration_id": reading["calibration_id"]}
         with path.open("a", encoding="utf-8", newline="") as output:
-            writer = csv.DictWriter(output, fieldnames=header, delimiter="\\t")
+            writer = csv.DictWriter(output, fieldnames=header, delimiter="\t")
             if path.stat().st_size == 0:
                 writer.writeheader()
             for key in ("froth_surface_cm","pulp_froth_interface_cm","froth_thickness_cm"):
