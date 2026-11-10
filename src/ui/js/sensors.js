@@ -154,17 +154,49 @@ function virtualCollectInputs() {
         const key = input.dataset.virtualParam;
         virtualDraft[key] = typeof virtualDraft[key] === "number" ? Number(input.value) : input.value;
     });
+    const mode=document.getElementById("virtual_reference_mode").value;
+    const custom=document.getElementById("virtual_reference_y").value.trim();
+    virtualDraft.vertical_reference_mode=mode;
+    virtualDraft.vertical_reference_y_cm=mode==="cell_default"||mode==="aruco_bottom"||custom===""?null:Number(custom);
+    virtualDraft.vertical_reference_confirmed=document.getElementById("virtual_reference_confirm").checked;
     return {...virtualDraft};
 }
 
 function renderVirtualFields() {
     const main = document.getElementById("virtual_main_fields");
-    main.innerHTML = ["method","resolution_px","sampling_interval_s","height_reference_offset_cm"].map(virtualField).join("");
+    main.innerHTML = ["method","resolution_px","sampling_interval_s"].map(virtualField).join("");
     document.getElementById("virtual_advanced_fields").innerHTML = virtualFieldGroups.map(([name,keys]) =>
         `<details ${name === "Entropy and profile" ? "open" : ""}><summary>${escapeHtml(name)}</summary>
         <div class="virtual-field-grid">${keys.map(virtualField).join("")}</div></details>`).join("");
 }
 
+
+function renderVerticalReference() {
+    if(!virtualDraft)return;
+    const mode=virtualDraft.vertical_reference_mode||"cell_default";
+    const select=document.getElementById("virtual_reference_mode");
+    select.value=mode==="historical_offset"?"cell_default":mode;
+    const override=document.getElementById("virtual_reference_y");
+    override.value=virtualDraft.vertical_reference_y_cm??"";
+    override.disabled=select.value==="cell_default"||select.value==="aruco_bottom";
+    document.getElementById("virtual_reference_confirm").checked=Boolean(virtualDraft.vertical_reference_confirmed);
+    const cell=virtualProfileData?.cell_vertical_reference||{},resolved=virtualProfileData?.reference_resolved;
+    const source=select.value==="cell_default" ? "Cell default: "+(cell.mode||"aruco_bottom").replaceAll("_"," ") :
+        "Sensor override: "+select.value.replaceAll("_"," ");
+    let info=resolved?.y_cm!=null ? " · Saved reference Y = "+Number(resolved.y_cm).toFixed(2)+" cm" : "";
+    if(select.value!=="cell_default" && select.value!=="aruco_bottom" && override.value.trim()==="")
+        info+=" · Enter the physical Y coordinate if not already defined in Cells.";
+    document.getElementById("virtual_reference_description").textContent=source+info+
+        " · Height from bottom/ArUco is positive upward; depth from top is positive downward.";
+}
+
+function invalidateVerticalReference() {
+    virtualDraft.vertical_reference_confirmed=false;
+    document.getElementById("virtual_reference_confirm").checked=false;
+    virtualBenchmarkMarkup(null);
+    renderVirtualTestTimeline([]);
+    renderVerticalReference();
+}
 
 let virtualDiagnostic = null, virtualTestSeries = [];
 let virtualDiagnosticsActive = false, virtualDiagnosticsTimer = null, virtualDiagBusy = false, virtualDiagRevision = 0;
@@ -484,6 +516,7 @@ async function openVirtualCalibration() {
     const cameraId = state.digiflot?.cell_selection?.camera_id;
     document.getElementById("virtual_source").textContent = cameraId == null ? "No camera" : `Camera ${cameraId}`;
     document.getElementById("virtual_open_cells").href = `/cells?cell=${encodeURIComponent(cellId)}&camera=${encodeURIComponent(cameraId ?? "")}`;
+    document.getElementById("virtual_recalibrate_camera").href = document.getElementById("virtual_open_cells").href;
     try {
         virtualProfileData = await requestJson("/api/vision/virtual-sensors/froth-interface/profile");
         virtualDraft = {...virtualProfileData.config};
@@ -491,6 +524,7 @@ async function openVirtualCalibration() {
             `${cellId} · Camera ${cameraId} · Geometry ${virtualProfileData.geometry.calibration_id} · ${virtualProfileData.source} profile`;
         missing.hidden = true; editor.hidden = false;
         renderVirtualFields();
+        renderVerticalReference();
         virtualRoiPlane=null;virtualRoiDirty=false;
         document.getElementById("virtual_roi_stage").hidden=true;
         renderVirtualRoiCaption();
@@ -514,6 +548,7 @@ async function virtualSaveConfiguration() {
     await requestJson("/api/vision/virtual-sensors/froth-interface/profile", {
         method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(config)
     });
+    virtualProfileData.config={...config};
     virtualRoiDirty=false;
     renderVirtualRoiCaption();
     virtualBenchmarkMarkup(null);
@@ -529,6 +564,8 @@ async function virtualRunTest() {
     const button = document.getElementById("virtual_test");
     button.disabled = true; button.textContent = "Running calibration test…";
     try {
+        if(!document.getElementById("virtual_reference_confirm").checked)
+            throw new Error("Select and confirm a physical vertical reference before the calibration test");
         await virtualSaveConfiguration();
         const result = await requestJson("/api/vision/virtual-sensors/froth-interface/benchmark", {
             method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({samples:20})
@@ -1170,6 +1207,23 @@ document.getElementById("virtual_diagnostics_toggle").addEventListener("click", 
 document.getElementById("virtual_show_grid").addEventListener("change", () => {
     drawVirtualOverlays();drawVirtualRoiOverlay();
 });
+document.getElementById("virtual_reference_mode").addEventListener("change",()=>{
+    if(!virtualDraft)return;
+    virtualDraft.vertical_reference_mode=document.getElementById("virtual_reference_mode").value;
+    virtualDraft.vertical_reference_y_cm=null;
+    invalidateVerticalReference();
+});
+document.getElementById("virtual_reference_y").addEventListener("input",()=>{
+    if(!virtualDraft)return;
+    const value=document.getElementById("virtual_reference_y").value.trim();
+    virtualDraft.vertical_reference_y_cm=value===""?null:Number(value);
+    invalidateVerticalReference();
+});
+document.getElementById("virtual_reference_confirm").addEventListener("change",event=>{
+    if(virtualDraft)virtualDraft.vertical_reference_confirmed=event.target.checked;
+});
+document.getElementById("virtual_refresh_geometry").addEventListener("click",()=>
+    openVirtualCalibration().catch(error=>showToast(error.message)));
 document.getElementById("virtual_roi_refresh").addEventListener("click", () =>
     loadVirtualRoiPlane().catch(error=>showToast(error.message)));
 document.getElementById("virtual_roi_reset").addEventListener("click", () => {
