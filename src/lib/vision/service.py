@@ -465,8 +465,8 @@ class VisionService:
             raise RuntimeError("Source camera must be idle for a representative recording benchmark")
         self._map_key, self._roi_map = None, None
         interval = float(config["sampling_interval_s"])
-        errors, timings, valid_count, sensor_times = [], [], 0, []
-        last_reading, last_preview = None, None
+        errors, timings, valid_count, sensor_times, test_series = [], [], 0, [], []
+        last_reading, last_preview, last_diag, last_stamp = None, None, None, None
         count = max(12, min(60, int(samples)))
         warmup = 3
         original_enabled = camera.analysis_enabled
@@ -486,23 +486,41 @@ class VisionService:
                             time.sleep(delay)
                         next_sample += interval
                         begin = time.perf_counter()
+                        sample = None
                         try:
                             color = config["method"] in COLOR_METHODS
                             raw, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
                             maps = self._compiled_roi(camera, cell_id, association, frame, config)
                             patch = (remap_yuv420_roi(raw, maps, frame["size"]) if color else remap_roi(raw, maps))
                             density = maps["size"][0] / (association["analysis_roi_cm"][2] - association["analysis_roi_cm"][0])
-                            reading = detect_interface(patch, config, association["analysis_roi_cm"], density)
+                            is_final = index == count + warmup - 1
+                            reading = detect_interface(patch, config, association["analysis_roi_cm"], density,
+                                                       diagnostics=is_final)
+                            diagnostic = reading.pop("_diagnostics", None)
                             if index >= warmup:
                                 valid_count += int(reading["valid"])
-                                last_reading, last_preview = reading, patch
+                                last_reading, last_preview = dict(reading), patch
+                                last_stamp = frame["captured_timestamp_ns"]
+                                if diagnostic is not None:
+                                    last_diag = diagnostic
+                                sample = {"time_s": round((index-warmup)*interval, 3),
+                                          "valid": bool(reading["valid"]),
+                                          "froth_surface_cm": reading.get("froth_surface_cm"),
+                                          "pulp_froth_interface_cm": reading.get("pulp_froth_interface_cm"),
+                                          "froth_thickness_cm": reading.get("froth_thickness_cm")}
                                 if frame.get("sensor_timestamp_ns") is not None:
                                     sensor_times.append(int(frame["sensor_timestamp_ns"]))
                         except Exception as error:
                             if index >= warmup:
                                 errors.append(str(error))
+                                sample = {"time_s": round((index-warmup)*interval, 3),
+                                          "valid": False, "error": str(error),
+                                          "froth_surface_cm": None, "pulp_froth_interface_cm": None,
+                                          "froth_thickness_cm": None}
                         if index >= warmup:
-                            timings.append((time.perf_counter() - begin) * 1000)
+                            elapsed_ms = (time.perf_counter()-begin)*1000
+                            timings.append(elapsed_ms)
+                            test_series.append({**sample, "latency_ms": round(elapsed_ms, 2)})
                     recording_metrics = camera.recording_metrics()
                 finally:
                     camera.stop_recording()
@@ -537,7 +555,16 @@ class VisionService:
             "mode": "paced_main_encoder_and_lores",
         }
         result["signature"] = self._virtual_signature()
-        self._virtual_test = result
+        self._benchmark_series = test_series
+        result["series"] = deepcopy(test_series)
+        if last_diag is not None and last_preview is not None and last_reading is not None:
+            try:
+                self._benchmark_diagnostic = build_interface_diagnostic(
+                    last_preview, {**last_reading, "_diagnostics": last_diag},
+                    association["analysis_roi_cm"], last_stamp)
+                result["diagnostic"] = self._benchmark_diagnostic
+            except Exception as error:
+                result["diagnostic_error"] = str(error)
         if last_preview is not None and last_reading:
             preview = (cv2.cvtColor(last_preview, cv2.COLOR_GRAY2BGR) if last_preview.ndim == 2
                        else last_preview.copy())
@@ -549,7 +576,8 @@ class VisionService:
             result["preview_jpeg_base64"] = _jpeg_base64(preview)
             result["last_reading"] = last_reading
         # Keep huge preview out of in-memory calibration state / runtime snapshots.
-        self._virtual_test = {k:v for k,v in result.items() if k not in {"preview_jpeg_base64","last_reading"}}
+        self._virtual_test = {k:v for k,v in result.items()
+                              if k not in {"preview_jpeg_base64","last_reading","series","diagnostic"}}
         return result
 
     def freeze_run_config(self, directory):
