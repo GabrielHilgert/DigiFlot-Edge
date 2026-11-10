@@ -181,3 +181,40 @@ a { color: inherit; text-decoration: none; }
 .sensor-virtual .sensor-reading-row { padding-bottom:14px; }
 .sensor-virtual .chart-frame { min-height:190px; }
 @media (max-width:620px) { .virtual-live-channels { grid-template-columns:1fr; } }
+
+/* Froth-interface diagnostics: images are on-demand, chart drawing runs in the browser. */
+.virtual-diagnostics { margin-top:18px; padding-top:16px; border-top:1px solid var(--border); }
+.virtual-diagnostics-heading, .virtual-test-history-heading { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:13px; }
+.virtual-diagnostics-heading h3, .virtual-test-history h3 { margin:0 0 5px; font-size:1.03rem; }
+.virtual-diagnostics-heading p, .virtual-test-history-heading p { margin:0; color:var(--text-soft); font-size:.77rem; line-height:1.45; }
+.virtual-diagnostics-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end; }
+.virtual-grid-option { display:flex; align-items:center; gap:7px; font-size:.78rem; color:var(--text-soft); white-space:nowrap; }
+.virtual-grid-option input { accent-color:var(--accent); }
+.virtual-diagnostic-status { min-height:27px; margin:0 0 12px; color:var(--text-soft); font-size:.78rem; }
+.virtual-diagnostic-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); align-items:start; gap:12px; }
+.virtual-diagnostic-figure { margin:0; min-width:0; border:1px solid var(--border); border-radius:var(--radius-md); overflow:hidden; background:var(--surface-soft); }
+.virtual-diagnostic-figure figcaption { display:flex; flex-direction:column; gap:2px; min-height:57px; padding:10px 12px; color:var(--text); font-weight:740; font-size:.85rem; }
+.virtual-diagnostic-figure figcaption small { color:var(--text-faint); font-size:.68rem; font-weight:500; }
+.virtual-diagnostic-stage { position:relative; width:100%; aspect-ratio:var(--diagnostic-aspect,1); background:#17212b; }
+.virtual-diagnostic-stage img, .virtual-diagnostic-stage canvas { position:absolute; inset:0; display:block; width:100%; height:100%; object-fit:fill; }
+.virtual-diagnostic-stage canvas { pointer-events:none; }
+.virtual-profile-stage { background:color-mix(in srgb,CanvasText 7%,Canvas); }
+.virtual-profile-legend { display:flex; gap:7px; flex-wrap:wrap; padding:10px; font-size:.69rem; color:var(--text-soft); }
+.virtual-profile-legend > span { display:inline-flex; gap:5px; align-items:center; }
+.virtual-profile-legend i, .virtual-chart-key span::before { display:inline-block; width:12px; height:3px; border-radius:2px; background:var(--signal-color,#0ea5e9); content:""; }
+.virtual-diagnostic-positions { display:flex; flex-wrap:wrap; gap:14px; margin-top:12px; padding:10px 13px; border:1px solid var(--border); border-radius:var(--radius-md); color:var(--text-soft); font-size:.81rem; }
+.virtual-diagnostic-positions strong { margin-left:5px; color:var(--text); font-variant-numeric:tabular-nums; }
+.virtual-test-history { margin-top:18px; padding:16px; border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-soft); }
+.virtual-test-history-heading > span { color:var(--text-faint); font-size:.73rem; white-space:nowrap; }
+#virtual_test_chart { width:100%; height:220px; display:block; border-radius:var(--radius-sm); background:var(--surface); }
+.virtual-chart-key { display:flex; flex-wrap:wrap; align-items:center; gap:15px; margin-top:10px; color:var(--text-soft); font-size:.75rem; }
+.virtual-chart-key > span { display:inline-flex; align-items:center; gap:6px; }
+.virtual-chart-key .virtual-upper-key::before { background:#0ea5e9; }
+.virtual-chart-key .virtual-lower-key::before { background:#f59e0b; }
+.virtual-chart-key small { margin-left:auto; color:var(--text-faint); font-size:.68rem; }
+.virtual-message .virtual-stats { grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); gap:8px; }
+.virtual-message .virtual-stats > div { gap:4px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface); min-width:0; }
+.virtual-message .virtual-stats strong { overflow-wrap:anywhere; font-size:1rem; font-variant-numeric:tabular-nums; }
+.virtual-message .virtual-stats span { font-size:.73rem; }
+@media(max-width:980px) { .virtual-diagnostic-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .virtual-diagnostic-figure:last-child { grid-column:1/-1; max-width:430px; width:100%; justify-self:center; } }
+@media(max-width:630px) { .virtual-diagnostic-grid { grid-template-columns:minmax(0,1fr); } .virtual-diagnostic-figure:last-child { grid-column:auto; max-width:none; } .virtual-diagnostics-heading, .virtual-test-history-heading { flex-direction:column; align-items:stretch; } .virtual-diagnostics-actions { justify-content:space-between; } }
