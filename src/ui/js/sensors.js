@@ -326,6 +326,8 @@ async function pollVirtualDiagnostics() {
         });
         if(!virtualDiagnosticsActive)return;
         if(payload.diagnostic){virtualDiagRevision=payload.revision;renderVirtualDiagnostic(payload.diagnostic,"Live preview");}
+        if(payload.error)document.getElementById("virtual_diagnostics_status").textContent=
+            "Diagnostic rendering error: "+payload.error+" (sensor acquisition continues).";
         else if(!virtualDiagnostic)document.getElementById("virtual_diagnostics_status").textContent=
             "Waiting for the next lores diagnostic frame. Measurements continue independently.";
     } catch(error){
