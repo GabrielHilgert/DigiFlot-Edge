@@ -49,6 +49,13 @@ def benchmark_froth_interface(request: Request, payload: dict | None = None):
     return _invoke(service(request).benchmark_virtual_sensor, (payload or {}).get("samples", 20))
 
 
+@router.post("/virtual-sensors/froth-interface/diagnostics")
+def froth_interface_diagnostics(request: Request, payload: dict | None = None):
+    options = payload or {}
+    return _invoke(service(request).diagnostic_preview, bool(options.get("enabled", True)),
+                   int(options.get("last_revision") or 0))
+
+
 @router.get("/cells")
 def list_cells(request: Request):
     return service(request).registry.list_cells()
