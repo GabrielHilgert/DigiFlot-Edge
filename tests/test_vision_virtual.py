@@ -36,14 +36,16 @@ class VirtualSensorTests(unittest.TestCase):
         self.assertIn("pulp_froth_interface_cm", result)
         self.assertIn("valid", result)
         if result["froth_surface_row_px"] is not None:
+            # Lowest ArUco corner is Y=14 cm; heights increase upward.
             self.assertAlmostEqual(result["froth_surface_cm"],
-                                   15. + result["froth_surface_row_px"] / 10.)
-        self.assertEqual(result["height_reference_offset_cm"], 10.)
-        zero = detect_interface(img, {**conf, "height_reference_offset_cm": 0.}, [0., 5., 8., 14.], 10.)
-        self.assertEqual(result["froth_thickness_cm"], zero["froth_thickness_cm"])
-        for key in ("froth_surface_cm","pulp_froth_interface_cm"):
-            if zero[key] is not None:
-                self.assertAlmostEqual(result[key]-zero[key], 10.)
+                                   14. - 5. - result["froth_surface_row_px"] / 10.)
+        self.assertEqual(result["vertical_reference"]["mode"], "aruco_bottom")
+        historical = detect_interface(img, {**conf, "vertical_reference_mode": "historical_offset"},
+                                      [0., 5., 8., 14.], 10.)
+        self.assertEqual(result["froth_thickness_cm"], historical["froth_thickness_cm"])
+        if historical["froth_surface_row_px"] is not None:
+            self.assertAlmostEqual(historical["froth_surface_cm"],
+                                   15. + historical["froth_surface_row_px"] / 10.)
 
     def test_per_camera_cell_defaults_profiles_and_signatures(self):
         cal = {"H": np.eye(3).tolist(), "H_inv": np.eye(3).tolist(),
