@@ -167,7 +167,7 @@ function renderCellSelection(state) {
     const selectedCamera = state.cell_selection?.camera_id ?? state.execution_inputs?.cell_profile?.virtual_camera_id;
     ui.select_physical_cell.innerHTML = '<option value="">Select a cell</option>' +
         physicalCells.map(cell => `<option value="${escapeHtml(cell.id)}">${escapeHtml(cell.name)} (${escapeHtml(cell.id)})</option>`).join("");
-    ui.select_virtual_camera.innerHTML = '<option value="">No virtual camera</option>' +
+    ui.select_virtual_camera.innerHTML = '<option value="">Auto-select camera</option><option value="none">No virtual sensor</option>' +
         cameras.map(cam => `<option value="${escapeHtml(cam.id)}">${escapeHtml(cam.name)} · Camera ${escapeHtml(cam.id)}</option>`).join("");
     ui.select_physical_cell.value = selectedId;
     ui.select_virtual_camera.value = selectedCamera == null ? "" : String(selectedCamera);
@@ -977,7 +977,7 @@ function bindActions() {
         try {
             const cameraId = ui.select_virtual_camera.value;
             await action("/api/digiflot/calibration/cell/select",
-                {cell_id:cellId, camera_id:cameraId ? Number(cameraId) : null});
+                {cell_id:cellId, camera_id:cameraId === "none" ? "none" : (cameraId ? Number(cameraId) : null)});
         } catch (_) { button.disabled = false; }
     });
     document.addEventListener("click", async (event) => {
