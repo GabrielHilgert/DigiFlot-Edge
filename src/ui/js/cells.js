@@ -45,6 +45,14 @@
     $('cell_height').value = g.height_mm ?? '';
     $('cell_width').value = g.width_mm ?? '';
     $('cell_depth').value = g.depth_mm ?? '';
+    const ref=cell?.vertical_reference || {};
+    $('cell_reference_mode').value = ref.mode || 'aruco_bottom';
+    $('cell_top_y_cm').value = ref.cell_top_y_cm ?? '';
+    $('cell_bottom_y_cm').value = ref.cell_bottom_y_cm ?? '';
+    $('save_cell_reference').disabled = !cell?.id;
+    text('cell_reference_status',cell?.id ?
+      'Reference revision ' + (ref.revision ?? 0) + ' (does not invalidate ArUco)' :
+      'Save the cell before its physical reference');
     const l = cell?.marker_layout || {marker_ids:[0,1,2], marker_size_cm:2, span_cm:14};
     l.marker_ids.forEach((v,i) => { $(`marker_${i}`).value = v; });
     $('marker_size').value = l.marker_size_cm;
@@ -84,6 +92,18 @@
     const record = await api(path, {method:state.cellId ? 'PUT':'POST', body:data});
     await refreshCells(record.id);
     toast(`Cell ${record.name} saved (revision ${record.revision}).`);
+  }
+
+  async function saveCellReference() {
+    if (!state.cellId) throw new Error('Save the physical cell first');
+    const read=id=>$(id).value.trim()===''?null:Number($(id).value);
+    const payload={mode:$('cell_reference_mode').value,
+      cell_top_y_cm:read('cell_top_y_cm'),cell_bottom_y_cm:read('cell_bottom_y_cm')};
+    const record=await api(`/cells/${encodeURIComponent(state.cellId)}/vertical-reference`,
+      {method:'PUT',body:payload});
+    const updated=await api(`/cells/${encodeURIComponent(state.cellId)}`);
+    setCellForm(updated);
+    toast(`Cell vertical reference saved (revision ${record.revision}).`);
   }
 
   function setCameraForm(profile) {
@@ -347,6 +367,7 @@
   $('new_cell').addEventListener('click',action(async()=>{ $('cell_select').value='';await loadCell(null);toast('Enter a new physical cell.'); }));
   $('cell_select').addEventListener('change',action(async()=>loadCell($('cell_select').value)));
   $('save_cell').addEventListener('click',action(saveCell));
+  $('save_cell_reference').addEventListener('click',action(saveCellReference));
   $('camera_select').addEventListener('change',action(async()=>loadCamera($('camera_select').value)));
   $('optics_mode').addEventListener('change',()=>{$('lens_preset').disabled=$('optics_mode').value!=='preset';});
   $('import_intrinsics').addEventListener('change',action(importIntrinsics));
