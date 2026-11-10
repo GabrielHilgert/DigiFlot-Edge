@@ -474,6 +474,7 @@ class VisionService:
             raise
         self._map_key, self._roi_map = None, None
         interval = float(config["sampling_interval_s"])
+        self._benchmark_series, self._benchmark_diagnostic = [], None
         errors, timings, valid_count, sensor_times, test_series = [], [], 0, [], []
         last_reading, last_preview, last_diag, last_stamp = None, None, None, None
         count = max(12, min(60, int(samples)))
