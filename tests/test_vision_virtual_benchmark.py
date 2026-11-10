@@ -124,7 +124,7 @@ class VirtualBenchmarkTests(unittest.TestCase):
             self.assertFalse(vision.virtual_test_passed())
             with self.assertRaises(RuntimeError):
                 vision.freeze_run_config(Path(root) / "run")
-            vision.save_virtual_profile({"resolution_px":128, "sampling_interval_s": 1.})
+            vision.save_virtual_profile({"resolution_px":128, "sampling_interval_s": 1., "vertical_reference_confirmed": True})
             reading = {"valid":True, "froth_surface_cm":4., "pulp_froth_interface_cm":7.,
                        "froth_thickness_cm":3., "froth_surface_row_px":20,
                        "pulp_froth_row_px":50}
@@ -160,7 +160,7 @@ class VirtualBenchmarkTests(unittest.TestCase):
             cal = calibrate(run.cameras[1].image, DEFAULT_LAYOUT, frame_geometry=geom)
             vision.registry.save_association(1, cell["id"], cal)
             vision.registry.save_analysis_roi(1, cell["id"], [2,2,10,10])
-            vision.save_virtual_profile({"resolution_px":128, "sampling_interval_s": .2})
+            vision.save_virtual_profile({"resolution_px":128, "sampling_interval_s": .2, "vertical_reference_confirmed": True})
             reading = {"valid":True, "froth_surface_cm":4., "pulp_froth_interface_cm":7.,
                        "froth_thickness_cm":3., "froth_surface_row_px":20,
                        "pulp_froth_row_px":50}
