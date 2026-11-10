@@ -89,8 +89,14 @@ class VisionService:
 
     def _loop(self):
         # No queued frames; acquisition and recording always take priority.
-        while not self._stop.wait(max(.2, float((self._run_virtual or {}).get("config", {}).get(
-                "sampling_interval_s", self.registry.settings()["sampling_interval_s"])))):
+        next_due = time.monotonic()
+        while not self._stop.is_set():
+            interval = max(.2, float((self._run_virtual or {}).get("config", {}).get(
+                "sampling_interval_s", self.registry.settings()["sampling_interval_s"])))
+            if self._stop.wait(max(0., next_due - time.monotonic())):
+                break
+            # Respect scheduled acquisition start times; discard missed slots.
+            next_due = max(next_due + interval, time.monotonic())
             settings = self.registry.settings()
             active = self._run_virtual
             if not settings["enabled"] or settings["camera_id"] is None:
@@ -143,6 +149,7 @@ class VisionService:
                                               self.registry.camera_profile(camera.id)["invert"])
                     status.update({"roi_processed": False, "markers_detected": sorted(detected)})
                 status["processing_ms"] = round((time.perf_counter() - started) * 1000, 2)
+                status["deadline_met"] = status["processing_ms"] <= interval * 1000
                 self._latest = status
                 directory = self.digiflot.run_directory
                 if directory is not None and association is not None and str(directory) not in self._seen_runs:
