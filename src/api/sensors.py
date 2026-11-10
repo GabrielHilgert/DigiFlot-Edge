@@ -1,4 +1,5 @@
 import json
+import time
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -43,11 +44,15 @@ def list_all_sensors(request: Request):
     atlas = get_atlas(request)
     if atlas is not None:
         snapshots.extend(atlas.sensor_snapshots())
-
+    digiflot = request.app.state.digiflot
+    if digiflot.virtual_camera_id is not None:
+        snapshots.append(request.app.state.vision.virtual_sensor_snapshot())
     return snapshots
 
 
 def get_sensor(request: Request, sensor_id: str):
+    if sensor_id == "froth_interface" and request.app.state.digiflot.virtual_camera_id is not None:
+        return "virtual", request.app.state.vision
     scale = get_scales(request).get(sensor_id)
     if scale is not None:
         return "scale", scale
@@ -66,17 +71,22 @@ def get_sensor(request: Request, sensor_id: str):
 def sensor_snapshot(kind, source, sensor_id):
     if kind == "scale":
         return scale_snapshot(source)
+    if kind == "virtual":
+        return source.virtual_sensor_snapshot()
     return source.snapshot(sensor_id)
 
 
 def sensor_event_stream(kind, source, sensor_id):
     snapshot = sensor_snapshot(kind, source, sensor_id)
-    last_revision = snapshot["revision"]
+    last_revision = snapshot.get("revision", 0)
 
     yield "event: measurement\n" f"data: {json.dumps(snapshot)}\n\n"
 
     while True:
-        if kind == "scale":
+        if kind == "virtual":
+            time.sleep(1)
+            snapshot = source.virtual_sensor_snapshot()
+        elif kind == "scale":
             snapshot = source.wait_for_update(last_revision, timeout=5.0)
             snapshot.update({
                 "source": "scale",
@@ -92,11 +102,11 @@ def sensor_event_stream(kind, source, sensor_id):
         else:
             snapshot = source.wait_for_update(sensor_id, last_revision, timeout=5.0)
 
-        if snapshot["revision"] == last_revision:
+        if snapshot.get("revision", 0) == last_revision:
             yield ": keepalive\n\n"
             continue
 
-        last_revision = snapshot["revision"]
+        last_revision = snapshot.get("revision", 0)
         yield "event: measurement\n" f"data: {json.dumps(snapshot)}\n\n"
 
 
