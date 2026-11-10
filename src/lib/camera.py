@@ -1556,30 +1556,35 @@ class Camera:
             "last_frame_age_s": last_age,
         }
 
-    def capture_analysis_frame(self):
-        """Read from active lores without reconfiguring or stopping the encoder."""
-        import cv2
+    def capture_analysis_frame(self, grayscale=False):
+        """Copy only the Y plane when requested; never alter the main encoder."""
         from lib.vision.aruco import source_geometry
         with self.lock:
             if self.state not in (self.PREVIEW, self.RECORDING):
                 raise RuntimeError("Start camera preview or recording before requesting a vision frame")
             if self.state == self.RECORDING and not self.analysis_enabled:
                 raise RuntimeError("Low-resolution analysis stream is disabled for this camera")
+            cfg = self.picam2.camera_configuration()["lores"]
+            width, height = (int(v) for v in cfg["size"])
             request = self.picam2.capture_request()
             try:
-                plane = request.make_array("lores").copy()
+                plane = request.make_array("lores")
+                if grayscale:
+                    if plane.shape[0] < height or plane.shape[1] < width:
+                        raise RuntimeError("Unexpected lores Y-plane geometry")
+                    image = plane[:height, :width].copy()
+                else:
+                    import cv2
+                    image = cv2.cvtColor(plane.copy(), cv2.COLOR_YUV2BGR_I420)
                 metadata = request.get_metadata()
             finally:
                 request.release()
-            cfg = self.picam2.camera_configuration()["lores"]
-            width, height = (int(v) for v in cfg["size"])
-            bgr = cv2.cvtColor(plane, cv2.COLOR_YUV2BGR_I420)
-            if bgr.shape[:2] != (height, width):
+            if image.shape[:2] != (height, width):
                 raise RuntimeError("Unexpected lores buffer geometry")
             crop = self._rectangle_to_tuple(metadata.get("ScalerCrop"))
             if crop is None:
                 crop = self.full_sensor_crop() if self.state == self.PREVIEW else (self.crop_region or self.full_sensor_crop())
-            return bgr, source_geometry([width, height], crop)
+            return image, source_geometry([width, height], crop)
 
     def close(self):
         with self.lock:
