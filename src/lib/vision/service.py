@@ -18,7 +18,7 @@ import numpy as np
 from .aruco import calibrate, detect_markers, grid_overlay, project_rectified, source_geometry
 from .roi import compile_roi_maps, full_plane_geometry, remap_roi, remap_yuv420_roi
 from .registry import VisionRegistry, _write
-from lib.virtual_sensors.interface import COLOR_METHODS, DEFAULTS, config_signature, detect_interface, normalized_config
+from lib.virtual_sensors.interface import COLOR_METHODS, DEFAULTS, config_signature, detect_interface, detection_roi, normalized_config
 
 
 def _utc():
@@ -120,10 +120,10 @@ class VisionService:
         self._diagnostic_executor.shutdown(wait=False, cancel_futures=True)
 
     def _compiled_roi(self, camera, cell_id, association, frame, config=None):
-        roi = association["analysis_roi_cm"]
+        roi = detection_roi(config, association)
         key = (str(camera.id), str(cell_id), association["calibration_id"],
-               association["analysis_roi_revision"], tuple(frame["size"]), tuple(frame["sensor_crop"]),
-               (config or {}).get("resolution_px"))
+               association["analysis_roi_revision"], tuple(roi),
+               tuple(frame["size"]), tuple(frame["sensor_crop"]), (config or {}).get("resolution_px"))
         if key != self._map_key:
             # Preserve centimetres, but never upscale beyond the lores stream.
             from math import sqrt
@@ -236,7 +236,8 @@ class VisionService:
                 else:
                     continue
                 started = time.perf_counter()
-                roi = (association or {}).get("analysis_roi_cm")
+                roi = (detection_roi(config, association) if config and association else
+                       (association or {}).get("analysis_roi_cm"))
                 color = bool(config and config["method"] in COLOR_METHODS and roi)
                 image, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
                 status = {"state": "running", "mode": "experiment" if active else
@@ -338,16 +339,17 @@ class VisionService:
         if association is not None and (association["cell_revision"] != self.registry.get_cell(cell_id)["revision"]
                 or association["camera_revision"] != self.registry.camera_profile(camera.id)["revision"]):
             raise ValueError("Camera or cell geometry changed; recalibrate ArUco and select ROI again")
-        if association is None or not association.get("analysis_roi_cm"):
-            raise ValueError("Confirm ArUco geometry and the physical ROI in Cells before testing")
+        if association is None:
+            raise ValueError("Confirm ArUco geometry in Cells before setting a Detection ROI")
         profile = self.registry.virtual_profile(camera.id, cell_id)
         return camera, cell_id, association, profile
 
     def virtual_profile(self):
         camera, cell_id, assoc, profile = self._virtual_context()
         return {**profile, "geometry": {"calibration_id": assoc["calibration_id"],
-                                        "analysis_roi_cm": assoc["analysis_roi_cm"],
-                                        "analysis_roi_revision": assoc["analysis_roi_revision"]},
+                                        "analysis_roi_cm": assoc.get("analysis_roi_cm"),
+                                        "analysis_roi_revision": assoc.get("analysis_roi_revision"),
+                                        "detection_roi_cm": profile["config"].get("detection_roi_cm") or assoc.get("analysis_roi_cm")},
                 "camera_name": camera.name, "test": self.virtual_test_result(include_series=True),
                 "test_diagnostic": deepcopy(self._benchmark_diagnostic) if self.virtual_test_passed() else None}
 
@@ -426,7 +428,7 @@ class VisionService:
                 "type": "virtual_froth_interface", "virtual": True,
                 "source_camera_id": camera_id, "physical_cell_id": cell_id,
                 "status": "connected" if camera else "offline",
-                "value": reading.get("pulp_froth_interface_cm") if valid else None,
+                "value": reading.get("froth_thickness_cm") if valid else None,
                 "unit": "cm", "decimals": 2,
                 "channels": {key: reading.get(key) for key in
                              ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm")} if current else None,
@@ -440,7 +442,7 @@ class VisionService:
                          if current else (None if camera else "Source camera is unavailable")}
 
     def _desired_lores_size(self, camera, association, config):
-        roi = association["analysis_roi_cm"]
+        roi = detection_roi(config, association)
         x0, y0, x1, y1 = roi
         corners = np.asarray([[x0,y0],[x1,y0],[x1,y1],[x0,y1]], np.float32)
         cal = association["calibration"]
@@ -507,9 +509,10 @@ class VisionService:
                             raw, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
                             maps = self._compiled_roi(camera, cell_id, association, frame, config)
                             patch = (remap_yuv420_roi(raw, maps, frame["size"]) if color else remap_roi(raw, maps))
-                            density = maps["size"][0] / (association["analysis_roi_cm"][2] - association["analysis_roi_cm"][0])
+                            roi = detection_roi(config, association)
+                            density = maps["size"][0] / (roi[2] - roi[0])
                             is_final = index == count + warmup - 1
-                            reading = detect_interface(patch, config, association["analysis_roi_cm"], density,
+                            reading = detect_interface(patch, config, roi, density,
                                                        diagnostics=is_final)
                             diagnostic = reading.pop("_diagnostics", None)
                             if index >= warmup:
@@ -576,7 +579,7 @@ class VisionService:
             try:
                 self._benchmark_diagnostic = build_interface_diagnostic(
                     last_preview, {**last_reading, "_diagnostics": last_diag},
-                    association["analysis_roi_cm"], last_stamp)
+                    detection_roi(config, association), last_stamp)
                 result["diagnostic"] = self._benchmark_diagnostic
             except Exception as error:
                 result["diagnostic_error"] = str(error)
@@ -631,7 +634,10 @@ class VisionService:
             self.disable_run_sensor()
             return False
         snapshot = json.loads(path.read_text(encoding="utf-8"))
-        config = normalized_config(snapshot["config"])
+        original = snapshot["config"]
+        # Preserve the datum of experiments recorded before this option existed.
+        config = normalized_config({**original, **({"height_reference_offset_cm": 0.}
+                                  if "height_reference_offset_cm" not in original else {})})
         camera_id, cell_id = int(snapshot["camera_id"]), str(snapshot["cell_id"])
         camera = self.digiflot.cameras.get(camera_id)
         if camera is not None:
