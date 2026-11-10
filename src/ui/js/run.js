@@ -346,6 +346,7 @@ function sensorSnapshots(state) {
     return [
         ...(state.scales || []),
         ...(state.atlas || []),
+        ...(state.virtual_sensors || []),
     ].filter((item) => item && item.id != null);
 }
 
