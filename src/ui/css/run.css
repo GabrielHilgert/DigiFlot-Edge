@@ -378,3 +378,6 @@ a { color: inherit; text-decoration: none; }
 .sensor-summary-item .sensor-summary-states { flex-wrap:wrap; justify-content:flex-end; }
 .sensor-summary-item .calibration-status { white-space:nowrap; }
 @media (max-width:520px) { .sensor-summary-item.virtual-sensor-summary { align-items:flex-start; flex-direction:column; } .sensor-summary-item .sensor-summary-states { justify-content:flex-start; } }
+
+/* Two live interface positions in the run-stage sensor card. */
+.live-sensor-reading.virtual-live-reading { font-size:.89rem; line-height:1.5; font-weight:720; white-space:normal; overflow-wrap:anywhere; }
