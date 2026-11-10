@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026a">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261110virtual2">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261110virtual2"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261110diag1">
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261110diag1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -67,13 +67,41 @@
                 <div id="virtual_advanced_fields" class="virtual-advanced"></div>
                 <div class="virtual-actions">
                     <button id="virtual_save" type="button" class="button button-secondary">Save settings</button>
-                    <button id="virtual_test" type="button" class="button button-primary">Save &amp; test detection + timing</button>
+                    <button id="virtual_test" type="button" class="button button-primary">Run calibration test</button>
                     <button id="virtual_confirm" type="button" class="button button-primary" disabled>Confirm tested calibration</button>
                 </div>
-                <div class="virtual-preview">
-                    <img id="virtual_image" alt="Detected froth and pulp interfaces over rectified camera ROI" hidden>
-                    <div id="virtual_benchmark" class="virtual-message" role="status">A live detection and performance test is required for this execution.</div>
-                </div>
+                <div id="virtual_benchmark" class="virtual-message" role="status">A live detection and performance test is required for this execution.</div>
+                <section class="virtual-diagnostics">
+                    <div class="virtual-diagnostics-heading">
+                        <div><h3>Detection diagnostics</h3><p>Same processed frame and row profiles used by the sensor. Diagnostic images are sampled less frequently than measurements.</p></div>
+                        <div class="virtual-diagnostics-actions">
+                            <label class="virtual-grid-option"><input id="virtual_show_grid" type="checkbox" checked> Physical grid</label>
+                            <button id="virtual_diagnostics_toggle" class="button button-secondary" type="button">Start live diagnostics</button>
+                        </div>
+                    </div>
+                    <div id="virtual_diagnostics_status" class="virtual-diagnostic-status" role="status">Open live diagnostics or run the calibration test to inspect the detector.</div>
+                    <div id="virtual_diagnostic_grid" class="virtual-diagnostic-grid" hidden>
+                        <figure class="virtual-diagnostic-figure">
+                            <figcaption>Rectified ROI <small>Input image · physical grid</small></figcaption>
+                            <div class="virtual-diagnostic-stage"><img id="virtual_image" alt="Rectified camera ROI" draggable="false"><canvas id="virtual_image_overlay" aria-hidden="true"></canvas></div>
+                        </figure>
+                        <figure class="virtual-diagnostic-figure">
+                            <figcaption>Entropy map <small>Internal detector representation</small></figcaption>
+                            <div class="virtual-diagnostic-stage"><img id="virtual_entropy_image" alt="Detector entropy map" draggable="false"><canvas id="virtual_entropy_overlay" aria-hidden="true"></canvas></div>
+                        </figure>
+                        <figure class="virtual-diagnostic-figure">
+                            <figcaption>Row profiles <small>Vertical signals and grayscale bars</small></figcaption>
+                            <div class="virtual-diagnostic-stage virtual-profile-stage"><canvas id="virtual_profile_canvas" aria-label="Entropy profiles, detector scores and detected interface rows"></canvas></div>
+                            <div id="virtual_profile_legend" class="virtual-profile-legend"></div>
+                        </figure>
+                    </div>
+                    <div id="virtual_diagnostic_positions" class="virtual-diagnostic-positions" hidden></div>
+                </section>
+                <section id="virtual_test_history" class="virtual-test-history" hidden>
+                    <div class="virtual-test-history-heading"><div><h3>Calibration test · temporal results</h3><p>Individual measurements from the benchmark; invalid detections appear as gaps.</p></div><span id="virtual_test_history_count"></span></div>
+                    <canvas id="virtual_test_chart" aria-label="Temporal froth and pulp boundary positions during benchmark"></canvas>
+                    <div class="virtual-chart-key"><span class="virtual-upper-key">Froth surface</span><span class="virtual-lower-key">Pulp–froth interface</span><small>cm · test data, not experimental data</small></div>
+                </section>
             </div>
         </section>
 
