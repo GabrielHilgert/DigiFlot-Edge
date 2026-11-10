@@ -13,8 +13,8 @@ from uuid import uuid4
 import cv2
 import numpy as np
 
-from .aruco import (calibrate, detect_markers, grid_overlay, rectification_maps,
-                    source_geometry)
+from .aruco import calibrate, detect_markers, grid_overlay
+from .roi import compile_roi_maps, full_plane_geometry, remap_roi
 from .registry import VisionRegistry, _write
 
 
@@ -39,6 +39,8 @@ class VisionService:
         self._pending = {}
         self._latest = {"state": "disabled", "updated_at": None}
         self._seen_runs = set()
+        self._map_key = None
+        self._roi_map = None
         self._sync_camera_flags()
 
     def _sync_camera_flags(self):
@@ -58,8 +60,27 @@ class VisionService:
             self._thread.join(timeout=3)
             self._thread = None
 
+    def _compiled_roi(self, camera, cell_id, association, frame):
+        roi = association["analysis_roi_cm"]
+        key = (str(camera.id), str(cell_id), association["calibration_id"],
+               association["analysis_roi_revision"], tuple(frame["size"]), tuple(frame["sensor_crop"]))
+        if key != self._map_key:
+            # Preserve centimetres, but never upscale beyond the lores stream.
+            from math import sqrt
+            span_x, span_y = roi[2] - roi[0], roi[3] - roi[1]
+            source_w, source_h = frame["size"]
+            density = float(association["calibration"]["px_per_cm"])
+            density = min(density, min(source_w, 1280) / span_x,
+                          min(source_h, 960) / span_y, sqrt(1_000_000 / (span_x * span_y)))
+            compiled = compile_roi_maps(association["calibration"],
+                                        association["camera_profile"], frame, roi,
+                                        px_per_cm=density, max_pixels=1_000_000)
+            self._roi_map = compiled
+            self._map_key = key
+        return self._roi_map
+
     def _loop(self):
-        # Separate from the Camera encoder. No unbounded queue or processing backlog.
+        # No queue or per-frame geometry calculations; failures never stop recording.
         while not self._stop.wait(max(.2, float(self.registry.settings()["sampling_interval_s"]))):
             settings = self.registry.settings()
             if not settings["enabled"] or settings["camera_id"] is None:
@@ -68,18 +89,30 @@ class VisionService:
             if camera is None or camera.state != camera.RECORDING:
                 continue
             try:
-                image, meta = camera.capture_analysis_frame()
-                profile = self.registry.camera_profile(camera.id)
+                started = time.perf_counter()
+                # Copy luminance only; avoid full-frame YUV420 -> BGR conversion.
+                image, meta = camera.capture_analysis_frame(grayscale=True)
                 cell_id = settings.get("cell_id")
-                layout = self.registry.get_cell(cell_id)["marker_layout"] if cell_id else None
-                found = detect_markers(image, (layout or {}).get("dictionary", "DICT_4X4_50"), profile["invert"])
                 association = self.registry.association(camera.id, cell_id) if cell_id else None
-                self._latest = {"state": "running", "camera_id": camera.id, "cell_id": cell_id,
-                                "markers_detected": sorted(found), "associated_calibration": (association or {}).get("calibration_id"),
-                                "updated_at": _utc(), "error": None}
+                roi = (association or {}).get("analysis_roi_cm")
+                status = {"state": "running", "camera_id": camera.id, "cell_id": cell_id,
+                          "associated_calibration": (association or {}).get("calibration_id"),
+                          "updated_at": _utc(), "error": None}
+                if roi is not None:
+                    compiled = self._compiled_roi(camera, cell_id, association, meta)
+                    transformed = remap_roi(image, compiled)
+                    # This output is ready for a future soft sensor; do not write images per frame.
+                    status.update({"roi_processed": True, "roi_size": list(transformed.shape[::-1]),
+                                   "roi_coverage": compiled["coverage"], "markers_detected": None})
+                else:
+                    layout = self.registry.get_cell(cell_id)["marker_layout"] if cell_id else None
+                    detected = detect_markers(image, (layout or {}).get("dictionary", "DICT_4X4_50"),
+                                              self.registry.camera_profile(camera.id)["invert"])
+                    status.update({"roi_processed": False, "markers_detected": sorted(detected)})
+                status["processing_ms"] = round((time.perf_counter() - started) * 1000, 2)
+                self._latest = status
                 directory = self.digiflot.run_directory
                 if directory is not None and association is not None and str(directory) not in self._seen_runs:
-                    # A frozen calibration provenance record. No per-frame disk images.
                     _write(Path(directory) / "vision_calibration_snapshot.json", association)
                     self._seen_runs.add(str(directory))
             except Exception as error:
@@ -116,6 +149,17 @@ class VisionService:
         values = dict(values or {})
         values["sensor_size"] = list(camera.picam2.sensor_resolution)
         return self.registry.save_camera_profile(camera.id, values)
+
+    def save_analysis_roi(self, camera_id, cell_id, values):
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Analysis ROI cannot change during an experiment")
+        if any(cam.state == cam.RECORDING for cam in self.digiflot.cameras.values()):
+            raise RuntimeError("Stop recording before editing the analysis ROI")
+        if not isinstance(values, dict) or "roi_cm" not in values:
+            raise ValueError("Provide roi_cm (or null to clear the ROI)")
+        result = self.registry.save_analysis_roi(camera_id, cell_id, values["roi_cm"])
+        self._map_key, self._roi_map = None, None
+        return result
 
     def _capture(self, camera_id):
         camera = self.digiflot.get_camera(int(camera_id))
@@ -185,6 +229,13 @@ class VisionService:
         image, frame = self._capture(camera_id)
         profile = self.camera_profile(camera_id)
         cal = association["calibration"]
-        map_x, map_y = rectification_maps(cal, association.get("camera_profile", profile), frame)
-        rectified = cv2.remap(image, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT)
-        return {"jpeg_base64": _jpeg_base64(rectified), "size": [rectified.shape[1], rectified.shape[0]]}
+        optics = association.get("camera_profile", profile)
+        plane = full_plane_geometry(cal, optics, frame)
+        bounds = [*plane["min_xy_cm"], *plane["max_xy_cm"]]
+        maps = compile_roi_maps(cal, optics, frame, bounds,
+                                px_per_cm=plane["px_per_cm"], output_size=plane["size"],
+                                max_pixels=2_000_000)
+        rectified = remap_roi(image, maps)
+        return {"jpeg_base64": _jpeg_base64(rectified), "size": [rectified.shape[1], rectified.shape[0]],
+                "plane": plane, "analysis_roi_cm": association.get("analysis_roi_cm"),
+                "calibration_id": association["calibration_id"]}
