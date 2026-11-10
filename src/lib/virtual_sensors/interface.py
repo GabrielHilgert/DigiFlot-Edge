@@ -17,6 +17,7 @@ METHODS = ("mean_derivative", "cumulative_distribution", "heuristic_entropy",
 COLOR_METHODS = frozenset(METHODS[3:])
 DEFAULTS = {
     "schema_version": 1, "method": "mean_derivative", "resolution_px": 320,
+    "detection_roi_cm": None, "height_reference_offset_cm": 10.0,
     "sampling_interval_s": 1.0, "entropy_radius": 20, "entropy_bins": 32,
     "sigma": 1.0, "threshold_froth": 0.0, "threshold_pulp": 1.0,
     "min_row": 10, "cdf_foam": 0.5, "cdf_pulp": 0.8,
@@ -31,6 +32,7 @@ DEFAULTS = {
 }
 LIMITS = {
     "resolution_px": (64, 1920), "sampling_interval_s": (.2, 60.),
+    "height_reference_offset_cm": (-2000., 2000.),
     "entropy_radius": (1, 100), "entropy_bins": (2, 256),
     "sigma": (0.0, 100), "threshold_froth": (-5, 5), "threshold_pulp": (-5, 5),
     "min_row": (0, 2000), "cdf_foam": (0, 1), "cdf_pulp": (0, 1),
@@ -80,7 +82,29 @@ def normalized_config(values=None):
         config[key] = value
     if config["x1_frac"] <= config["x0_frac"] or config["lower_search_end"] <= config["lower_search_start"]:
         raise ValueError("Invalid search window")
+    roi = config.get("detection_roi_cm")
+    if roi is not None:
+        if not isinstance(roi, (tuple, list)) or len(roi) != 4:
+            raise ValueError("Detection ROI must be four physical coordinates in centimetres")
+        try:
+            roi = [float(x) for x in roi]
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Detection ROI must contain numeric coordinates") from exc
+        if not all(math.isfinite(v) and abs(v) <= 2000 for v in roi):
+            raise ValueError("Detection ROI coordinates must be finite and within the 20 m reference field")
+        if roi[2] <= roi[0] or roi[3] <= roi[1]:
+            raise ValueError("Detection ROI must have positive width and height")
+        config["detection_roi_cm"] = roi
     return config
+
+
+def detection_roi(config, association):
+    """Dedicated physical sensor ROI; fall back to the former Cells ROI for old profiles."""
+    roi = config.get("detection_roi_cm") if config else None
+    roi = roi if roi is not None else association.get("analysis_roi_cm")
+    if roi is None:
+        raise ValueError("Select a Detection ROI before testing the virtual sensor")
+    return [float(x) for x in roi]
 
 
 def config_signature(config, association, camera_geometry=None):
@@ -157,9 +181,11 @@ def detect_interface(image, config, roi_cm, px_per_cm, *, diagnostics=False):
     upper, lower = valid_row(upper), valid_row(lower)
     valid = upper is not None and lower is not None and lower > upper
     oy = float(roi_cm[1])
+    offset = float(conf["height_reference_offset_cm"])
     output = {
-        "froth_surface_cm": oy + upper / px_per_cm if upper is not None else None,
-        "pulp_froth_interface_cm": oy + lower / px_per_cm if lower is not None else None,
+        "froth_surface_cm": oy + upper / px_per_cm + offset if upper is not None else None,
+        "pulp_froth_interface_cm": oy + lower / px_per_cm + offset if lower is not None else None,
+        "height_reference_offset_cm": offset,
         "froth_thickness_cm": (lower - upper) / px_per_cm if valid else None,
         "froth_surface_row_px": upper, "pulp_froth_row_px": lower,
         "valid": bool(valid), "method": method, "quality": quality,
