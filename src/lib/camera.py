@@ -1028,13 +1028,16 @@ class Camera:
             frame_rate=self.preview_frame_rate,
         )
 
+        analysis_preview = self.analysis_target_size or self.preview_size
+        main_preview = (max(int(self.preview_size[0]), int(analysis_preview[0])),
+                        max(int(self.preview_size[1]), int(analysis_preview[1])))
         return self.picam2.create_video_configuration(
             main={
-                "size": self.preview_size,
+                "size": main_preview,
                 "format": "YUV420",
             },
             lores={
-                "size": self.preview_size,
+                "size": analysis_preview,
                 "format": "YUV420",
             },
             controls={
