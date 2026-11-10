@@ -1241,9 +1241,12 @@ class DigiFlot:
                 raise RuntimeError("Cell Vision registry is not available")
             cell = self.vision.registry.get_cell(str(cell_id))
             chosen = camera_id
-            if chosen in (None, ""):
+            disabled = chosen == "none"
+            if disabled:
+                chosen = None
+            elif chosen in (None, ""):
                 chosen = self.vision.registry.settings().get("camera_id")
-            if chosen in (None, "") and self.cameras:
+            if not disabled and chosen in (None, "") and self.cameras:
                 chosen = next(iter(self.cameras))
             if chosen not in (None, ""):
                 chosen = int(chosen)
