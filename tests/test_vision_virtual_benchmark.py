@@ -87,6 +87,29 @@ class FakeRun:
 
 
 class VirtualBenchmarkTests(unittest.TestCase):
+    def test_detection_roi_is_independent_of_cells_roi_and_used_by_maps(self):
+        with tempfile.TemporaryDirectory() as root:
+            run=FakeRun()
+            vision=VisionService(run,root)
+            cell=vision.registry.save_cell({"name":"ROI selection test"})
+            run.cell_profile={"physical_cell_id":cell["id"]}
+            geom=source_geometry([900,920],[0,0,900,920])
+            calibration=calibrate(run.cameras[1].image,DEFAULT_LAYOUT,frame_geometry=geom)
+            vision.registry.save_association(1,cell["id"],calibration)
+            vision.registry.save_analysis_roi(1,cell["id"],[2,2,5,5])
+            wanted=[5.,4.,12.,12.]
+            profile=vision.save_virtual_profile({"method":"dual_entropy_hybrid",
+                                                 "detection_roi_cm":wanted, "resolution_px":112})
+            assoc=vision.registry.association(1,cell["id"])
+            self.assertEqual(assoc["analysis_roi_cm"],[2,2,5,5])
+            self.assertEqual(profile["config"]["detection_roi_cm"],wanted)
+            maps=vision._compiled_roi(run.cameras[1],cell["id"],assoc,geom,profile["config"])
+            self.assertEqual(maps["roi_cm"],wanted)
+            self.assertGreater(maps["coverage"],.5)
+            size=vision._desired_lores_size(run.cameras[1],assoc,profile["config"])
+            self.assertGreater(size[0],0)
+            self.assertGreater(size[1],0)
+
     def test_test_is_required_and_stale_profiles_cannot_start(self):
         with tempfile.TemporaryDirectory() as root:
             run = FakeRun()
