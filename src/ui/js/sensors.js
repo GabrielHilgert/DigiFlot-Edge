@@ -182,7 +182,7 @@ function virtualBenchmarkMarkup(result) {
         <div><span>Valid detections</span><strong>${fmt(Number(result.valid_fraction)*100)}%</strong></div>
         <div><span>lores</span><strong>${escapeHtml((result.lores_size||[]).join(" × "))}</strong></div>
         <div><span>Output ROI</span><strong>${escapeHtml((result.roi_resolution||[]).join(" × "))}</strong></div>
-        </div><p>Benchmarked on the live preview pipeline; confirm recording throughput during the first hardware run.</p>
+        </div><p>Tested with a temporary main recording and lores acquisition in parallel; the test video is discarded after calibration.</p>
         ${result.errors?.length ? `<p>${escapeHtml(result.errors.join("; "))}</p>` : ""}`;
 }
 
