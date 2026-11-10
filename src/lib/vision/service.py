@@ -45,6 +45,7 @@ class VisionService:
         self._virtual_test = None
         self._run_virtual = None
         self._last_virtual_measurement = None
+        self._virtual_sample_count = 0
         self._sync_camera_flags()
 
     def _sync_camera_flags(self):
@@ -128,6 +129,8 @@ class VisionService:
                                         "sensor_timestamp_ns": frame.get("sensor_timestamp_ns"),
                                         "camera_id": camera.id, "cell_id": cell_id,
                                         "calibration_id": association["calibration_id"]})
+                        self._virtual_sample_count += 1
+                        reading["sample_count"] = self._virtual_sample_count
                         self._last_virtual_measurement = reading
                         self._write_virtual_sample(active, reading, frame)
                         status["virtual_sensor"] = {"valid": reading["valid"],
@@ -155,6 +158,9 @@ class VisionService:
             raise ValueError("Select a physical cell and source camera first")
         camera = self.digiflot.get_camera(int(camera_id))
         association = self.registry.association(camera.id, cell_id)
+        if association is not None and (association["cell_revision"] != self.registry.get_cell(cell_id)["revision"]
+                or association["camera_revision"] != self.registry.camera_profile(camera.id)["revision"]):
+            raise ValueError("Camera or cell geometry changed; recalibrate ArUco and select ROI again")
         if association is None or not association.get("analysis_roi_cm"):
             raise ValueError("Confirm ArUco geometry and the physical ROI in Cells before testing")
         profile = self.registry.virtual_profile(camera.id, cell_id)
@@ -216,7 +222,8 @@ class VisionService:
                 "status": "connected" if camera else "offline",
                 "value": reading.get("pulp_froth_interface_cm"), "unit": "cm",
                 "timestamp_ms": int(reading["timestamp_ns"]/1e6) if reading.get("timestamp_ns") else None,
-                "sample_count": reading.get("sample_count", 0), "benchmark": self.virtual_test_result(),
+                "sample_count": reading.get("sample_count", 0), "revision": reading.get("sample_count", 0),
+                "benchmark": self.virtual_test_result(),
                 "error": reading.get("error") if reading else (None if camera else "Source camera is unavailable")}
 
     def _desired_lores_size(self, camera, association, config):
@@ -325,12 +332,16 @@ class VisionService:
                     "lores_size": list(camera.analysis_target_size), "frozen_at": _utc()}
         directory = Path(directory)
         _write(directory / "virtual_sensors" / "froth_interface.json", snapshot)
+        self._virtual_sample_count = 0
+        self._last_virtual_measurement = None
         self._run_virtual = {"config": config, "association": deepcopy(association),
                              "cell_id": cell_id, "directory": str(directory)}
         return snapshot
 
     def disable_run_sensor(self):
         self._run_virtual = None
+        self._virtual_sample_count = 0
+        self._last_virtual_measurement = None
         settings = self.registry.settings()
         if settings["enabled"]:
             self.registry.save_settings({"enabled": False})
