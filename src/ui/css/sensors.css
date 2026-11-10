@@ -230,5 +230,7 @@ a { color: inherit; text-decoration: none; }
 .virtual-roi-stage img, .virtual-roi-stage canvas { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; display:block; }
 .virtual-roi-stage canvas { cursor:crosshair; touch-action:none; }
 .virtual-roi-caption { min-height:25px; margin-top:9px; color:var(--text-soft); font-size:.81rem; font-variant-numeric:tabular-nums; }
-.sensor-virtual .sensor-reading-row::before { content:"Froth thickness"; font-size:.73rem; font-weight:720; color:var(--text-soft); align-self:center; margin-right:12px; white-space:nowrap; }
-@media(max-width:760px) { .virtual-roi-heading { flex-direction:column; } .virtual-roi-buttons { flex-wrap:wrap; } .sensor-virtual .sensor-reading-row { flex-wrap:wrap; } }
+.sensor-virtual .sensor-reading { flex-direction:column; align-items:center; justify-content:center; gap:7px; }
+.virtual-main-label { font-size:.73rem; font-weight:730; color:var(--text-soft); white-space:nowrap; }
+.virtual-main-value { display:flex; align-items:baseline; gap:8px; }
+@media(max-width:760px) { .virtual-roi-heading { flex-direction:column; } .virtual-roi-buttons { flex-wrap:wrap; }  .sensor-virtual .sensor-reading-row { grid-template-columns:1fr; } }
