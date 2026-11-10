@@ -96,6 +96,7 @@ class VisionService:
         self._diagnostic_preview_camera_id = None
         self._diagnostic_revision = 0
         self._diagnostic_latest = None
+        self._diagnostic_error = None
         self._diagnostic_future = None
         self._diagnostic_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vision-diagnostic")
         self._sync_camera_flags()
@@ -304,8 +305,11 @@ class VisionService:
                 with self._lock:
                     self._diagnostic_revision += 1
                     self._diagnostic_latest = {**result, "revision": self._diagnostic_revision}
+                    self._diagnostic_error = None
         except Exception as error:
-            self._latest = {"state": "error", "error": f"Diagnostic rendering: {error}", "updated_at": _utc()}
+            # Optional UI rendering must never mark the real sensor as failed.
+            with self._lock:
+                self._diagnostic_error = str(error)
 
     def diagnostic_preview(self, enabled=True, last_revision=0):
         """Renew a short-lived calibration UI lease; snapshots come from the existing worker."""
@@ -320,8 +324,9 @@ class VisionService:
             snapshot = self._diagnostic_latest
             if snapshot is not None and int(last_revision or 0) != self._diagnostic_revision:
                 return {"enabled": True, "interval_s": 5, "diagnostic": deepcopy(snapshot),
-                        "revision": self._diagnostic_revision}
-            return {"enabled": True, "interval_s": 5, "revision": self._diagnostic_revision}
+                        "revision": self._diagnostic_revision, "error": self._diagnostic_error}
+            return {"enabled": True, "interval_s": 5, "revision": self._diagnostic_revision,
+                    "error": self._diagnostic_error}
 
     def _virtual_context(self):
         camera_id = self.digiflot.virtual_camera_id
@@ -370,6 +375,7 @@ class VisionService:
         self._benchmark_diagnostic = None
         with self._lock:
             self._diagnostic_latest = None
+            self._diagnostic_error = None
             self._diagnostic_next_due = 0.
 
     def _virtual_signature(self):
