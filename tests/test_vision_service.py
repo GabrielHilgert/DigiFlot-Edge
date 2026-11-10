@@ -12,9 +12,13 @@ class FakeCamera:
     def __init__(self):
         self.id=1;self.state=self.PREVIEW;self.analysis_enabled=False
         self.picam2=type('FakePi',(),{'sensor_resolution':(900,920)})()
-    def capture_analysis_frame(self):
+    def capture_analysis_frame(self, grayscale=False):
         from lib.vision.aruco import source_geometry
-        return synthetic_ruler(),source_geometry([900,920],[0,0,900,920])
+        import cv2
+        image = synthetic_ruler()
+        if not grayscale:
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        return image, source_geometry([900,920],[0,0,900,920])
 
 
 class FakeDigiFlot:
@@ -44,6 +48,16 @@ class VisionServiceTests(unittest.TestCase):
             result=service.rectified_snapshot(1,cell['id'])
             self.assertTrue(result['jpeg_base64'])
             self.assertGreater(result['size'][0],0)
+            self.assertGreater(result['size'][0], saved['calibration']['size'][0])
+            self.assertIn('plane', result)
+            selected = service.save_analysis_roi(1, cell['id'], {'roi_cm':[2, 2, 10, 10]})
+            self.assertEqual(selected['revision'], 1)
+            assoc = service.registry.association(1, cell['id'])
+            self.assertEqual(assoc['analysis_roi_cm'], [2, 2, 10, 10])
+            _, frame = system.cameras[1].capture_analysis_frame(grayscale=True)
+            compiled = service._compiled_roi(system.cameras[1], cell['id'], assoc, frame)
+            self.assertLessEqual(compiled['size'][0] * compiled['size'][1], 1_000_000)
+            self.assertIs(compiled, service._compiled_roi(system.cameras[1], cell['id'], assoc, frame))
             service.save_settings({'camera_id':1,'cell_id':cell['id'],'enabled':True,'sampling_interval_s':1})
             self.assertTrue(system.cameras[1].analysis_enabled)
             system.recording=True
