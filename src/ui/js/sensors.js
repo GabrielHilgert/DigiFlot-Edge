@@ -429,7 +429,6 @@ async function loadVirtualRoiPlane() {
     stage.style.aspectRatio=w+" / "+h;
     stage.style.maxWidth=Math.min(760,Math.floor(500*w/h))+"px";
     image.src="data:image/jpeg;base64,"+payload.jpeg_base64;
-    virtualRoiDirty=false;
     renderVirtualRoiCaption();drawVirtualRoiOverlay();
 }
 
@@ -696,8 +695,10 @@ function sensorCard(snapshot) {
 
             <div class="sensor-reading-row">
                 <div class="sensor-reading">
+                    ${virtual ? '<span class="virtual-main-label">Froth thickness</span><div class="virtual-main-value">' : ""}
                     <strong class="reading-value">${hasValue ? escapeHtml(formatValue(snapshot.value, snapshot)) : "—"}</strong>
                     <span class="reading-unit">${escapeHtml(snapshot.unit || "")}</span>
+                    ${virtual ? "</div>" : ""}
                 </div>
                 <div class="reading-details">
                     <div><span>Updated</span><strong class="last-update">${snapshot.timestamp_ms ? new Date(snapshot.timestamp_ms).toLocaleTimeString() : "—"}</strong></div>
