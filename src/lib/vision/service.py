@@ -65,9 +65,16 @@ class VisionService:
         key = (str(camera.id), str(cell_id), association["calibration_id"],
                association["analysis_roi_revision"], tuple(frame["size"]), tuple(frame["sensor_crop"]))
         if key != self._map_key:
-            # Optical parameters and geometry are the immutable calibration snapshot.
+            # Preserve centimetres, but never upscale beyond the lores stream.
+            from math import sqrt
+            span_x, span_y = roi[2] - roi[0], roi[3] - roi[1]
+            source_w, source_h = frame["size"]
+            density = float(association["calibration"]["px_per_cm"])
+            density = min(density, min(source_w, 1280) / span_x,
+                          min(source_h, 960) / span_y, sqrt(1_000_000 / (span_x * span_y)))
             compiled = compile_roi_maps(association["calibration"],
-                                        association["camera_profile"], frame, roi)
+                                        association["camera_profile"], frame, roi,
+                                        px_per_cm=density, max_pixels=1_000_000)
             self._roi_map = compiled
             self._map_key = key
         return self._roi_map
