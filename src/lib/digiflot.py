@@ -806,6 +806,9 @@ class DigiFlot:
                     profile.pop("cell_name", None)
             if physical_cell_id is not None:
                 identity = str(physical_cell_id).strip()
+                selected = (self.cell_profile or {}).get("physical_cell_id")
+                if selected and identity != selected:
+                    raise RuntimeError("The physical cell is locked after experiment setup; return to cell selection in a new execution")
                 if identity:
                     profile["physical_cell_id"] = identity
                 else:
@@ -815,6 +818,8 @@ class DigiFlot:
                 profile["working_volume_l"] = volume
             profile["updated_at"] = _utc_now()
             self.cell_profile = profile or None
+            self.experiment["cell_profile"] = deepcopy(self.cell_profile)
+            _atomic_write_json(self.run_directory / "experiment.json", self.experiment)
             self._touch_unlocked("CELL_PROFILE_UPDATED", {"cell_profile": deepcopy(self.cell_profile)})
             self._sync_execution_state_unlocked()
             return self._execution_inputs_payload_unlocked()
@@ -1423,6 +1428,7 @@ class DigiFlot:
         self.measurement_revision = 0
         self.execution_inputs = {}
         self.cell_profile = None
+        self.virtual_camera_id = None
         self.state = self.IDLE
 
     def _initialise_calibration_state_unlocked(self):
@@ -1527,6 +1533,7 @@ class DigiFlot:
             if item.get("available") is False:
                 raise RuntimeError(item.get("error") or "Camera is not available.")
 
+            if self.vision is not None: self.vision.clear_virtual_test()
             if self.preview_camera_id is not None and self.preview_camera_id != int(camera_id):
                 try:
                     self.stop_preview()
@@ -1640,6 +1647,8 @@ class DigiFlot:
             item["confirmed_at"] = None
             item.pop("skip_reason", None)
             item.pop("error", None)
+            if item.get("mode") == "virtual_interface" and self.vision is not None:
+                self.vision.clear_virtual_test()
             if item.get("mode") in {"two_point", "ph_points"}:
                 for point in (item.get("points") or {}).values():
                     point["status"] = "pending"
@@ -1662,6 +1671,14 @@ class DigiFlot:
                 raise KeyError(f"Sensor '{sensor_id}' is not part of this calibration.")
 
             item = self.sensor_calibration[sensor_id]
+            if item.get("mode") == "virtual_interface":
+                if self.vision is None or not self.vision.virtual_test_passed():
+                    raise RuntimeError("A passing live detection and timing test is required for this sensor and configuration")
+                item["status"] = "passed"
+                item["confirmed_at"] = _utc_now()
+                item["benchmark"] = deepcopy(self.vision.virtual_test_result())
+                self._touch_unlocked("SENSOR_CALIBRATION_CONFIRMED", {"sensor_id": sensor_id, "virtual": True})
+                return self.status
             sensor_status = self._sensor_status_unlocked(sensor_id)
             connection = sensor_status.get("status")
 
@@ -1731,6 +1748,11 @@ class DigiFlot:
 
             incomplete = []
             for sensor_id, item in self.sensor_calibration.items():
+                if item.get("mode") == "virtual_interface" and item.get("status") == "passed":
+                    if self.vision is None or not self.vision.virtual_test_passed():
+                        item["status"] = "pending"
+                        item["confirmed_at"] = None
+                        raise RuntimeError("The virtual sensor configuration changed after its benchmark; repeat the test")
                 snapshot = self._sensor_status_unlocked(sensor_id)
                 if snapshot.get("status") == "connected":
                     if item.get("status") not in {"passed", "skipped"}:
@@ -1760,6 +1782,8 @@ class DigiFlot:
 
     def _sensor_status_unlocked(self, sensor_id: str):
         sensor_id = str(sensor_id)
+        if sensor_id == "froth_interface" and self.vision is not None:
+            return self.vision.virtual_sensor_snapshot()
         if sensor_id in self.scales:
             return self.scales[sensor_id].snapshot()
 
@@ -1909,7 +1933,12 @@ class DigiFlot:
                     labels = [self.REQUIRED_EXECUTION_INPUTS[key]["label"] for key in required["missing"]]
                     raise RuntimeError("Required execution inputs are missing: " + ", ".join(labels))
                 self._verify_start_storage_unlocked()
-
+                if "froth_interface" in self.sensor_calibration and self.sensor_calibration["froth_interface"]["status"] == "passed":
+                    if self.vision is None or not self.vision.virtual_test_passed():
+                        raise RuntimeError("Virtual sensor performance test is no longer valid; reopen calibration")
+                    self.vision.freeze_run_config(self.run_directory)
+                elif self.vision is not None:
+                    self.vision.disable_run_sensor()
                 now = time.monotonic()
                 self.run_started_monotonic = now
                 self.run_started_at = _utc_now()
@@ -3268,8 +3297,8 @@ class DigiFlot:
         with self.lock:
             if self.recording:
                 raise RuntimeError("Preview is not available while recording.")
-            if self.state not in {self.IDLE, self.CAMERA_CALIBRATION}:
-                raise RuntimeError("Preview is only available while idle or calibrating cameras.")
+            if self.state not in {self.IDLE, self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION}:
+                raise RuntimeError("Preview is only available while idle or calibrating cameras or sensors.")
 
             camera = self.get_camera(camera_id)
             if self.preview_camera_id == camera.id and camera.state == camera.PREVIEW:
