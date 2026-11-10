@@ -371,6 +371,31 @@ class VisionService:
                              "cell_id": cell_id, "directory": str(directory)}
         return snapshot
 
+    def restore_run_config(self, directory):
+        """Restore the exact frozen virtual configuration after a run interruption.
+
+        Do not consult or overwrite the newer camera-cell profile: the original
+        experiment snapshot is authoritative for resumed and offline processing.
+        """
+        directory = Path(directory)
+        path = directory / "virtual_sensors" / "froth_interface.json"
+        if not path.is_file():
+            self.disable_run_sensor()
+            return False
+        snapshot = json.loads(path.read_text(encoding="utf-8"))
+        config = normalized_config(snapshot["config"])
+        camera_id, cell_id = int(snapshot["camera_id"]), str(snapshot["cell_id"])
+        camera = self.digiflot.cameras.get(camera_id)
+        if camera is not None:
+            camera.analysis_target_size = tuple(snapshot["lores_size"])
+        self.registry.save_settings({"camera_id": camera_id, "cell_id": cell_id,
+                                     "enabled": True, "sampling_interval_s": config["sampling_interval_s"]})
+        self._sync_camera_flags()
+        self._run_virtual = {"config": config, "association": deepcopy(snapshot["association"]),
+                             "cell_id": cell_id, "directory": str(directory)}
+        self._map_key, self._roi_map = None, None
+        return True
+
     def disable_run_sensor(self):
         self._run_virtual = None
         self._virtual_sample_count = 0
