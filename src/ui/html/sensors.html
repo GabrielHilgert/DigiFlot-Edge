@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026a">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261110diag1">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261110diag1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261110roi1">
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261110roi1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -64,6 +64,19 @@
                     <p>Changes to geometry, resolution, method or parameters invalidate the previous performance test.</p>
                     <div id="virtual_main_fields" class="virtual-field-grid"></div>
                 </div>
+                <section class="virtual-roi-config">
+                    <div class="virtual-roi-heading"><div><h3>Detection ROI</h3>
+                        <p>Select the area to be analyzed on the full rectified camera plane. This ROI belongs to the virtual sensor and does not change the Cells ROI.</p>
+                    </div><div class="virtual-roi-buttons">
+                        <button id="virtual_roi_refresh" type="button" class="button button-secondary">Refresh plane</button>
+                        <button id="virtual_roi_reset" type="button" class="button button-secondary">Use Cells ROI</button>
+                    </div></div>
+                    <div id="virtual_roi_stage" class="virtual-roi-stage" hidden>
+                        <img id="virtual_roi_image" alt="Full calibrated camera plane for selecting the virtual sensor Detection ROI" draggable="false">
+                        <canvas id="virtual_roi_canvas" aria-label="Drag here to select Detection ROI on the calibrated plane"></canvas>
+                    </div>
+                    <div id="virtual_roi_label" class="virtual-roi-caption">Loading calibrated camera plane…</div>
+                </section>
                 <div id="virtual_advanced_fields" class="virtual-advanced"></div>
                 <div class="virtual-actions">
                     <button id="virtual_save" type="button" class="button button-secondary">Save settings</button>
