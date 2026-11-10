@@ -393,8 +393,13 @@ async function openVirtualCalibration() {
         missing.hidden = true; editor.hidden = false;
         renderVirtualFields();
         virtualBenchmarkMarkup(virtualProfileData.test);
+        renderVirtualTestTimeline(virtualProfileData.test?.series || []);
+        if(virtualProfileData.test_diagnostic)
+            renderVirtualDiagnostic(virtualProfileData.test_diagnostic,"Last calibration test");
+        startVirtualDiagnostics().catch(error=>showToast(error.message));
     } catch (error) {
         missing.hidden = false; editor.hidden = true;
+        stopVirtualDiagnostics();
         missing.querySelector("p").textContent = error.message;
     }
 }
@@ -405,20 +410,27 @@ async function virtualSaveConfiguration() {
         method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(config)
     });
     virtualBenchmarkMarkup(null);
+    renderVirtualTestTimeline([]);
+    virtualDiagnostic=null;
+    document.getElementById("virtual_diagnostic_grid").hidden=true;
+    document.getElementById("virtual_diagnostic_positions").hidden=true;
+    document.getElementById("virtual_diagnostics_status").textContent=
+        "Settings updated. Waiting for a diagnostic frame with the new parameters.";
 }
 
 async function virtualRunTest() {
     const button = document.getElementById("virtual_test");
-    button.disabled = true; button.textContent = "Testing acquisition and detection…";
+    button.disabled = true; button.textContent = "Running calibration test…";
     try {
         await virtualSaveConfiguration();
         const result = await requestJson("/api/vision/virtual-sensors/froth-interface/benchmark", {
             method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({samples:20})
         });
         virtualBenchmarkMarkup({...result, current:true});
-        const preview = document.getElementById("virtual_image");
-        preview.hidden = !result.preview_jpeg_base64;
-        if (result.preview_jpeg_base64) preview.src = `data:image/jpeg;base64,${result.preview_jpeg_base64}`;
+        renderVirtualTestTimeline(result.series || []);
+        if(result.diagnostic)renderVirtualDiagnostic(result.diagnostic,"Calibration test");
+        else document.getElementById("virtual_diagnostics_status").textContent=
+            result.diagnostic_error || "The test ran, but no diagnostic entropy map was produced.";
         state.digiflot = await requestJson("/api/digiflot/state");
         updateCalibrationProgress();
         showToast(result.passed ? "Live test passed. Inspect the preview before confirming." :
@@ -427,7 +439,7 @@ async function virtualRunTest() {
         virtualBenchmarkMarkup(null);
         showToast(error.message);
     } finally {
-        button.disabled = false; button.textContent = "Save & test detection + timing";
+        button.disabled = false; button.textContent = "Run calibration test";
     }
 }
 
@@ -1039,7 +1051,16 @@ async function loadSensors() {
 }
 
 document.getElementById("virtual_close").addEventListener("click", () => {
+    stopVirtualDiagnostics();
     document.getElementById("virtual_panel").hidden = true;
+});
+document.getElementById("virtual_diagnostics_toggle").addEventListener("click", () => {
+    if(virtualDiagnosticsActive)stopVirtualDiagnostics();
+    else startVirtualDiagnostics().catch(error=>showToast(error.message));
+});
+document.getElementById("virtual_show_grid").addEventListener("change", drawVirtualOverlays);
+window.addEventListener("resize", () => {
+    if(virtualTestSeries.length)window.requestAnimationFrame(drawVirtualTestTimeline);
 });
 document.getElementById("virtual_save").addEventListener("click", async () => {
     try { await virtualSaveConfiguration(); showToast("Profile saved. A new live test is required."); }
@@ -1052,6 +1073,7 @@ document.getElementById("virtual_confirm").addEventListener("click", async () =>
         updateCalibrationProgress();
         renderCards();
         showToast("Virtual sensor calibration confirmed.");
+        stopVirtualDiagnostics();
         document.getElementById("virtual_panel").hidden = true;
     } catch (error) { showToast(error.message); }
 });
@@ -1080,6 +1102,7 @@ el.finishCalibration.addEventListener("click", async () => {
 });
 
 window.addEventListener("beforeunload", () => {
+    if(virtualDiagnosticsTimer)window.clearInterval(virtualDiagnosticsTimer);
     for (const source of state.streams.values()) source.close();
 });
 
