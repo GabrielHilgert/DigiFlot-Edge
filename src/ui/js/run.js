@@ -217,15 +217,20 @@ function renderSensorCalibration(state) {
         const snapshot = findSensorSnapshot(state, sensor.id) || {};
         const connection = snapshot.status || "unknown";
         const calibration = sensor.status || "pending";
+        const virtual = sensor.type === "virtual_froth_interface";
+        const type = virtual ? "Virtual sensor · Froth interface" : (sensor.type || "Sensor").replaceAll("_", " ");
+        const origin = virtual ? `Camera ${sensor.source_camera_id ?? snapshot.source_camera_id ?? "—"} · ${state.cell_selection?.cell_name || state.execution_inputs?.cell_profile?.cell_name || "Selected cell"}` : "";
+        const calibrationLabel = calibration === "passed" ? "Calibrated" : calibration === "pending" && virtual ? "Test required" : calibration.replaceAll("_", " ");
         return `
-            <div class="sensor-summary-item">
+            <div class="sensor-summary-item ${virtual ? "virtual-sensor-summary" : ""}">
                 <div>
                     <strong>${escapeHtml(sensor.name)}</strong>
-                    <span>${escapeHtml(sensor.type || "sensor")}</span>
+                    <span class="sensor-kind">${escapeHtml(type)}</span>
+                    ${origin ? `<span class="sensor-origin">${escapeHtml(origin)}</span>` : ""}
                 </div>
                 <div class="sensor-summary-states">
-                    <span class="connection-state ${escapeHtml(connection)}">${escapeHtml(connection)}</span>
-                    <span class="calibration-status ${escapeHtml(calibration)}">${escapeHtml(calibration)}</span>
+                    <span class="connection-state ${escapeHtml(connection)}">${escapeHtml(connection === "connected" && virtual ? "Camera connected" : connection)}</span>
+                    <span class="calibration-status ${escapeHtml(calibration)}">${escapeHtml(calibrationLabel)}</span>
                 </div>
             </div>`;
     }).join("") || "<p>No sensors configured.</p>";
