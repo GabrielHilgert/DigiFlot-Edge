@@ -807,6 +807,8 @@ class DigiFlot:
             if physical_cell_id is not None:
                 identity = str(physical_cell_id).strip()
                 selected = (self.cell_profile or {}).get("physical_cell_id")
+                if selected and not identity:
+                    identity = selected
                 if selected and identity and identity != selected:
                     raise RuntimeError("The physical cell is locked after experiment setup; return to cell selection in a new execution")
                 if identity:
