@@ -1217,7 +1217,11 @@ document.getElementById("virtual_reference_y").addEventListener("input",()=>{
     if(!virtualDraft)return;
     const value=document.getElementById("virtual_reference_y").value.trim();
     virtualDraft.vertical_reference_y_cm=value===""?null:Number(value);
-    invalidateVerticalReference();
+    virtualDraft.vertical_reference_confirmed=false;
+    document.getElementById("virtual_reference_confirm").checked=false;
+    virtualBenchmarkMarkup(null);renderVirtualTestTimeline([]);
+    document.getElementById("virtual_reference_description").textContent=
+        "Reference coordinate modified. Review and confirm it before the next calibration test.";
 });
 document.getElementById("virtual_reference_confirm").addEventListener("change",event=>{
     if(virtualDraft)virtualDraft.vertical_reference_confirmed=event.target.checked;
