@@ -6,7 +6,7 @@
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026a">
     <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261026a">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20260928c"></script>
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261110d"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -47,6 +47,34 @@
                 <button id="calibration_drawer_close" class="button button-secondary" type="button">Minimize</button>
             </div>
             <div id="calibration_drawer_body"></div>
+        </section>
+
+        <section id="virtual_panel" class="card virtual-panel" hidden>
+            <div class="virtual-panel-header"><div><span class="status-label">Virtual sensor calibration</span>
+                <h2>Froth interface · <span id="virtual_source">Camera</span></h2>
+                <p id="virtual_geometry">Uses the physical cell and camera calibration selected for this experiment.</p>
+            </div><button class="button button-secondary" id="virtual_close" type="button">Minimize</button></div>
+            <div id="virtual_missing" class="virtual-message" hidden>
+                <strong>Camera-cell geometry is incomplete.</strong>
+                <p>Confirm ArUco markers and select a physical analysis ROI in Cells before testing.</p>
+                <a class="button button-secondary" id="virtual_open_cells" href="/cells">Complete camera geometry</a>
+            </div>
+            <div id="virtual_editor" hidden>
+                <div class="virtual-section"><h3>Method and acquisition</h3>
+                    <p>Changes to geometry, resolution, method or parameters invalidate the previous performance test.</p>
+                    <div id="virtual_main_fields" class="virtual-field-grid"></div>
+                </div>
+                <div id="virtual_advanced_fields" class="virtual-advanced"></div>
+                <div class="virtual-actions">
+                    <button id="virtual_save" type="button" class="button button-secondary">Save settings</button>
+                    <button id="virtual_test" type="button" class="button button-primary">Save &amp; test detection + timing</button>
+                    <button id="virtual_confirm" type="button" class="button button-primary" disabled>Confirm tested calibration</button>
+                </div>
+                <div class="virtual-preview">
+                    <img id="virtual_image" alt="Detected froth and pulp interfaces over rectified camera ROI" hidden>
+                    <div id="virtual_benchmark" class="virtual-message" role="status">A live detection and performance test is required for this execution.</div>
+                </div>
+            </div>
         </section>
 
         <section id="empty_state" class="empty-state" hidden>
