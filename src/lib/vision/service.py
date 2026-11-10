@@ -89,36 +89,97 @@ class VisionService:
             self._map_key = key
         return self._roi_map
 
+    def _analysis_context(self):
+        """Resolve the calibrated or frozen virtual sensor without starting video."""
+        with self.digiflot.lock:
+            run = self._run_virtual
+            state = self.digiflot.state
+            if run is not None and state in (self.digiflot.RUNNING, self.digiflot.PAUSED,
+                                             self.digiflot.COMPLETED):
+                camera_id = run.get("camera_id", self.digiflot.virtual_camera_id)
+                camera = self.digiflot.cameras.get(int(camera_id)) if camera_id is not None else None
+                if camera is None:
+                    return None
+                return {"camera": camera, "cell_id": run["cell_id"], "association": run["association"],
+                        "config": run["config"],
+                        "run": run if state in (self.digiflot.RUNNING, self.digiflot.PAUSED) else None}
+            if state not in (self.digiflot.SENSOR_CALIBRATION, self.digiflot.READY):
+                return None
+            item = self.digiflot.sensor_calibration.get("froth_interface") or {}
+            if item.get("status") != "passed" or not self.virtual_test_passed():
+                return None
+            camera, cell_id, association, profile = self._virtual_context()
+            return {"camera": camera, "cell_id": cell_id, "association": association,
+                    "config": profile["config"], "run": None}
+
+    def ensure_live_preview(self, context=None):
+        """Open lores preview only when main recording is not active.
+
+        Both preview startup and the transition into the main encoder are serialized
+        on the DigiFlot lock. The recording controller owns preview shutdown.
+        """
+        with self.digiflot.lock:
+            context = context or self._analysis_context()
+            if context is None:
+                return False
+            camera = context["camera"]
+            if camera.state in (camera.PREVIEW, camera.RECORDING):
+                return True
+            if camera.state != camera.IDLE or self._benchmarking:
+                return False
+            if self.digiflot.recording:
+                return False
+            owner = self.digiflot.preview_camera_id
+            if owner is not None and int(owner) != int(camera.id):
+                return False
+            camera.analysis_target_size = self._desired_lores_size(camera, context["association"], context["config"])
+            camera.start_preview()
+            self.digiflot.preview_camera_id = camera.id
+            return True
+
     def _loop(self):
-        # No queued frames; acquisition and recording always take priority.
+        # One frame source; no unbounded queue. Preview and recording share ROI maps.
         next_due = time.monotonic()
         while not self._stop.is_set():
-            interval = max(.2, float((self._run_virtual or {}).get("config", {}).get(
-                "sampling_interval_s", self.registry.settings()["sampling_interval_s"])))
-            if self._stop.wait(max(0., next_due - time.monotonic())):
+            try:
+                context = self._analysis_context()
+                settings = self.registry.settings() if context is None else None
+                interval = (float(context["config"]["sampling_interval_s"]) if context else
+                            float(settings["sampling_interval_s"]))
+                interval = max(.2, interval)
+            except Exception as error:
+                self._latest = {"state": "error", "error": str(error), "updated_at": _utc()}
+                context, settings, interval = None, None, 1.0
+            if self._stop.wait(max(0, next_due - time.monotonic())):
                 break
-            # Respect scheduled acquisition start times; discard missed slots.
             next_due = max(next_due + interval, time.monotonic())
             if self._benchmarking:
                 continue
-            settings = self.registry.settings()
-            active = self._run_virtual
-            if not settings["enabled"] or settings["camera_id"] is None:
-                continue
-            camera = self.digiflot.cameras.get(int(settings["camera_id"]))
-            if camera is None or camera.state != camera.RECORDING:
-                continue
             try:
+                if context is not None:
+                    if not self.ensure_live_preview(context):
+                        self._latest = {"state": "waiting", "error": "Camera is busy or unavailable for lores",
+                                        "updated_at": _utc()}
+                        continue
+                    camera, association = context["camera"], context["association"]
+                    cell_id, config, active = context["cell_id"], context["config"], context["run"]
+                elif settings and settings["enabled"] and settings["camera_id"] is not None:
+                    camera = self.digiflot.cameras.get(int(settings["camera_id"]))
+                    if camera is None or camera.state != camera.RECORDING:
+                        continue
+                    cell_id = settings.get("cell_id")
+                    association = self.registry.association(camera.id, cell_id) if cell_id else None
+                    config, active = None, None
+                else:
+                    continue
                 started = time.perf_counter()
-                association = (active or {}).get("association")
-                cell_id = (active or {}).get("cell_id") or settings.get("cell_id")
-                if association is None and cell_id:
-                    association = self.registry.association(camera.id, cell_id)
                 roi = (association or {}).get("analysis_roi_cm")
-                config = (active or {}).get("config")
                 color = bool(config and config["method"] in COLOR_METHODS and roi)
                 image, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
-                status = {"state": "running", "camera_id": camera.id, "cell_id": cell_id,
+                status = {"state": "running", "mode": "experiment" if active else
+                          ("live_preview" if config else "geometry"),
+                          "camera_id": camera.id, "cell_id": cell_id,
+                          "camera_state": camera.state,
                           "associated_calibration": (association or {}).get("calibration_id"),
                           "updated_at": _utc(), "error": None}
                 if roi is not None:
@@ -155,10 +216,11 @@ class VisionService:
                 status["processing_ms"] = round((time.perf_counter() - started) * 1000, 2)
                 status["deadline_met"] = status["processing_ms"] <= interval * 1000
                 self._latest = status
-                directory = self.digiflot.run_directory
-                if directory is not None and association is not None and str(directory) not in self._seen_runs:
-                    _write(Path(directory) / "vision_calibration_snapshot.json", association)
-                    self._seen_runs.add(str(directory))
+                if active is not None and association is not None:
+                    directory = self.digiflot.run_directory
+                    if directory is not None and str(directory) not in self._seen_runs:
+                        _write(Path(directory) / "vision_calibration_snapshot.json", association)
+                        self._seen_runs.add(str(directory))
             except Exception as error:
                 self._latest = {"state": "error", "error": str(error), "updated_at": _utc()}
 
@@ -235,15 +297,34 @@ class VisionService:
         cell_id = (self.digiflot.cell_profile or {}).get("physical_cell_id")
         camera = self.digiflot.cameras.get(int(camera_id)) if camera_id is not None else None
         reading = self._last_virtual_measurement or {}
+        test = self.virtual_test_result()
+        active_state = self.digiflot.state in (self.digiflot.SENSOR_CALIBRATION, self.digiflot.READY,
+                                                self.digiflot.RUNNING, self.digiflot.PAUSED,
+                                                self.digiflot.COMPLETED)
+        timestamp = reading.get("timestamp_ns")
+        age_s = (time.time_ns() - int(timestamp)) / 1e9 if timestamp else None
+        current = bool(active_state and timestamp and str(reading.get("camera_id")) == str(camera_id)
+                       and str(reading.get("cell_id")) == str(cell_id)
+                       and age_s is not None and age_s < 10)
+        valid = bool(reading.get("valid")) if current else None
+        live_mode = ("experiment" if self.digiflot.state in (self.digiflot.RUNNING, self.digiflot.PAUSED)
+                     else "preview")
         return {"id": "froth_interface", "name": "Froth Interface",
                 "type": "virtual_froth_interface", "virtual": True,
                 "source_camera_id": camera_id, "physical_cell_id": cell_id,
                 "status": "connected" if camera else "offline",
-                "value": reading.get("pulp_froth_interface_cm"), "unit": "cm",
-                "timestamp_ms": int(reading["timestamp_ns"]/1e6) if reading.get("timestamp_ns") else None,
-                "sample_count": reading.get("sample_count", 0), "revision": reading.get("sample_count", 0),
-                "benchmark": self.virtual_test_result(),
-                "error": reading.get("error") if reading else (None if camera else "Source camera is unavailable")}
+                "value": reading.get("pulp_froth_interface_cm") if valid else None,
+                "unit": "cm", "decimals": 2,
+                "channels": {key: reading.get(key) for key in
+                             ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm")} if current else None,
+                "reading_valid": valid,
+                "measurement_mode": live_mode if current else "waiting",
+                "timestamp_ms": int(timestamp / 1e6) if current else None,
+                "sample_count": reading.get("sample_count", 0) if current else 0,
+                "revision": reading.get("sample_count", 0) if current else 0,
+                "benchmark": test,
+                "error": (reading.get("error") or ("No valid interface detected" if valid is False else None))
+                         if current else (None if camera else "Source camera is unavailable")}
 
     def _desired_lores_size(self, camera, association, config):
         roi = association["analysis_roi_cm"]
@@ -385,7 +466,8 @@ class VisionService:
         _write(directory / "virtual_sensors" / "froth_interface.json", snapshot)
         self._virtual_sample_count = 0
         self._last_virtual_measurement = None
-        self._run_virtual = {"config": config, "association": deepcopy(association),
+        self._run_virtual = {"camera_id": camera.id, "config": config,
+                             "association": deepcopy(association),
                              "cell_id": cell_id, "directory": str(directory)}
         return snapshot
 
@@ -409,7 +491,8 @@ class VisionService:
         self.registry.save_settings({"camera_id": camera_id, "cell_id": cell_id,
                                      "enabled": True, "sampling_interval_s": config["sampling_interval_s"]})
         self._sync_camera_flags()
-        self._run_virtual = {"config": config, "association": deepcopy(snapshot["association"]),
+        self._run_virtual = {"camera_id": camera_id, "config": config,
+                             "association": deepcopy(snapshot["association"]),
                              "cell_id": cell_id, "directory": str(directory)}
         self._map_key, self._roi_map = None, None
         return True
@@ -424,7 +507,7 @@ class VisionService:
             self._sync_camera_flags()
 
     def _write_virtual_sample(self, active, reading, frame):
-        if active is None:
+        if active is None or self.digiflot.state not in (self.digiflot.RUNNING, self.digiflot.PAUSED):
             return
         import csv
         directory = Path(active["directory"])

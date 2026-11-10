@@ -1398,6 +1398,11 @@ class DigiFlot:
         self.stop_preview()
         self._stop_camera_recording_unlocked(ignore_errors=True)
         self._stop_sensor_recording_unlocked()
+        if self.vision is not None:
+            # Do not carry virtual profiles, live readings, or a passed test
+            # from one experiment into another without a new calibration.
+            self.vision.disable_run_sensor()
+            self.vision.clear_virtual_test()
 
         self.storage_id = None
         self.run_directory = None
@@ -1684,6 +1689,15 @@ class DigiFlot:
                 item["status"] = "passed"
                 item["confirmed_at"] = _utc_now()
                 item["benchmark"] = deepcopy(self.vision.virtual_test_result())
+                # Start lores immediately after approval; this is a preview, not video recording.
+                try:
+                    if not self.vision.ensure_live_preview():
+                        raise RuntimeError("The source camera is busy. Close other previews and retry.")
+                except Exception:
+                    item["status"] = "pending"
+                    item["confirmed_at"] = None
+                    item.pop("benchmark", None)
+                    raise
                 self._touch_unlocked("SENSOR_CALIBRATION_CONFIRMED", {"sensor_id": sensor_id, "virtual": True})
                 return self.status
             sensor_status = self._sensor_status_unlocked(sensor_id)
@@ -1736,6 +1750,8 @@ class DigiFlot:
             item["confirmed_at"] = _utc_now()
             item["skip_reason"] = str(reason or "Operator skipped calibration")
             item.pop("error", None)
+            if item.get("mode") == "virtual_interface" and self.preview_camera_id == self.virtual_camera_id:
+                self.stop_preview()
 
             self._touch_unlocked(
                 "SENSOR_CALIBRATION_SKIPPED",
@@ -1781,7 +1797,10 @@ class DigiFlot:
                     "Calibration is still required for: " + ", ".join(incomplete)
                 )
 
-            if self.preview_camera_id is not None:
+            keep_virtual_preview = (self.virtual_camera_id is not None
+                and self.preview_camera_id == self.virtual_camera_id
+                and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed")
+            if self.preview_camera_id is not None and not keep_virtual_preview:
                 self.stop_preview()
             self.state = self.READY
             self.stage_state = self.STAGE_WAITING
@@ -3389,6 +3408,12 @@ class DigiFlot:
     def _start_camera_recording_unlocked(self, stage: dict | None = None):
         if self.run_directory is None:
             raise RuntimeError("No experiment execution is selected.")
+
+        # Picamera2 cannot reconfigure a source still running in preview.
+        # Stop the analysis preview before starting the regular main encoder.
+        # This never changes the selected main recording settings.
+        if self.preview_camera_id is not None:
+            self.stop_preview()
 
         if not self.cameras:
             self._add_warning_unlocked(

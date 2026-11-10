@@ -217,15 +217,20 @@ function renderSensorCalibration(state) {
         const snapshot = findSensorSnapshot(state, sensor.id) || {};
         const connection = snapshot.status || "unknown";
         const calibration = sensor.status || "pending";
+        const virtual = sensor.type === "virtual_froth_interface";
+        const type = virtual ? "Virtual sensor · Froth interface" : (sensor.type || "Sensor").replaceAll("_", " ");
+        const origin = virtual ? `Camera ${sensor.source_camera_id ?? snapshot.source_camera_id ?? "—"} · ${state.cell_selection?.cell_name || state.execution_inputs?.cell_profile?.cell_name || "Selected cell"}` : "";
+        const calibrationLabel = calibration === "passed" ? "Calibrated" : calibration === "pending" && virtual ? "Test required" : calibration.replaceAll("_", " ");
         return `
-            <div class="sensor-summary-item">
+            <div class="sensor-summary-item ${virtual ? "virtual-sensor-summary" : ""}">
                 <div>
                     <strong>${escapeHtml(sensor.name)}</strong>
-                    <span>${escapeHtml(sensor.type || "sensor")}</span>
+                    <span class="sensor-kind">${escapeHtml(type)}</span>
+                    ${origin ? `<span class="sensor-origin">${escapeHtml(origin)}</span>` : ""}
                 </div>
                 <div class="sensor-summary-states">
-                    <span class="connection-state ${escapeHtml(connection)}">${escapeHtml(connection)}</span>
-                    <span class="calibration-status ${escapeHtml(calibration)}">${escapeHtml(calibration)}</span>
+                    <span class="connection-state ${escapeHtml(connection)}">${escapeHtml(connection === "connected" && virtual ? "Camera connected" : connection)}</span>
+                    <span class="calibration-status ${escapeHtml(calibration)}">${escapeHtml(calibrationLabel)}</span>
                 </div>
             </div>`;
     }).join("") || "<p>No sensors configured.</p>";
@@ -365,7 +370,8 @@ function sensorDisplayValue(sensor) {
 }
 
 function sensorAgeText(sensor) {
-    const timestamp = Number(sensor?.timestamp_ms);
+    if (sensor?.timestamp_ms == null) return "Awaiting live measurement";
+    const timestamp = Number(sensor.timestamp_ms);
     if (!Number.isFinite(timestamp)) return "No sample received";
     const age = Math.max(0, (Date.now() - timestamp) / 1000);
     if (age < 1) return "Updated <1 s ago";
@@ -373,9 +379,15 @@ function sensorAgeText(sensor) {
 }
 
 function shouldStorePlotSample(sensor) {
-    if (hiddenSensorPlots.has(String(sensor.id))) return false;
+    if (hiddenSensorPlots.has(String(sensor.id)) || sensor.timestamp_ms == null) return false;
     const timestamp = Number(sensor.timestamp_ms);
-    if (!Number.isFinite(timestamp) || !Number.isFinite(Number(sensor.value))) return false;
+    if (!Number.isFinite(timestamp)) return false;
+    const virtual = sensor.type === "virtual_froth_interface";
+    const usable = virtual
+        ? [sensor.channels?.froth_surface_cm, sensor.channels?.pulp_froth_interface_cm]
+            .some(value => value != null && Number.isFinite(Number(value)))
+        : sensor.value != null && Number.isFinite(Number(sensor.value));
+    if (!usable) return false;
     const previous = lastSensorPlotTimestamp.get(String(sensor.id));
     if (previous != null && timestamp - previous < 900) return false;
     lastSensorPlotTimestamp.set(String(sensor.id), timestamp);
@@ -384,9 +396,12 @@ function shouldStorePlotSample(sensor) {
 
 function appendSensorPlotSample(sensor) {
     if (!shouldStorePlotSample(sensor)) return;
-    const key = String(sensor.id);
-    const history = sensorPlotHistory.get(key) || [];
-    history.push({ timestamp: Number(sensor.timestamp_ms), value: Number(sensor.value) });
+    const key = String(sensor.id), history = sensorPlotHistory.get(key) || [];
+    const numeric = value => value == null || !Number.isFinite(Number(value)) ? null : Number(value);
+    const virtual = sensor.type === "virtual_froth_interface";
+    history.push({timestamp:Number(sensor.timestamp_ms), value:numeric(sensor.value), virtual,
+        upper:virtual ? numeric(sensor.channels?.froth_surface_cm) : null,
+        lower:virtual ? numeric(sensor.channels?.pulp_froth_interface_cm) : null});
     while (history.length > 60) history.shift();
     sensorPlotHistory.set(key, history);
 }
@@ -400,34 +415,30 @@ function drawSensorPlot(canvas, sensorId) {
     const width = Math.max(1, Math.round(rect.width * ratio));
     const height = Math.max(1, Math.round(rect.height * ratio));
     if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = width; canvas.height = height;
     }
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, width, height);
     if (history.length < 2) return;
-    const values = history.map((item) => item.value);
-    let min = Math.min(...values);
-    let max = Math.max(...values);
-    if (max === min) {
-        const pad = Math.max(Math.abs(max) * 0.01, 0.1);
-        min -= pad;
-        max += pad;
+    const virtual = history.at(-1).virtual;
+    const series = virtual ? [["upper","#0ea5e9"],["lower","#f59e0b"]] : [["value",null]];
+    const values = history.flatMap(item => series.map(([key]) => item[key])).filter(value => value != null);
+    if (!values.length) return;
+    let min = Math.min(...values), max = Math.max(...values);
+    if (max === min) { const pad=Math.max(Math.abs(max)*.01,.1); min-=pad;max+=pad; }
+    const pad = 4 * ratio, fallback = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#2f6fed";
+    ctx.lineWidth = 1.6 * ratio; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    for (const [key,color] of series) {
+        ctx.beginPath(); let started=false;
+        history.forEach((item,index) => {
+            const value=item[key];
+            if(value==null){started=false;return;}
+            const x=pad+index/Math.max(1,history.length-1)*(width-2*pad);
+            const y=height-pad-(value-min)/(max-min)*(height-2*pad);
+            if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);
+        });
+        ctx.strokeStyle=color||fallback;ctx.stroke();
     }
-    const pad = 4 * ratio;
-    const color = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#2f6fed";
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.6 * ratio;
-    ctx.lineJoin = "round";
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    history.forEach((item, index) => {
-        const x = pad + (index / Math.max(1, history.length - 1)) * (width - 2 * pad);
-        const y = height - pad - ((item.value - min) / (max - min)) * (height - 2 * pad);
-        if (index === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
 }
 
 function ensureSensorCard(sensor) {
@@ -472,7 +483,16 @@ function renderLiveSensors(state) {
         const status = card.querySelector(".live-sensor-status");
         status.textContent = sensor.status || "unknown";
         status.className = `live-sensor-status ${sensorIsOnline(sensor) ? "online" : "offline"}`;
-        card.querySelector(".live-sensor-reading").textContent = sensorDisplayValue(sensor);
+        if (sensor.type === "virtual_froth_interface") {
+            const display = key => sensor.channels?.[key] == null ? "—" : `${Number(sensor.channels[key]).toFixed(2)} cm`;
+            card.querySelector(".live-sensor-reading").textContent =
+                `Froth surface ${display("froth_surface_cm")} · Pulp interface ${display("pulp_froth_interface_cm")}`;
+            card.querySelector(".live-sensor-reading").classList.add("virtual-live-reading");
+            status.textContent = sensor.measurement_mode === "experiment" ? "Live · experiment" :
+                sensor.measurement_mode === "preview" ? "Live · preview" : "Waiting for lores";
+        } else {
+            card.querySelector(".live-sensor-reading").textContent = sensorDisplayValue(sensor);
+        }
         card.querySelector(".live-sensor-age").textContent = sensorAgeText(sensor);
         const wrap = card.querySelector(".sensor-sparkline-wrap");
         const toggle = card.querySelector(".plot-toggle");
