@@ -69,6 +69,7 @@ class DigiFlot:
     """Runtime controller and experiment orchestrator for one DigiFlot cell."""
 
     IDLE = "Idle"
+    CELL_SELECTION = "CellSelection"
     CAMERA_CALIBRATION = "CameraCalibration"
     SENSOR_CALIBRATION = "SensorCalibration"
     READY = "Ready"
@@ -208,6 +209,8 @@ class DigiFlot:
         self.measurement_revision = 0
         self.execution_inputs = {}
         self.cell_profile = None
+        self.vision = None  # Linked by the app lifespan.
+        self.virtual_camera_id = None
 
         # Optional offline-safe Server synchronization. The orchestrator must
         # remain fully operational when no ServerSync manager is attached or
@@ -530,6 +533,10 @@ class DigiFlot:
                 if self.atlas is not None
                 else []
             ),
+            "cell_selection": {"selected": bool((self.cell_profile or {}).get("physical_cell_id")),
+                               "cell_id": (self.cell_profile or {}).get("physical_cell_id"),
+                               "camera_id": self.virtual_camera_id},
+            "virtual_sensors": ([self.vision.virtual_sensor_snapshot()] if self.vision is not None and self.virtual_camera_id is not None else []),
             "calibration": {
                 "cameras": deepcopy(self.camera_calibration),
                 "sensors": deepcopy(self.sensor_calibration),
@@ -674,7 +681,7 @@ class DigiFlot:
             }
         self.execution_inputs = inputs
 
-        profile = deepcopy((self.experiment or {}).get("cell_profile") or metadata.get("cell_profile") or self.cell_profile)
+        profile = deepcopy(self.cell_profile or (self.experiment or {}).get("cell_profile") or metadata.get("cell_profile"))
         if not isinstance(profile, dict):
             profile = {}
         if profile.get("working_volume_l") in (None, "") and inputs["working_cell_volume"]["value"] is not None:
@@ -1206,7 +1213,7 @@ class DigiFlot:
             self.experiment = experiment
             self._load_measurements_unlocked()
             self._initialise_execution_inputs_unlocked()
-            self.state = self.CAMERA_CALIBRATION
+            self.state = self.CELL_SELECTION
             self.stage_state = self.STAGE_NONE
             self._initialise_calibration_state_unlocked()
             self._write_config_snapshot_unlocked()
@@ -1218,8 +1225,50 @@ class DigiFlot:
                 },
             )
             self._sync_execution_state_unlocked("preparing", ensure=True)
+            return self.status
+
+    def select_physical_cell(self, cell_id, camera_id=None):
+        """Propagate the selected physical cell to experiment and execution state."""
+        with self.lock:
+            if self.state != self.CELL_SELECTION or self.run_directory is None:
+                raise RuntimeError("Select the physical cell before calibrating cameras")
+            if self.vision is None:
+                raise RuntimeError("Cell Vision registry is not available")
+            cell = self.vision.registry.get_cell(str(cell_id))
+            chosen = camera_id
+            if chosen in (None, ""):
+                chosen = self.vision.registry.settings().get("camera_id")
+            if chosen in (None, "") and self.cameras:
+                chosen = next(iter(self.cameras))
+            if chosen not in (None, ""):
+                chosen = int(chosen)
+                if chosen not in self.cameras:
+                    raise ValueError("The selected virtual sensor camera is not configured")
+            profile = deepcopy(self.cell_profile or {})
+            profile.update({"physical_cell_id": cell["id"], "cell_name": cell["name"],
+                            "physical_cell_revision": cell["revision"],
+                            "virtual_camera_id": chosen, "updated_at": _utc_now()})
+            self.cell_profile = profile
+            self.virtual_camera_id = chosen
+            self.experiment["cell_profile"] = deepcopy(profile)
+            _atomic_write_json(self.run_directory / "experiment.json", self.experiment)
+            self._register_virtual_sensor_unlocked()
+            self.state = self.CAMERA_CALIBRATION
+            self._write_config_snapshot_unlocked()
+            self._touch_unlocked("PHYSICAL_CELL_SELECTED", {"cell_id": cell["id"], "camera_id": chosen})
+            self._sync_execution_state_unlocked()
             self._advance_from_camera_calibration_unlocked()
             return self.status
+
+    def _register_virtual_sensor_unlocked(self):
+        self.sensor_calibration.pop("froth_interface", None)
+        if self.virtual_camera_id is not None:
+            self.sensor_calibration["froth_interface"] = {
+                "id": "froth_interface", "name": "Froth Interface",
+                "type": "virtual_froth_interface", "mode": "virtual_interface",
+                "source_camera_id": self.virtual_camera_id,
+                "physical_cell_id": (self.cell_profile or {}).get("physical_cell_id"),
+                "status": "pending", "confirmed_at": None}
 
     def _load_existing_runtime_unlocked(self, directory, experiment, runtime):
         previous_state = runtime.get("state")
@@ -1234,6 +1283,8 @@ class DigiFlot:
                 self.execution_inputs = {str(item.get("id")): deepcopy(item) for item in items if isinstance(item, dict) and item.get("id")}
             self.cell_profile = deepcopy(saved_inputs.get("cell_profile")) if isinstance(saved_inputs.get("cell_profile"), dict) else None
         self._initialise_execution_inputs_unlocked()
+        self.virtual_camera_id = (self.cell_profile or {}).get("virtual_camera_id")
+        self._register_virtual_sensor_unlocked()
         self.current_stage_index = runtime.get("current_stage_index")
         self.stage_state = runtime.get("stage_state", self.STAGE_NONE)
         self.run_started_at = runtime.get("run_started_at")
@@ -1269,6 +1320,7 @@ class DigiFlot:
             self.state = self.ERROR
             self.stage_state = self.STAGE_NONE
         elif previous_state in {
+            self.CELL_SELECTION,
             self.CAMERA_CALIBRATION,
             self.SENSOR_CALIBRATION,
             self.READY,
