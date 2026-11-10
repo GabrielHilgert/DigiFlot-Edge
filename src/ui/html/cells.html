@@ -27,6 +27,15 @@
       <div class="cv-three"><label>Marker 0 ID <input id="marker_0" type="number" min="0" step="1" value="0"></label><label>Marker 1 ID <input id="marker_1" type="number" min="0" step="1" value="1"></label><label>Marker 2 ID <input id="marker_2" type="number" min="0" step="1" value="2"></label></div>
       <div class="cv-two"><label>Marker size (cm) <input id="marker_size" type="number" min="0.01" step="any" value="2"></label>
       <label>Ruler span (cm) <input id="marker_span" type="number" min="0.01" step="any" value="14"></label></div></div>
+      <div class="cv-field-group"><div class="cv-group-heading"><strong>Vertical height reference</strong><span>Physical datum, independent of ArUco recalibration</span></div>
+      <p class="cv-description">Image-plane Y increases downward. The reference can be outside the camera view. Set a physical Y coordinate for the cell top or bottom, or use the lowest ArUco marker corner. Cell height can derive the opposite boundary.</p>
+      <div class="cv-two"><label>Default reference <select id="cell_reference_mode">
+        <option value="aruco_bottom">ArUco reference (lowest marker)</option>
+        <option value="cell_bottom">Cell bottom (height above base)</option>
+        <option value="cell_top">Cell top (depth from rim)</option></select></label>
+        <label>Cell top Y (cm, ArUco plane) <input id="cell_top_y_cm" type="number" step="any" placeholder="Optional if bottom + height known"></label></div>
+      <div class="cv-two"><label>Cell bottom Y (cm, ArUco plane) <input id="cell_bottom_y_cm" type="number" step="any" placeholder="Can be outside image"></label>
+        <div class="cv-reference-action"><button class="button button-secondary" type="button" id="save_cell_reference">Save cell reference</button><span id="cell_reference_status" class="cv-mono">Default: lowest ArUco marker</span></div></div></div>
       <div class="cv-card-actions"><button class="button button-primary" type="button" id="save_cell">Save cell</button></div>
     </section>
     <section class="card camera-profile-card"><div class="cv-card-head"><div><p class="eyebrow">02 / Camera</p><h2>Camera profile</h2></div></div>
