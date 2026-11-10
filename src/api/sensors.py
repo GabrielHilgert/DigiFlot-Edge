@@ -78,7 +78,11 @@ def sensor_snapshot(kind, source, sensor_id):
 
 def sensor_event_stream(kind, source, sensor_id):
     snapshot = sensor_snapshot(kind, source, sensor_id)
-    last_revision = snapshot.get("revision", 0)
+    def event_key(item):
+        rev = item.get("revision", 0)
+        return (rev, item.get("measurement_mode"), item.get("reading_valid")) if kind == "virtual" else rev
+
+    last_revision = event_key(snapshot)
 
     yield "event: measurement\n" f"data: {json.dumps(snapshot)}\n\n"
 
@@ -102,11 +106,12 @@ def sensor_event_stream(kind, source, sensor_id):
         else:
             snapshot = source.wait_for_update(sensor_id, last_revision, timeout=5.0)
 
-        if snapshot.get("revision", 0) == last_revision:
+        current_revision = event_key(snapshot)
+        if current_revision == last_revision:
             yield ": keepalive\n\n"
             continue
 
-        last_revision = snapshot.get("revision", 0)
+        last_revision = current_revision
         yield "event: measurement\n" f"data: {json.dumps(snapshot)}\n\n"
 
 
