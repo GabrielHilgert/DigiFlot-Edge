@@ -13,9 +13,10 @@ from uuid import uuid4
 import cv2
 import numpy as np
 
-from .aruco import calibrate, detect_markers, grid_overlay
-from .roi import compile_roi_maps, full_plane_geometry, remap_roi
+from .aruco import calibrate, detect_markers, grid_overlay, project_rectified, source_geometry
+from .roi import compile_roi_maps, full_plane_geometry, remap_roi, remap_yuv420_roi
 from .registry import VisionRegistry, _write
+from lib.virtual_sensors.interface import COLOR_METHODS, DEFAULTS, config_signature, detect_interface, normalized_config
 
 
 def _utc():
@@ -41,6 +42,9 @@ class VisionService:
         self._seen_runs = set()
         self._map_key = None
         self._roi_map = None
+        self._virtual_test = None
+        self._run_virtual = None
+        self._last_virtual_measurement = None
         self._sync_camera_flags()
 
     def _sync_camera_flags(self):
@@ -60,16 +64,19 @@ class VisionService:
             self._thread.join(timeout=3)
             self._thread = None
 
-    def _compiled_roi(self, camera, cell_id, association, frame):
+    def _compiled_roi(self, camera, cell_id, association, frame, config=None):
         roi = association["analysis_roi_cm"]
         key = (str(camera.id), str(cell_id), association["calibration_id"],
-               association["analysis_roi_revision"], tuple(frame["size"]), tuple(frame["sensor_crop"]))
+               association["analysis_roi_revision"], tuple(frame["size"]), tuple(frame["sensor_crop"]),
+               (config or {}).get("resolution_px"))
         if key != self._map_key:
             # Preserve centimetres, but never upscale beyond the lores stream.
             from math import sqrt
             span_x, span_y = roi[2] - roi[0], roi[3] - roi[1]
             source_w, source_h = frame["size"]
             density = float(association["calibration"]["px_per_cm"])
+            if config is not None:
+                density = float(config["resolution_px"]) / span_x
             density = min(density, min(source_w, 1280) / span_x,
                           min(source_h, 960) / span_y, sqrt(1_000_000 / (span_x * span_y)))
             compiled = compile_roi_maps(association["calibration"],
@@ -80,9 +87,11 @@ class VisionService:
         return self._roi_map
 
     def _loop(self):
-        # No queue or per-frame geometry calculations; failures never stop recording.
-        while not self._stop.wait(max(.2, float(self.registry.settings()["sampling_interval_s"]))):
+        # No queued frames; acquisition and recording always take priority.
+        while not self._stop.wait(max(.2, float((self._run_virtual or {}).get("config", {}).get(
+                "sampling_interval_s", self.registry.settings()["sampling_interval_s"])))):
             settings = self.registry.settings()
+            active = self._run_virtual
             if not settings["enabled"] or settings["camera_id"] is None:
                 continue
             camera = self.digiflot.cameras.get(int(settings["camera_id"]))
@@ -90,20 +99,41 @@ class VisionService:
                 continue
             try:
                 started = time.perf_counter()
-                # Copy luminance only; avoid full-frame YUV420 -> BGR conversion.
-                image, meta = camera.capture_analysis_frame(grayscale=True)
-                cell_id = settings.get("cell_id")
-                association = self.registry.association(camera.id, cell_id) if cell_id else None
+                association = (active or {}).get("association")
+                cell_id = (active or {}).get("cell_id") or settings.get("cell_id")
+                if association is None and cell_id:
+                    association = self.registry.association(camera.id, cell_id)
                 roi = (association or {}).get("analysis_roi_cm")
+                config = (active or {}).get("config")
+                color = bool(config and config["method"] in COLOR_METHODS and roi)
+                image, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
                 status = {"state": "running", "camera_id": camera.id, "cell_id": cell_id,
                           "associated_calibration": (association or {}).get("calibration_id"),
                           "updated_at": _utc(), "error": None}
                 if roi is not None:
-                    compiled = self._compiled_roi(camera, cell_id, association, meta)
-                    transformed = remap_roi(image, compiled)
-                    # This output is ready for a future soft sensor; do not write images per frame.
-                    status.update({"roi_processed": True, "roi_size": list(transformed.shape[::-1]),
+                    compiled = self._compiled_roi(camera, cell_id, association, frame, config)
+                    transformed = (remap_yuv420_roi(image, compiled, frame["size"]) if color
+                                   else remap_roi(image, compiled))
+                    status.update({"roi_processed": True, "roi_size": list(transformed.shape[1::-1]),
                                    "roi_coverage": compiled["coverage"], "markers_detected": None})
+                    if config:
+                        density = compiled["size"][0] / (roi[2] - roi[0])
+                        try:
+                            reading = detect_interface(transformed, config, roi, density)
+                        except Exception as error:
+                            reading = {"valid": False, "error": str(error),
+                                       "froth_surface_cm": None, "pulp_froth_interface_cm": None,
+                                       "froth_thickness_cm": None}
+                        reading.update({"timestamp_ns": frame["captured_timestamp_ns"],
+                                        "sensor_timestamp_ns": frame.get("sensor_timestamp_ns"),
+                                        "camera_id": camera.id, "cell_id": cell_id,
+                                        "calibration_id": association["calibration_id"]})
+                        self._last_virtual_measurement = reading
+                        self._write_virtual_sample(active, reading, frame)
+                        status["virtual_sensor"] = {"valid": reading["valid"],
+                                                    "pulp_froth_interface_cm": reading.get("pulp_froth_interface_cm"),
+                                                    "froth_surface_cm": reading.get("froth_surface_cm"),
+                                                    "error": reading.get("error")}
                 else:
                     layout = self.registry.get_cell(cell_id)["marker_layout"] if cell_id else None
                     detected = detect_markers(image, (layout or {}).get("dictionary", "DICT_4X4_50"),
