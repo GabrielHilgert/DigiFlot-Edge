@@ -279,20 +279,26 @@ class VisionService:
             raise RuntimeError("Source camera must be idle for a representative recording benchmark")
         self._map_key, self._roi_map = None, None
         interval = float(config["sampling_interval_s"])
-        errors, timings, valid_count = [], [], 0
+        errors, timings, valid_count, sensor_times = [], [], 0, []
         last_reading, last_preview = None, None
         count = max(12, min(60, int(samples)))
+        warmup = 3
         original_enabled = camera.analysis_enabled
         self._benchmarking = True
         camera.analysis_enabled = True
+        recording_metrics = {}
         try:
-            # This temporary recording exercises the real main encoder and
-            # low-resolution analysis stream simultaneously, without adding
-            # any video to the user's experiment.
+            # Exercise the actual encoder together with lores. Keep the test
+            # cadence equal to the user's target acquisition interval.
             with TemporaryDirectory(prefix="digiflot-virtual-benchmark-") as temp_dir:
                 camera.start_recording(Path(temp_dir) / "benchmark")
                 try:
-                    for index in range(count + 3):
+                    next_sample = time.perf_counter()
+                    for index in range(count + warmup):
+                        delay = next_sample - time.perf_counter()
+                        if delay > 0:
+                            time.sleep(delay)
+                        next_sample += interval
                         begin = time.perf_counter()
                         try:
                             color = config["method"] in COLOR_METHODS
@@ -301,17 +307,17 @@ class VisionService:
                             patch = (remap_yuv420_roi(raw, maps, frame["size"]) if color else remap_roi(raw, maps))
                             density = maps["size"][0] / (association["analysis_roi_cm"][2] - association["analysis_roi_cm"][0])
                             reading = detect_interface(patch, config, association["analysis_roi_cm"], density)
-                            if index >= 3:
+                            if index >= warmup:
                                 valid_count += int(reading["valid"])
                                 last_reading, last_preview = reading, patch
+                                if frame.get("sensor_timestamp_ns") is not None:
+                                    sensor_times.append(int(frame["sensor_timestamp_ns"]))
                         except Exception as error:
-                            if index >= 3:
+                            if index >= warmup:
                                 errors.append(str(error))
-                        elapsed_ms = (time.perf_counter() - begin) * 1000
-                        if index >= 3:
-                            timings.append(elapsed_ms)
-                        if index < count + 2:
-                            time.sleep(min(.10, interval / 4))
+                        if index >= warmup:
+                            timings.append((time.perf_counter() - begin) * 1000)
+                    recording_metrics = camera.recording_metrics()
                 finally:
                     camera.stop_recording()
         finally:
@@ -321,16 +327,28 @@ class VisionService:
             raise RuntimeError("Unable to sample the detector")
         p95, p99 = np.percentile(timings, [95, 99])
         valid_fraction = valid_count / count
-        passed = bool(valid_fraction >= .7 and p95 <= .70 * interval*1000 and p99 < interval*1000)
+        unique_frames = len(set(sensor_times))
+        unique_ok = not sensor_times or unique_frames == len(sensor_times)
+        main_fps = float(recording_metrics.get("actual_fps") or 0)
+        required_fps = .85 * float(camera.frame_rate)
+        encoder_ok = main_fps >= required_fps
+        passed = bool(valid_fraction >= .7 and p95 <= .70 * interval * 1000
+                      and p99 < interval * 1000 and unique_ok and encoder_ok)
         result = {
-            "passed": passed, "samples": count, "valid_fraction": round(valid_fraction, 3),
+            "passed": passed, "samples": count, "warmup_samples": warmup,
+            "valid_fraction": round(valid_fraction, 3),
             "p95_ms": round(float(p95), 2), "p99_ms": round(float(p99), 2),
             "mean_ms": round(float(np.mean(timings)), 2), "max_ms": round(max(timings), 2),
             "deadline_ms": round(interval * 1000, 2),
-            "lores_size": list(planned_size), "roi_resolution": list((self._roi_map or {"size":[0,0]})["size"]),
-            "roi_coverage": (self._roi_map or {"coverage":0})["coverage"], "method": config["method"],
-            "errors": errors[:5], "tested_at": _utc(),
-            "mode": "temporary_main_encoder_and_lores",
+            "lores_size": list(planned_size),
+            "roi_resolution": list((self._roi_map or {"size": [0, 0]})["size"]),
+            "roi_coverage": (self._roi_map or {"coverage": 0})["coverage"],
+            "main_recording_fps": round(main_fps, 2),
+            "min_recording_fps": round(required_fps, 2),
+            "unique_sensor_frames": unique_frames if sensor_times else None,
+            "frame_reuse_detected": not unique_ok,
+            "method": config["method"], "errors": errors[:5], "tested_at": _utc(),
+            "mode": "paced_main_encoder_and_lores",
         }
         result["signature"] = self._virtual_signature()
         self._virtual_test = result

@@ -39,6 +39,8 @@ class FakeCamera:
     def stop_recording(self):
         self.stopped = True
         self.state = self.IDLE
+    def recording_metrics(self):
+        return {"actual_fps": 30., "frame_count": 100}
     def capture_analysis_frame(self, grayscale=False, raw_yuv=False):
         return self.image.copy(), source_geometry([900, 920], self.full_sensor_crop())
 
@@ -86,7 +88,8 @@ class VirtualBenchmarkTests(unittest.TestCase):
             with patch("lib.vision.service.detect_interface", return_value=reading):
                 result = vision.benchmark_virtual_sensor(samples=12)
             self.assertTrue(result["passed"], result)
-            self.assertEqual(result["mode"], "temporary_main_encoder_and_lores")
+            self.assertEqual(result["mode"], "paced_main_encoder_and_lores")
+            self.assertGreaterEqual(result["main_recording_fps"], result["min_recording_fps"])
             self.assertTrue(run.cameras[1].started and run.cameras[1].stopped)
             self.assertEqual(run.cameras[1].state, run.cameras[1].IDLE)
             self.assertTrue(vision.virtual_test_passed())

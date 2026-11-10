@@ -179,10 +179,12 @@ function virtualBenchmarkMarkup(result) {
         <div><span>P95 latency</span><strong>${fmt(result.p95_ms)} ms</strong></div>
         <div><span>P99 latency</span><strong>${fmt(result.p99_ms)} ms</strong></div>
         <div><span>Deadline</span><strong>${fmt(result.deadline_ms)} ms</strong></div>
+        <div><span>Main recording</span><strong>${fmt(result.main_recording_fps)} FPS (min ${fmt(result.min_recording_fps)})</strong></div>
         <div><span>Valid detections</span><strong>${fmt(Number(result.valid_fraction)*100)}%</strong></div>
         <div><span>lores</span><strong>${escapeHtml((result.lores_size||[]).join(" × "))}</strong></div>
         <div><span>Output ROI</span><strong>${escapeHtml((result.roi_resolution||[]).join(" × "))}</strong></div>
-        </div><p>Tested with a temporary main recording and lores acquisition in parallel; the test video is discarded after calibration.</p>
+        </div><p>Samples are captured at the configured acquisition interval, with the main encoder recording simultaneously. The temporary video is discarded.</p>
+        ${result.frame_reuse_detected ? '<p>Repeated camera timestamps detected; choose a lower acquisition rate or check the camera stream.</p>' : ''}
         ${result.errors?.length ? `<p>${escapeHtml(result.errors.join("; "))}</p>` : ""}`;
 }
 

@@ -1261,6 +1261,8 @@ class DigiFlot:
             self.cell_profile = profile
             self.virtual_camera_id = chosen
             self.experiment["cell_profile"] = deepcopy(profile)
+            self.experiment["physical_cell_id"] = cell["id"]
+            _atomic_write_json(self.run_directory / "physical_cell_snapshot.json", deepcopy(cell))
             _atomic_write_json(self.run_directory / "experiment.json", self.experiment)
             self._register_virtual_sensor_unlocked()
             self.state = self.CAMERA_CALIBRATION
