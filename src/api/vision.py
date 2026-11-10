@@ -85,6 +85,11 @@ def update_cell(cell_id: str, request: Request, payload: dict):
     return _invoke(service(request).registry.save_cell, {**payload, "id": cell_id})
 
 
+@router.put("/cells/{cell_id}/vertical-reference")
+def save_cell_vertical_reference(cell_id: str, request: Request, payload: dict):
+    return _invoke(service(request).save_cell_vertical_reference, cell_id, payload)
+
+
 @router.get("/cameras/{camera_id}/profile")
 def camera_profile(camera_id: int, request: Request):
     return _invoke(service(request).camera_profile, camera_id)
