@@ -297,24 +297,34 @@ class VisionService:
         cell_id = (self.digiflot.cell_profile or {}).get("physical_cell_id")
         camera = self.digiflot.cameras.get(int(camera_id)) if camera_id is not None else None
         reading = self._last_virtual_measurement or {}
-        live = bool(reading.get("timestamp_ns"))
         test = self.virtual_test_result()
+        active_state = self.digiflot.state in (self.digiflot.SENSOR_CALIBRATION, self.digiflot.READY,
+                                                self.digiflot.RUNNING, self.digiflot.PAUSED,
+                                                self.digiflot.COMPLETED)
+        timestamp = reading.get("timestamp_ns")
+        age_s = (time.time_ns() - int(timestamp)) / 1e9 if timestamp else None
+        current = bool(active_state and timestamp and str(reading.get("camera_id")) == str(camera_id)
+                       and str(reading.get("cell_id")) == str(cell_id)
+                       and age_s is not None and age_s < 10)
+        valid = bool(reading.get("valid")) if current else None
+        live_mode = ("experiment" if self.digiflot.state in (self.digiflot.RUNNING, self.digiflot.PAUSED)
+                     else "preview")
         return {"id": "froth_interface", "name": "Froth Interface",
                 "type": "virtual_froth_interface", "virtual": True,
                 "source_camera_id": camera_id, "physical_cell_id": cell_id,
                 "status": "connected" if camera else "offline",
-                "value": reading.get("pulp_froth_interface_cm") if reading.get("valid") else None,
+                "value": reading.get("pulp_froth_interface_cm") if valid else None,
                 "unit": "cm", "decimals": 2,
                 "channels": {key: reading.get(key) for key in
-                             ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm")} if live else None,
-                "reading_valid": bool(reading.get("valid")) if live else None,
-                "measurement_mode": "live" if live else ("benchmark" if test and test.get("current") else "waiting"),
-                "benchmark_series": (test.get("series") or []) if test and test.get("current") and not live else [],
-                "timestamp_ms": int(reading["timestamp_ns"]/1e6) if live else None,
-                "sample_count": reading.get("sample_count", 0), "revision": reading.get("sample_count", 0),
+                             ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm")} if current else None,
+                "reading_valid": valid,
+                "measurement_mode": live_mode if current else "waiting",
+                "timestamp_ms": int(timestamp / 1e6) if current else None,
+                "sample_count": reading.get("sample_count", 0) if current else 0,
+                "revision": reading.get("sample_count", 0) if current else 0,
                 "benchmark": test,
-                "error": (reading.get("error") if reading else
-                          (None if camera else "Source camera is unavailable"))}
+                "error": (reading.get("error") or ("No valid interface detected" if valid is False else None))
+                         if current else (None if camera else "Source camera is unavailable")}
 
     def _desired_lores_size(self, camera, association, config):
         roi = association["analysis_roi_cm"]
@@ -350,7 +360,7 @@ class VisionService:
             raise RuntimeError("Source camera must be idle for a representative recording benchmark")
         self._map_key, self._roi_map = None, None
         interval = float(config["sampling_interval_s"])
-        errors, timings, valid_count, sensor_times, benchmark_series = [], [], 0, [], []
+        errors, timings, valid_count, sensor_times = [], [], 0, []
         last_reading, last_preview = None, None
         count = max(12, min(60, int(samples)))
         warmup = 3
@@ -381,10 +391,6 @@ class VisionService:
                             if index >= warmup:
                                 valid_count += int(reading["valid"])
                                 last_reading, last_preview = reading, patch
-                                benchmark_series.append({"time_s": round((index-warmup)*interval, 3),
-                                    "valid": bool(reading["valid"]),
-                                    **{key: reading.get(key) for key in
-                                       ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm")}})
                                 if frame.get("sensor_timestamp_ns") is not None:
                                     sensor_times.append(int(frame["sensor_timestamp_ns"]))
                         except Exception as error:
@@ -423,7 +429,7 @@ class VisionService:
             "unique_sensor_frames": unique_frames if sensor_times else None,
             "frame_reuse_detected": not unique_ok,
             "method": config["method"], "errors": errors[:5], "tested_at": _utc(),
-            "mode": "paced_main_encoder_and_lores", "series": benchmark_series,
+            "mode": "paced_main_encoder_and_lores",
         }
         result["signature"] = self._virtual_signature()
         self._virtual_test = result
@@ -460,7 +466,8 @@ class VisionService:
         _write(directory / "virtual_sensors" / "froth_interface.json", snapshot)
         self._virtual_sample_count = 0
         self._last_virtual_measurement = None
-        self._run_virtual = {"config": config, "association": deepcopy(association),
+        self._run_virtual = {"camera_id": camera.id, "config": config,
+                             "association": deepcopy(association),
                              "cell_id": cell_id, "directory": str(directory)}
         return snapshot
 
@@ -484,7 +491,8 @@ class VisionService:
         self.registry.save_settings({"camera_id": camera_id, "cell_id": cell_id,
                                      "enabled": True, "sampling_interval_s": config["sampling_interval_s"]})
         self._sync_camera_flags()
-        self._run_virtual = {"config": config, "association": deepcopy(snapshot["association"]),
+        self._run_virtual = {"camera_id": camera_id, "config": config,
+                             "association": deepcopy(snapshot["association"]),
                              "cell_id": cell_id, "directory": str(directory)}
         self._map_key, self._roi_map = None, None
         return True
@@ -499,7 +507,7 @@ class VisionService:
             self._sync_camera_flags()
 
     def _write_virtual_sample(self, active, reading, frame):
-        if active is None:
+        if active is None or self.digiflot.state not in (self.digiflot.RUNNING, self.digiflot.PAUSED):
             return
         import csv
         directory = Path(active["directory"])
