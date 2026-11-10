@@ -28,6 +28,9 @@ class FakeCamera:
         self.analogue_gain = 1.
         self.started = self.stopped = False
         self.image = synthetic_ruler()
+    @property
+    def recording(self):
+        return self.state == self.RECORDING
     def full_sensor_crop(self):
         return (0, 0, 900, 920)
     def start_recording(self, output_base):
