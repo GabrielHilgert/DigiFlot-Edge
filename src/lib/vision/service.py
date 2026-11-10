@@ -19,6 +19,7 @@ from .aruco import calibrate, detect_markers, grid_overlay, project_rectified, s
 from .roi import compile_roi_maps, full_plane_geometry, remap_roi, remap_yuv420_roi
 from .registry import VisionRegistry, _write
 from lib.virtual_sensors.interface import COLOR_METHODS, DEFAULTS, config_signature, detect_interface, detection_roi, normalized_config
+from .reference import resolve_vertical_reference
 
 
 def _utc():
@@ -258,7 +259,10 @@ class VisionService:
                             time.monotonic() >= self._diagnostic_next_due and
                             (self._diagnostic_future is None or self._diagnostic_future.done()))
                         try:
-                            reading = detect_interface(transformed, config, roi, density, diagnostics=want_diag)
+                            datum = (active.get("vertical_reference") if active else
+                                     resolve_vertical_reference(config, association))
+                            reading = detect_interface(transformed, config, roi, density,
+                                                       diagnostics=want_diag, vertical_reference=datum)
                         except Exception as error:
                             reading = {"valid": False, "error": str(error),
                                        "froth_surface_cm": None, "pulp_froth_interface_cm": None,
@@ -346,7 +350,14 @@ class VisionService:
 
     def virtual_profile(self):
         camera, cell_id, assoc, profile = self._virtual_context()
-        return {**profile, "geometry": {"calibration_id": assoc["calibration_id"],
+        try:
+            resolved = resolve_vertical_reference(profile["config"], assoc)
+            error = None
+        except ValueError as exc:
+            resolved, error = None, str(exc)
+        return {**profile, "cell_vertical_reference": self.registry.cell_vertical_reference(cell_id),
+                "reference_resolved": resolved, "reference_error": error,
+                "geometry": {"calibration_id": assoc["calibration_id"],
                                         "analysis_roi_cm": assoc.get("analysis_roi_cm"),
                                         "analysis_roi_revision": assoc.get("analysis_roi_revision"),
                                         "detection_roi_cm": profile["config"].get("detection_roi_cm") or assoc.get("analysis_roi_cm")},
@@ -356,10 +367,13 @@ class VisionService:
     def save_virtual_profile(self, values):
         if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
             raise RuntimeError("Configure the virtual sensor during the sensor calibration stage")
-        camera, cell_id, _, _ = self._virtual_context()
+        camera, cell_id, association, _ = self._virtual_context()
         if camera.recording:
             raise RuntimeError("Stop recording before updating the virtual sensor")
-        result = self.registry.save_virtual_profile(camera.id, cell_id, values)
+        proposed = normalized_config(values)
+        if proposed["vertical_reference_confirmed"]:
+            resolve_vertical_reference(proposed, association)
+        result = self.registry.save_virtual_profile(camera.id, cell_id, proposed)
         self.clear_virtual_test()
         with self.digiflot.lock:
             item = self.digiflot.sensor_calibration.get("froth_interface")
@@ -465,6 +479,9 @@ class VisionService:
             raise RuntimeError("Virtual sensor benchmark is only allowed during sensor calibration")
         camera, cell_id, association, profile = self._virtual_context()
         config = normalized_config(profile["config"])
+        if not config["vertical_reference_confirmed"]:
+            raise ValueError("Confirm the physical vertical reference before running the calibration test")
+        datum = resolve_vertical_reference(config, association)
         if camera.recording:
             raise RuntimeError("Stop recording before testing this sensor")
         planned_size = self._desired_lores_size(camera, association, config)
@@ -513,7 +530,7 @@ class VisionService:
                             density = maps["size"][0] / (roi[2] - roi[0])
                             is_final = index == count + warmup - 1
                             reading = detect_interface(patch, config, roi, density,
-                                                       diagnostics=is_final)
+                                                       diagnostics=is_final, vertical_reference=datum)
                             diagnostic = reading.pop("_diagnostics", None)
                             if index >= warmup:
                                 valid_count += int(reading["valid"])
@@ -608,8 +625,10 @@ class VisionService:
         self.registry.save_settings({"camera_id": camera.id, "cell_id": cell_id,
                                      "enabled": True, "sampling_interval_s": config["sampling_interval_s"]})
         self._sync_camera_flags()
-        snapshot = {"schema_version": 1, "sensor_id": "froth_interface",
+        datum = resolve_vertical_reference(config, association)
+        snapshot = {"schema_version": 2, "sensor_id": "froth_interface",
                     "camera_id": camera.id, "cell_id": cell_id,
+                    "vertical_reference": deepcopy(datum),
                     "association": deepcopy(association), "profile": deepcopy(profile),
                     "config": config, "benchmark": self.virtual_test_result(),
                     "lores_size": list(camera.analysis_target_size), "frozen_at": _utc()}
@@ -618,6 +637,7 @@ class VisionService:
         self._virtual_sample_count = 0
         self._last_virtual_measurement = None
         self._run_virtual = {"camera_id": camera.id, "config": config,
+                             "vertical_reference": deepcopy(datum),
                              "association": deepcopy(association),
                              "cell_id": cell_id, "directory": str(directory)}
         return snapshot
@@ -635,9 +655,12 @@ class VisionService:
             return False
         snapshot = json.loads(path.read_text(encoding="utf-8"))
         original = snapshot["config"]
-        # Preserve the datum of experiments recorded before this option existed.
-        config = normalized_config({**original, **({"height_reference_offset_cm": 0.}
-                                  if "height_reference_offset_cm" not in original else {})})
+        # Preserve the exact previous +offset convention for historical runs.
+        if "vertical_reference_mode" not in original:
+            original = {**original, "vertical_reference_mode": "historical_offset",
+                        "vertical_reference_confirmed": True,
+                        "height_reference_offset_cm": original.get("height_reference_offset_cm", 0.)}
+        config = normalized_config(original)
         camera_id, cell_id = int(snapshot["camera_id"]), str(snapshot["cell_id"])
         camera = self.digiflot.cameras.get(camera_id)
         if camera is not None:
@@ -646,6 +669,8 @@ class VisionService:
                                      "enabled": True, "sampling_interval_s": config["sampling_interval_s"]})
         self._sync_camera_flags()
         self._run_virtual = {"camera_id": camera_id, "config": config,
+                             "vertical_reference": deepcopy(snapshot.get("vertical_reference") or
+                                  resolve_vertical_reference(config, snapshot["association"])),
                              "association": deepcopy(snapshot["association"]),
                              "cell_id": cell_id, "directory": str(directory)}
         self._map_key, self._roi_map = None, None
@@ -705,6 +730,13 @@ class VisionService:
             result = self.registry.save_settings(values)
             self._sync_camera_flags()
             return result
+
+    def save_cell_vertical_reference(self, cell_id, values):
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Cell vertical reference cannot change during an active run")
+        result = self.registry.save_cell_vertical_reference(cell_id, values)
+        self.clear_virtual_test()
+        return result
 
     def camera_profile(self, camera_id):
         camera = self.digiflot.get_camera(int(camera_id))
