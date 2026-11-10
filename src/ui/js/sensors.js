@@ -479,7 +479,8 @@ function updateCard(snapshot) {
         updateRate(snapshot.id, snapshot.timestamp_ms);
     } else {
         const empty = card.querySelector(".chart-empty");
-        if (empty) empty.textContent = status === "offline" ? "Sensor offline" : "Waiting for measurements…";
+        if (empty && snapshot.type !== "virtual_froth_interface")
+            empty.textContent = status === "offline" ? "Sensor offline" : "Waiting for measurements…";
     }
 
     const host = card.querySelector(".calibration-host");
