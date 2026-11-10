@@ -118,7 +118,144 @@ function standaloneCalibrationMarkup(snapshot) {
         </div>`;
 }
 
+let virtualProfileData = null;
+let virtualDraft = null;
+
+const virtualMethods = ["mean_derivative", "cumulative_distribution", "heuristic_entropy",
+    "dual_entropy", "dual_entropy_striped", "dual_entropy_hybrid"];
+const virtualSelectOptions = {
+    method: virtualMethods,
+    selection_criteria: ["strong_candidates", "next_tp_after_pulp", "hybrid", "interpolate"],
+    simplification_alg: ["turning_point", "reumann_witkam", "douglas_peucker", "opheim", "lang"]
+};
+const virtualFieldGroups = [
+    ["Entropy and profile", ["entropy_radius","entropy_bins","sigma","threshold_froth","threshold_pulp",
+        "min_row","cdf_foam","cdf_pulp","selection_criteria","simplification_alg","simplification_tol"]],
+    ["Dual entropy / texture", ["x0_frac","x1_frac","min_y_frac","lower_search_start","lower_search_end",
+        "min_thickness_px","sigma_rows","dual_entropy_radius","dual_entropy_bins","texture_ksize",
+        "upper_threshold_q","lower_bias"]],
+    ["Striped / hybrid vote", ["n_stripes","stripe_overlap","min_valid_stripes","vote_sigma_px","outlier_mad"]]
+];
+
+function virtualField(key) {
+    const value = virtualDraft[key];
+    const label = key.replaceAll("_"," ").replace(/\b\w/g, char => char.toUpperCase());
+    if (virtualSelectOptions[key]) {
+        return `<label>${escapeHtml(label)}<select data-virtual-param="${key}">${virtualSelectOptions[key]
+            .map(opt => `<option value="${escapeHtml(opt)}" ${opt === value ? "selected" : ""}>${escapeHtml(opt.replaceAll("_"," "))}</option>`).join("")}</select></label>`;
+    }
+    return `<label>${escapeHtml(label)}<input data-virtual-param="${key}" type="number" step="any" value="${escapeHtml(value)}" required></label>`;
+}
+
+function virtualCollectInputs() {
+    const panel = document.getElementById("virtual_panel");
+    panel.querySelectorAll("[data-virtual-param]").forEach(input => {
+        const key = input.dataset.virtualParam;
+        virtualDraft[key] = typeof virtualDraft[key] === "number" ? Number(input.value) : input.value;
+    });
+    return {...virtualDraft};
+}
+
+function renderVirtualFields() {
+    const main = document.getElementById("virtual_main_fields");
+    main.innerHTML = ["method","resolution_px","sampling_interval_s"].map(virtualField).join("");
+    document.getElementById("virtual_advanced_fields").innerHTML = virtualFieldGroups.map(([name,keys]) =>
+        `<details ${name === "Entropy and profile" ? "open" : ""}><summary>${escapeHtml(name)}</summary>
+        <div class="virtual-field-grid">${keys.map(virtualField).join("")}</div></details>`).join("");
+}
+
+function virtualBenchmarkMarkup(result) {
+    const target = document.getElementById("virtual_benchmark");
+    target.dataset.passed = String(Boolean(result?.passed && result?.current !== false));
+    const confirm = document.getElementById("virtual_confirm");
+    confirm.disabled = !result?.passed || result?.current === false;
+    if (!result) {
+        target.textContent = "Mandatory: save settings and run a live timing/detection test before confirming.";
+        return;
+    }
+    const fmt = n => Number.isFinite(Number(n)) ? Number(n).toFixed(1) : "—";
+    target.innerHTML = `<strong>${result.passed && result.current !== false ? "Test passed" : "Test not accepted"}</strong>
+        <div class="virtual-stats">
+        <div><span>P95 latency</span><strong>${fmt(result.p95_ms)} ms</strong></div>
+        <div><span>P99 latency</span><strong>${fmt(result.p99_ms)} ms</strong></div>
+        <div><span>Deadline</span><strong>${fmt(result.deadline_ms)} ms</strong></div>
+        <div><span>Valid detections</span><strong>${fmt(Number(result.valid_fraction)*100)}%</strong></div>
+        <div><span>lores</span><strong>${escapeHtml((result.lores_size||[]).join(" × "))}</strong></div>
+        <div><span>Output ROI</span><strong>${escapeHtml((result.roi_resolution||[]).join(" × "))}</strong></div>
+        </div><p>Benchmarked on the live preview pipeline; confirm recording throughput during the first hardware run.</p>
+        ${result.errors?.length ? `<p>${escapeHtml(result.errors.join("; "))}</p>` : ""}`;
+}
+
+async function openVirtualCalibration() {
+    if (!state.calibrationMode) return;
+    const panel = document.getElementById("virtual_panel");
+    const missing = document.getElementById("virtual_missing");
+    const editor = document.getElementById("virtual_editor");
+    panel.hidden = false;
+    panel.scrollIntoView({behavior:"smooth",block:"start"});
+    const cellId = state.digiflot?.cell_selection?.cell_id || "";
+    const cameraId = state.digiflot?.cell_selection?.camera_id;
+    document.getElementById("virtual_source").textContent = cameraId == null ? "No camera" : `Camera ${cameraId}`;
+    document.getElementById("virtual_open_cells").href = `/cells?cell=${encodeURIComponent(cellId)}&camera=${encodeURIComponent(cameraId ?? "")}`;
+    try {
+        virtualProfileData = await requestJson("/api/vision/virtual-sensors/froth-interface/profile");
+        virtualDraft = {...virtualProfileData.config};
+        document.getElementById("virtual_geometry").textContent =
+            `${cellId} · Camera ${cameraId} · Geometry ${virtualProfileData.geometry.calibration_id} · ${virtualProfileData.source} profile`;
+        missing.hidden = true; editor.hidden = false;
+        renderVirtualFields();
+        virtualBenchmarkMarkup(virtualProfileData.test);
+    } catch (error) {
+        missing.hidden = false; editor.hidden = true;
+        missing.querySelector("p").textContent = error.message;
+    }
+}
+
+async function virtualSaveConfiguration() {
+    const config = virtualCollectInputs();
+    await requestJson("/api/vision/virtual-sensors/froth-interface/profile", {
+        method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(config)
+    });
+    virtualBenchmarkMarkup(null);
+}
+
+async function virtualRunTest() {
+    const button = document.getElementById("virtual_test");
+    button.disabled = true; button.textContent = "Testing acquisition and detection…";
+    try {
+        await virtualSaveConfiguration();
+        const result = await requestJson("/api/vision/virtual-sensors/froth-interface/benchmark", {
+            method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({samples:20})
+        });
+        virtualBenchmarkMarkup({...result, current:true});
+        const preview = document.getElementById("virtual_image");
+        preview.hidden = !result.preview_jpeg_base64;
+        if (result.preview_jpeg_base64) preview.src = `data:image/jpeg;base64,${result.preview_jpeg_base64}`;
+        state.digiflot = await requestJson("/api/digiflot/state");
+        updateCalibrationProgress();
+        showToast(result.passed ? "Live test passed. Inspect the preview before confirming." :
+            "Detection or timing criteria failed. Adjust the settings and test again.");
+    } catch (error) {
+        virtualBenchmarkMarkup(null);
+        showToast(error.message);
+    } finally {
+        button.disabled = false; button.textContent = "Save & test detection + timing";
+    }
+}
+
 function calibrationMarkup(snapshot) {
+    if (snapshot.type === "virtual_froth_interface") {
+        if (!state.calibrationMode) return '<div class="calibration-block"><strong>Virtual camera-based sensor</strong><span>Configured in the experiment calibration workflow.</span></div>';
+        const item = calibrationItem(snapshot.id) || {};
+        return `<div class="calibration-block">
+            <div><strong>Virtualized from Camera ${escapeHtml(snapshot.source_camera_id)}</strong>
+            <span>Cell ${escapeHtml(snapshot.physical_cell_id)} · Geometry + live benchmark required</span></div>
+            <div class="calibration-actions"><button class="button button-primary open-virtual-calibration" type="button">
+            ${item.status === "passed" ? "Review virtual calibration" : "Configure / test virtual sensor"}</button>
+            ${item.status !== "passed" && item.status !== "skipped" ? '<button class="button button-secondary sensor-skip" data-sensor-id="froth_interface" type="button">Skip virtual sensor</button>' : ""}
+            ${item.status === "passed" || item.status === "skipped" ? '<button class="button button-secondary sensor-reopen" data-sensor-id="froth_interface" type="button">Reopen</button>' : ""}</div>
+        </div>`;
+    }
     if (!state.calibrationMode) return standaloneCalibrationMarkup(snapshot);
 
     const calibration = calibrationItem(snapshot.id);
@@ -453,6 +590,11 @@ function renderCalibrationDrawer() {
 }
 
 function bindCalibrationControls(root = document) {
+    root.querySelectorAll(".open-virtual-calibration").forEach(button => {
+        if (button.dataset.bound) return;
+        button.dataset.bound = "1";
+        button.addEventListener("click", openVirtualCalibration);
+    });
     root.querySelectorAll(".open-calibration-drawer").forEach(button => {
         if (button.dataset.bound) return;
         button.dataset.bound = "1";
@@ -644,6 +786,24 @@ async function loadSensors() {
     renderCards();
     for (const snapshot of state.sensors.values()) connectSensor(snapshot);
 }
+
+document.getElementById("virtual_close").addEventListener("click", () => {
+    document.getElementById("virtual_panel").hidden = true;
+});
+document.getElementById("virtual_save").addEventListener("click", async () => {
+    try { await virtualSaveConfiguration(); showToast("Profile saved. A new live test is required."); }
+    catch (error) { showToast(error.message); }
+});
+document.getElementById("virtual_test").addEventListener("click", virtualRunTest);
+document.getElementById("virtual_confirm").addEventListener("click", async () => {
+    try {
+        state.digiflot = await requestJson("/api/digiflot/calibration/sensors/froth_interface/confirm", {method:"POST"});
+        updateCalibrationProgress();
+        renderCards();
+        showToast("Virtual sensor calibration confirmed.");
+        document.getElementById("virtual_panel").hidden = true;
+    } catch (error) { showToast(error.message); }
+});
 
 async function initialise() {
     try {
