@@ -129,6 +129,7 @@ def config_signature(config, association, camera_geometry=None):
                "roi_revision": association.get("analysis_roi_revision"),
                "camera_revision": association.get("camera_revision"),
                "cell_revision": association.get("cell_revision"),
+               "vertical_reference": association.get("cell_vertical_reference"),
                "geometry": camera_geometry}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
