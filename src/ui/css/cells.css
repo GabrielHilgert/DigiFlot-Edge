@@ -127,8 +127,19 @@ a { color: inherit; text-decoration: none; }
     border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--text); font-size: .87rem;
 }
 .cell-vision-page .cv-toast[data-error="true"]:not(:empty) { border-color: color-mix(in srgb, var(--danger) 40%, var(--border)); background: var(--danger-soft); color: var(--danger); }
-#roi_drag { position: absolute; pointer-events: none; border: 2px dashed #facc15; background: #facc1522; }
-#roi_drag[hidden] { display: none; }
+.cell-vision-page .cv-physical-roi {
+    margin-top: 9px; border: 1px solid var(--border); border-radius: var(--radius-md);
+    background: var(--surface); padding: 15px;
+}
+.cell-vision-page .cv-physical-roi h4 { margin: 0 0 5px; font-size: .9rem; }
+.cell-vision-page .cv-physical-roi .cv-description { margin-top: 0; }
+.cell-vision-page .cv-physical-roi .cv-inline-row { margin-top: 13px; }
+.cell-vision-page .cv-physical-roi .cv-inline-row .button { flex: 1 1 140px; }
+.cell-vision-page .cv-physical-roi .cv-mono { margin-top: 12px; }
+#roi_drag, #roi_selection { position: absolute; pointer-events: none; }
+#roi_drag { border: 2px dashed #facc15; background: #facc1522; }
+#roi_selection { border: 2px solid #22d3ee; background: #22d3ee20; box-shadow: 0 0 0 1px #0f172a80; }
+#roi_drag[hidden], #roi_selection[hidden] { display: none; }
 @media (max-width: 1080px) {
     .cell-vision-grid { grid-template-columns: 1fr; }
     .cell-vision-page .cv-stage { grid-template-columns: minmax(0, 1.5fr) minmax(250px, .9fr); }
