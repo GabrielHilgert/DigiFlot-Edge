@@ -336,6 +336,7 @@
     $('sample_interval').value=data.settings.sampling_interval_s;
     text('vision_state',data.settings.enabled ? 'Vision enabled' : 'Vision idle');
     const initial = new URLSearchParams(window.location.search);
+    $('return_to_sensor_calibration').hidden = !initial.has('cell') && !initial.has('camera');
     const cameraId = initial.get('camera') || data.settings.camera_id;
     const cellId = initial.get('cell') || data.settings.cell_id;
     if (cameraId != null) $('camera_select').value=cameraId;
