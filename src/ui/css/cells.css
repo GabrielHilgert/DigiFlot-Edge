@@ -186,3 +186,8 @@ a { color: inherit; text-decoration: none; }
 .cv-named-overlay.selected > span { background:#38bdf8; }
 .cell-vision-page .cv-legacy-reference { display:none; }
 @media (max-width:680px) { .cv-reference-new { grid-template-columns:1fr; } .cv-named-point { grid-template-columns:20px minmax(0,1fr); } .cv-named-actions { grid-column:2; flex-direction:row; } }
+
+.cv-named-coord { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:end; gap:7px; font-size:.72rem; color:var(--text-soft); }
+.cv-named-coord label { min-width:0; display:grid; gap:4px; }
+.cv-named-coord input { min-width:0; width:100%; }
+.cv-named-main > .cv-named-coord:has(> input) { grid-template-columns:1fr; }
