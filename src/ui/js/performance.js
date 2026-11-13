@@ -1,11 +1,14 @@
 const el = {};
 let latest = null;
 let evaluation = null;
+let virtualChoiceTouched = false;
 
 function cache() {
     ["profile_status","profile_date","recommended_rate","temperature","throttle_state","disk_free","load_state",
      "benchmark_title","benchmark_message","benchmark_state","rates","duration","start_benchmark","abort_benchmark",
-     "live_test","current_rate","elapsed","live_temp","live_load","benchmark_results","profile_results","toast"]
+     "live_test","current_rate","elapsed","live_temp","live_load","live_cpu_idle","live_ram_available",
+     "cpu_used","cpu_idle","memory_used","memory_available","include_virtual","virtual_workload_status",
+     "benchmark_results","profile_results","toast"]
         .forEach(id => el[id] = document.getElementById(id));
 }
 
@@ -33,6 +36,20 @@ function ratesText(rates) {
     return Object.entries(rates).map(([id, rate]) => `C${id}: ${Number(rate)} fps`).join(" · ");
 }
 
+function headroomDetails(item) {
+    const risk=item.headroom_risk||{},virtual=item.virtual_sensor||{};
+    const resource="Minimum free: CPU "+fmt(item.cpu_free_min_pct,1,"%")+
+        " · RAM "+fmt(item.memory_free_min_pct,1,"%");
+    const exposure=risk.samples?
+        " · <10% free: "+risk.low_samples+"/"+risk.samples+" samples ("+fmt(risk.observed_pct,1,"%")+
+        "), indicative 95% upper bound "+fmt(risk.upper_bound_95_pct,1,"%"):
+        " · CPU/RAM exposure estimate unavailable";
+    const sensor=virtual.included ? " · Froth Interface "+virtual.samples+" frames, P95 "+
+        fmt(virtual.p95_latency_ms,1," ms")+", missed "+(virtual.missed_intervals||0):
+        " · Camera-only test (virtual detector not included)";
+    return resource+exposure+sensor;
+}
+
 function resultRow(item) {
     const classification = String(
         item.classification || "UNKNOWN"
@@ -46,6 +63,7 @@ function resultRow(item) {
         <span>${classification.replaceAll("_", " ")}</span>
         <span>${fmt(item.max_temperature_c,1," °C")}</span>
         <p>${item.reason || ""}</p>
+        <small class="result-resources">${headroomDetails(item)}</small>
     </div>`;
 }
 
@@ -74,6 +92,10 @@ function render(status) {
     el.throttle_state.textContent = `Throttling ${throttle.current ? "ACTIVE" : "No"}`;
     el.disk_free.textContent = fmt(system.disk?.free_gb, 1, " GB");
     el.load_state.textContent = `Load ${fmt(system.load1, 2)}`;
+    el.cpu_used.textContent = fmt(system.cpu?.used_pct,1,"%");
+    el.cpu_idle.textContent = "Idle "+fmt(system.cpu?.free_pct,1,"%");
+    el.memory_used.textContent = fmt(system.memory?.used_pct,1,"%");
+    el.memory_available.textContent = "Available "+fmt(system.memory?.free_pct,1,"%");
 
     const running = status.state === "Running";
     el.benchmark_state.textContent = status.state || "Unavailable";
@@ -86,6 +108,8 @@ function render(status) {
         el.elapsed.textContent = `${fmt(status.elapsed_s,1," s")}`;
         el.live_temp.textContent = fmt(system.temperature_c,1," °C");
         el.live_load.textContent = fmt(system.load1,2);
+        el.live_cpu_idle.textContent = fmt(system.cpu?.free_pct,1,"%");
+        el.live_ram_available.textContent = fmt(system.memory?.free_pct,1,"%");
     } else {
         if (status.state === "Completed") {
             el.benchmark_title.textContent = "Benchmark complete";
@@ -118,19 +142,28 @@ function parseRates() {
 
 async function refresh() {
     try {
+        const workload=await requestJson("/api/digiflot/performance/virtual-workload");
+        if(!virtualChoiceTouched)el.include_virtual.checked=Boolean(workload.available);
+        el.include_virtual.disabled=!workload.available;
+        const virtual=workload.configuration;
+        el.virtual_workload_status.textContent=workload.available?
+            "Virtual workload ready · Camera "+virtual.camera_id+" · "+virtual.method+
+            " · sampling every "+virtual.sampling_interval_s+" s. Test uses both main encoders.":
+            "Froth Interface unavailable: "+workload.reason+" Camera-only benchmarks remain possible.";
         evaluation = await requestJson("/api/digiflot/performance/evaluate", {method:"POST", headers:{"Content-Type":"application/json"}, body:"{}"});
         render(await requestJson("/api/digiflot/performance"));
     } catch (error) { toast(error.message); }
 }
 
 function bind() {
+    el.include_virtual.addEventListener("change",()=>{virtualChoiceTouched=true;});
     el.start_benchmark.addEventListener("click", async () => {
         try {
             const rates = parseRates();
             const duration = Number.parseFloat(el.duration.value);
             await requestJson("/api/digiflot/performance/benchmark/start", {
                 method:"POST", headers:{"Content-Type":"application/json"},
-                body: JSON.stringify({rates, duration_s: duration})
+                body: JSON.stringify({rates, duration_s: duration, include_virtual:el.include_virtual.checked})
             });
         } catch (error) { toast(error.message); }
     });
