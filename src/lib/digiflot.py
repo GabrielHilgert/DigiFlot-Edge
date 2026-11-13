@@ -3417,6 +3417,12 @@ class DigiFlot:
 
     def start_preview(self, camera_id: int, owner_id=None):
         with self.lock:
+            if self.recording:
+                raise RuntimeError("Preview is not available while recording.")
+            if self.state not in {self.IDLE, self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION}:
+                raise RuntimeError("Preview is only available while idle or calibrating cameras or sensors.")
+
+            camera = self.get_camera(camera_id)
             now = time.monotonic()
             if owner_id is not None:
                 if self.preview_owner_id and self.preview_owner_id != owner_id:
@@ -3426,12 +3432,6 @@ class DigiFlot:
                     self.stop_preview()
                 self.preview_owner_id = str(owner_id)
                 self.preview_owner_until = now + 35.
-            if self.recording:
-                raise RuntimeError("Preview is not available while recording.")
-            if self.state not in {self.IDLE, self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION}:
-                raise RuntimeError("Preview is only available while idle or calibrating cameras or sensors.")
-
-            camera = self.get_camera(camera_id)
             if self.preview_camera_id == camera.id and camera.state == camera.PREVIEW:
                 return self.status
 
