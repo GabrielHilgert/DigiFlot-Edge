@@ -1821,6 +1821,10 @@ class DigiFlot:
             if self.preview_camera_id is not None:
                 self.stop_preview()
             kind, key = edit["kind"], str(edit["id"])
+            if (kind == "sensor" and key == "froth_interface"
+                    and edit["previous"].get("status") == "passed"
+                    and (self.vision is None or not self.vision.virtual_test_passed())):
+                raise RuntimeError("The previous virtual benchmark is no longer available. Retest or skip the sensor.")
             records = self.camera_calibration if kind == "camera" else self.sensor_calibration
             records[key] = deepcopy(edit["previous"])
             self.calibration_edit = None
