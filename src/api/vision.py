@@ -77,7 +77,7 @@ def list_cells(request: Request):
 def save_cell(request: Request, payload: dict):
     if request.app.state.digiflot.execution_locked:
         raise HTTPException(status_code=409, detail="Cell definitions cannot change during an experiment")
-    return _invoke(service(request).registry.save_cell, payload)
+    return _invoke(service(request).save_cell, payload)
 
 
 @router.get("/cells/{cell_id}")
@@ -89,7 +89,7 @@ def get_cell(cell_id: str, request: Request):
 def update_cell(cell_id: str, request: Request, payload: dict):
     if request.app.state.digiflot.execution_locked:
         raise HTTPException(status_code=409, detail="Cell definitions cannot change during an experiment")
-    return _invoke(service(request).registry.save_cell, {**payload, "id": cell_id})
+    return _invoke(service(request).save_cell, {**payload, "id": cell_id})
 
 
 @router.get("/cells/{cell_id}/reference-points")
