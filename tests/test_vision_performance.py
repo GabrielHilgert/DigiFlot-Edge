@@ -1,13 +1,14 @@
 """Hardware-free stress checks for dual camera + virtual Froth Interface benchmarks."""
+import ast
 import tempfile
 import threading
+from types import SimpleNamespace
 import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from lib.performance import PerformanceManager
-from lib.digiflot import DigiFlot
 
 
 class FakeCamera:
@@ -128,7 +129,18 @@ class PerformanceVirtualTests(unittest.TestCase):
         self.assertGreater(result["headroom_risk"]["samples"], 0)
 
     def test_scrape_notifications_do_not_change_hardware_events(self):
-        run = DigiFlot.__new__(DigiFlot)
+        # Exercise the actual method without importing Pi-only picamera2 modules in CI.
+        path = Path(__file__).resolve().parents[1] / "src/lib/digiflot.py"
+        module = ast.parse(path.read_text(encoding="utf-8"))
+        owner = next(node for node in module.body if isinstance(node, ast.ClassDef)
+                     and node.name == "DigiFlot")
+        method = next(node for node in owner.body if isinstance(node, ast.FunctionDef)
+                      and node.name == "set_scraping_alerts")
+        namespace = {}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])),
+                     str(path), "exec"), namespace)
+        toggle = namespace["set_scraping_alerts"]
+        run = SimpleNamespace()
         run.lock = threading.RLock()
         run.scraping_alerts_enabled = True
         run.config = {"orchestration": {}}
@@ -136,7 +148,7 @@ class PerformanceVirtualTests(unittest.TestCase):
         events = []
         run._touch_unlocked = lambda name, info=None: events.append((name, info))
         run._status_unlocked = lambda: {"scraping": {"alerts_enabled": run.scraping_alerts_enabled}}
-        self.assertFalse(run.set_scraping_alerts(False)["scraping"]["alerts_enabled"])
+        self.assertFalse(toggle(run, False)["scraping"]["alerts_enabled"])
         self.assertEqual(run.config["orchestration"]["scraping_alerts_enabled"], False)
         self.assertEqual(events[0][0], "SCRAPING_ALERTS_CHANGED")
         self.assertEqual(len(events), 1)
