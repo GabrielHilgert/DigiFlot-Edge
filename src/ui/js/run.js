@@ -895,7 +895,7 @@ function renderMeasurements(state) {
     if (remoteRevision !== Number(measurementData.revision || 0)) loadMeasurements();
 }
 
-window.setInterval(pollRunMonitor, 2500);
+if(typeof window.setInterval==="function")window.setInterval(pollRunMonitor,2500);
 
 function renderReady(state) {
     ui.ready_panel.hidden = false;
