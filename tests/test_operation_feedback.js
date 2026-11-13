@@ -10,7 +10,7 @@ const classList = () => {
     return {add:x=>items.add(x), remove:x=>items.delete(x), toggle:(x,on)=>on?items.add(x):items.delete(x),
             contains:x=>items.has(x)};
 };
-const panel = {classList:classList(), querySelector(selector) {
+const panel = {classList:classList(), setAttribute(){}, querySelector(selector) {
     if(selector === ".operation-message")return this.message ||= {textContent:""};
     return {addEventListener() {}};
 }, set innerHTML(html) {this.html=html;}};
@@ -60,7 +60,7 @@ async function test() {
     const requests2=[], conflictWindow={fetch:(url,opts)=>{requests2.push({url,opts});return Promise.resolve(response409);},
         crypto:{randomUUID:()=>"second-tab"},addEventListener(){}};
     const msg={textContent:""},classNames=classList();
-    const localPanel={classList:classNames,querySelector:s=>s===".operation-message"?msg:{addEventListener(){}},
+    const localPanel={classList:classNames,setAttribute(){},querySelector:s=>s===".operation-message"?msg:{addEventListener(){}},
         set innerHTML(value){}};
     const localDoc={body:{appendChild(){}},addEventListener(){},createElement(){return localPanel;}};
     context2.window=conflictWindow;context2.document=localDoc;
