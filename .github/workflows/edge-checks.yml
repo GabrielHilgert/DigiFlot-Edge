@@ -18,6 +18,8 @@ jobs:
           node --check src/ui/js/operation-feedback.js
           node tests/test_run_dom.js
           node tests/test_operation_feedback.js
+          node tests/test_workflow_navigation.js
+          node --check src/ui/js/config_cameras.js
       - name: Check Cell Vision and sensor monitoring JavaScript syntax
         run: |
           node --check src/ui/js/cells.js
