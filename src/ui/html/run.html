@@ -76,7 +76,8 @@
 </div></div></div>
 <div class="card-body">
 <form id="select_physical_cell_form" class="cell-selection-form">
-<label>Physical cell<select id="select_physical_cell" required><option value="">Select a cell</option></select></label><p id="selected_cell_volume" class="cell-volume-hint">Working volume is inherited from the selected cell and can be overridden before Run.</p>
+<label>Physical cell<select id="select_physical_cell" required><option value="">Select a cell</option></select></label><label class="cell-volume-selection">Working cell volume (L) <input id="cell_volume_override" type="number" step="any" min="0.001" placeholder="Inherit from selected cell"></label>
+<p id="selected_cell_volume" class="cell-volume-hint">Working volume is inherited from the selected cell and can be overridden for this execution.</p>
 <label>Virtual sensor source camera<select id="select_virtual_camera"><option value="">Auto-select camera</option><option value="none">No virtual sensor</option></select></label>
 <div class="button-group"><button class="button button-primary" type="submit">Confirm cell and continue</button>
 <a class="button button-secondary" href="/cells">Create or edit cell / ArUco layout</a></div>
