@@ -166,6 +166,8 @@ class DigiFlot:
         self.state = self.IDLE
         self.stage_state = self.STAGE_NONE
         self.preview_camera_id = None
+        self.preview_owner_id = None
+        self.preview_owner_until = 0.
 
         self.storage_id = None
         self.run_directory = None
@@ -3413,8 +3415,17 @@ class DigiFlot:
                 "saved_to": paths,
             }
 
-    def start_preview(self, camera_id: int):
+    def start_preview(self, camera_id: int, owner_id=None):
         with self.lock:
+            now = time.monotonic()
+            if owner_id is not None:
+                if self.preview_owner_id and self.preview_owner_id != owner_id:
+                    if now < self.preview_owner_until:
+                        raise RuntimeError("Camera preview is already open in another browser tab. Close it there before continuing.")
+                    # An expired lease indicates a closed or disconnected tab.
+                    self.stop_preview()
+                self.preview_owner_id = str(owner_id)
+                self.preview_owner_until = now + 35.
             if self.recording:
                 raise RuntimeError("Preview is not available while recording.")
             if self.state not in {self.IDLE, self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION}:
@@ -3426,11 +3437,16 @@ class DigiFlot:
 
             if self.preview_camera_id is not None:
                 self.stop_preview()
+                if owner_id is not None:
+                    self.preview_owner_id = str(owner_id)
+                    self.preview_owner_until = time.monotonic() + 35.
 
             try:
                 camera.start_preview()
             except Exception:
                 self.preview_camera_id = None
+                self.preview_owner_id = None
+                self.preview_owner_until = 0.
                 raise
 
             self.preview_camera_id = camera.id
@@ -3438,10 +3454,23 @@ class DigiFlot:
             self.condition.notify_all()
             return self.status
 
-    def stop_preview(self):
+    def preview_heartbeat(self, owner_id):
         with self.lock:
+            if (not owner_id or self.preview_owner_id != str(owner_id) or
+                    self.preview_camera_id is None or time.monotonic() >= self.preview_owner_until):
+                raise RuntimeError("Preview ownership expired or was transferred to another tab.")
+            self.preview_owner_until = time.monotonic() + 35.
+            return {"camera_id": self.preview_camera_id, "lease_s": 35}
+
+    def stop_preview(self, owner_id=None):
+        with self.lock:
+            if (owner_id is not None and self.preview_owner_id is not None and
+                    self.preview_owner_id != str(owner_id) and time.monotonic() < self.preview_owner_until):
+                raise RuntimeError("The camera preview belongs to another browser tab.")
             camera_id = self.preview_camera_id
             self.preview_camera_id = None
+            self.preview_owner_id = None
+            self.preview_owner_until = 0.
 
             if camera_id is not None and camera_id in self.cameras:
                 self.cameras[camera_id].stop_preview()
