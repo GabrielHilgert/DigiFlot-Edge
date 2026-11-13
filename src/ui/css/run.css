@@ -442,3 +442,122 @@ a { color: inherit; text-decoration: none; }
 
 /* Author-level flex/grid rules must never override the runtime hidden state. */
 #measurement_launcher[hidden], #measurement_panel[hidden], #required_inputs_panel[hidden] { display:none !important; }
+
+
+/* Run workspace density: the Standard layout preserves the existing reading order. */
+.run-header-tools { display:flex; flex-direction:column; align-items:flex-end; gap:8px; min-width:0; }
+.run-layout-switch { display:inline-flex; align-items:center; gap:2px; padding:3px; border:1px solid var(--border); border-radius:10px; background:var(--surface-soft); }
+.run-layout-switch button { min-height:30px; border:0; border-radius:7px; padding:4px 12px; background:transparent; color:var(--text-soft); font-size:.76rem; font-weight:750; }
+.run-layout-switch button:hover { color:var(--text); background:var(--surface-strong); }
+.run-layout-switch button[aria-pressed="true"] { background:var(--accent-soft); color:var(--accent); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent) 35%,transparent); }
+.run-layout-switch button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.run-health-row { display:contents; }
+.run-workspace { display:flex; flex-direction:column; min-width:0; }
+.run-workspace > .panel { width:100%; }
+.run-workspace > [hidden], .run-health-row > [hidden] { display:none !important; }
+
+/* Compact uses the same sensor cards, markup and state-driven hidden panels. */
+body[data-run-layout="compact"] .page-shell { width:min(1360px,calc(100% - 32px)); padding-top:12px; padding-bottom:36px; }
+body[data-run-layout="compact"] .page-header { gap:12px; margin-bottom:10px; }
+body[data-run-layout="compact"] .page-header .eyebrow { display:none; }
+body[data-run-layout="compact"] .page-header h1 { font-size:clamp(1.3rem,1.9vw,1.65rem); margin:0 0 3px; }
+body[data-run-layout="compact"] .page-description { font-size:.75rem; overflow-wrap:anywhere; }
+body[data-run-layout="compact"] .header-state { min-width:0; padding-top:0; gap:3px; }
+body[data-run-layout="compact"] .header-state .status-label { font-size:.65rem; }
+body[data-run-layout="compact"] .workflow-card { padding:7px 12px; margin-bottom:10px; gap:5px; }
+body[data-run-layout="compact"] .workflow-card .workflow-step { gap:3px; padding:3px 2px; font-size:.7rem; }
+body[data-run-layout="compact"] .workflow-card .workflow-step span { flex-basis:22px; width:22px; height:22px; font-size:.6rem; }
+body[data-run-layout="compact"] .workflow-card .workflow-step strong { font-size:.7rem; }
+body[data-run-layout="compact"] .calibration-review-strip { display:grid; grid-template-columns:minmax(0,1fr); gap:7px; padding:10px 12px; margin-bottom:10px; }
+body[data-run-layout="compact"] .calibration-review-heading { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px 14px; min-width:0; }
+body[data-run-layout="compact"] .calibration-review-heading > span { margin:0; font-size:.68rem; }
+body[data-run-layout="compact"] .calibration-review-list { gap:5px; }
+body[data-run-layout="compact"] .calibration-review-item { min-height:29px; padding:3px 5px 3px 8px; gap:5px; }
+body[data-run-layout="compact"] .calibration-review-item .button { min-height:27px; padding:0 8px; font-size:.69rem; }
+body[data-run-layout="compact"] .run-health-row { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,.95fr); gap:0; margin-bottom:10px; overflow:hidden; border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface); box-shadow:var(--shadow-soft); }
+body[data-run-layout="compact"] .run-health-row > .card { border:0; border-radius:0; box-shadow:none; margin:0; }
+body[data-run-layout="compact"] .run-health-row > .operations-strip { grid-template-columns:minmax(75px,.85fr) minmax(105px,1fr) auto; gap:10px; padding:9px 12px; border-right:1px solid var(--border); }
+body[data-run-layout="compact"] .operations-actions { gap:5px; }
+body[data-run-layout="compact"] .operations-actions .button { min-height:31px; padding:0 9px; font-size:.69rem; }
+body[data-run-layout="compact"] .run-storage-strip { grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; padding:9px 12px; }
+body[data-run-layout="compact"] .run-storage-strip > div { gap:2px; }
+body[data-run-layout="compact"] .run-health-row .status-label { font-size:.64rem; line-height:1.25; }
+body[data-run-layout="compact"] .run-storage-strip strong { font-size:.84rem; overflow-wrap:anywhere; }
+body[data-run-layout="compact"] .run-workspace > .panel { margin-bottom:12px; }
+body[data-run-layout="compact"] .live-sensor-panel > .card-header { min-height:auto; padding:12px 16px; }
+body[data-run-layout="compact"] .live-sensor-panel > .card-header p { font-size:.78rem; }
+body[data-run-layout="compact"] .live-sensor-panel > .card-body { padding:15px; }
+
+/* Two columns appear only when live monitoring and stage controls both exist. */
+@media(min-width:1101px) {
+  body[data-run-layout="compact"][data-run-state="ready"] .run-workspace.has-live,
+  body[data-run-layout="compact"][data-run-state="running"] .run-workspace.has-live,
+  body[data-run-layout="compact"][data-run-state="paused"] .run-workspace.has-live {
+    display:grid; grid-template-columns:minmax(0,1.7fr) minmax(345px,.96fr);
+    grid-template-areas:"sensors action" "sensors acquisition" "sensors abort";
+    align-items:start; gap:12px 14px;
+  }
+  body[data-run-layout="compact"] .run-workspace.has-live > .live-sensor-panel { grid-area:sensors; min-width:0; align-self:start; }
+  body[data-run-layout="compact"] .run-workspace.has-live > #ready_panel,
+  body[data-run-layout="compact"] .run-workspace.has-live > #run_panel { grid-area:action; min-width:0; }
+  body[data-run-layout="compact"] .run-workspace.has-live > #measurement_launcher { grid-area:acquisition; min-width:0; }
+  body[data-run-layout="compact"] .run-workspace.has-live > #abort_bar { grid-area:abort; min-width:0; }
+  body[data-run-layout="compact"] .run-workspace.has-live > .panel { margin:0; }
+  body[data-run-layout="compact"] .run-workspace.has-live > #abort_bar { margin:0; }
+  /* Expanding the data editor grants both columns to its tables and form. */
+  body[data-run-layout="compact"] .run-workspace.has-live.acquisition-expanded {
+    grid-template-areas:"sensors action" "sensors abort" "acquisition acquisition";
+  }
+}
+body[data-run-layout="compact"] #ready_panel > .card-header { min-height:auto; padding:12px 14px; }
+body[data-run-layout="compact"] #ready_panel .card-header h2 { font-size:1.03rem; }
+body[data-run-layout="compact"] #ready_panel .card-header p { font-size:.76rem; }
+body[data-run-layout="compact"] .ready-layout { display:flex; flex-direction:column; align-items:stretch; gap:12px; padding:14px; }
+body[data-run-layout="compact"] .ready-layout .stage-summary { padding:12px; }
+body[data-run-layout="compact"] .ready-layout .stage-summary h3 { font-size:1.04rem; line-height:1.32; }
+body[data-run-layout="compact"] .ready-layout .stage-summary p { font-size:.77rem; }
+body[data-run-layout="compact"] .ready-layout .parameter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
+body[data-run-layout="compact"] .ready-layout .parameter { min-height:43px; padding:7px 8px; overflow-wrap:anywhere; }
+body[data-run-layout="compact"] .ready-layout .parameter strong { font-size:.78rem; line-height:1.25; }
+body[data-run-layout="compact"] #start_first_stage { width:100%; min-height:44px; }
+body[data-run-layout="compact"] .run-panel .run-topbar { flex-wrap:wrap; gap:8px; padding:12px 14px; }
+body[data-run-layout="compact"] .run-panel .run-topbar h2 { font-size:1.08rem; }
+body[data-run-layout="compact"] .run-panel .recording-indicators { flex-wrap:wrap; gap:5px; }
+body[data-run-layout="compact"] .run-panel .indicator { font-size:.63rem; padding:4px 7px; }
+body[data-run-layout="compact"] .run-panel .run-body { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; padding:12px; }
+body[data-run-layout="compact"] .run-panel .timer-block { min-height:120px; padding:10px 5px; }
+body[data-run-layout="compact"] .run-panel .big-timer { font-size:clamp(2.1rem,3vw,3.25rem); }
+body[data-run-layout="compact"] .run-panel .scraping-box { min-height:120px; padding:9px; }
+body[data-run-layout="compact"] .run-panel .parameter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+body[data-run-layout="compact"] .run-panel .parameter { overflow-wrap:anywhere; }
+body[data-run-layout="compact"] .run-panel .run-actions { flex-wrap:wrap; padding:10px; }
+body[data-run-layout="compact"] .run-panel .mini-stage-shell { padding:10px 12px; }
+body[data-run-layout="compact"] #measurement_launcher { margin-top:0; }
+body[data-run-layout="compact"] .measurement-accordion-toggle { min-height:60px; padding:10px 14px; }
+body[data-run-layout="compact"] .measurement-accordion-description { font-size:.72rem; }
+body[data-run-layout="compact"] .abort-bar { flex-wrap:wrap; gap:7px; padding:10px 12px; }
+body[data-run-layout="compact"] .abort-bar > span { font-size:.72rem; }
+body[data-run-layout="compact"] .abort-bar .button { min-height:35px; font-size:.78rem; }
+
+@media(max-width:1150px) {
+  body[data-run-layout="compact"] .run-health-row { grid-template-columns:minmax(0,1fr); }
+  body[data-run-layout="compact"] .run-health-row > .operations-strip { border-right:0; border-bottom:1px solid var(--border); }
+}
+@media(max-width:1100px) {
+  body[data-run-layout="compact"] .run-workspace { display:flex; flex-direction:column; }
+  body[data-run-layout="compact"] .run-workspace > #ready_panel,
+  body[data-run-layout="compact"] .run-workspace > #run_panel,
+  body[data-run-layout="compact"] .run-workspace > #error_panel,
+  body[data-run-layout="compact"] .run-workspace > #completed_panel { order:1; }
+  body[data-run-layout="compact"] .run-workspace > .live-sensor-panel { order:2; }
+  body[data-run-layout="compact"] .run-workspace > #measurement_launcher { order:3; }
+  body[data-run-layout="compact"] .run-workspace > #abort_bar { order:4; }
+}
+@media(max-width:680px) {
+  .run-header-tools { align-items:flex-start; }
+  body[data-run-layout="compact"] .page-header { align-items:flex-start; }
+  body[data-run-layout="compact"] .run-health-row > .operations-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  body[data-run-layout="compact"] .run-health-row .operations-actions { grid-column:1/-1; }
+  body[data-run-layout="compact"] .run-health-row > .run-storage-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  body[data-run-layout="compact"] .run-panel .run-body { grid-template-columns:minmax(0,1fr); }
+}
