@@ -22,6 +22,7 @@ jobs:
         run: |
           node --check src/ui/js/cells.js
           node --check src/ui/js/sensors.js
+          node tests/test_vision_reference_overlay.js
       - name: Compile Python sources
         run: python -m compileall -q src tests
       - name: Install OpenCV for hardware-free vision tests
