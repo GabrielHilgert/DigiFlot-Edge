@@ -545,6 +545,14 @@ def capture_measurement(request: Request, payload: dict | None = None):
         raise api_error(error) from error
 
 
+@router.post("/scraping/alerts")
+def set_scraping_alerts(request: Request, payload: dict):
+    try:
+        return get_digiflot(request).set_scraping_alerts(payload.get("enabled"))
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.get("/performance")
 def performance_status(request: Request):
     manager = get_digiflot(request).performance
