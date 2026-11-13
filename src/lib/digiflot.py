@@ -1460,7 +1460,7 @@ class DigiFlot:
             self.condition.notify_all()
             if self.state == self.CAMERA_CALIBRATION:
                 self._advance_from_camera_calibration_unlocked()
-            elif self.state == self.READY and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and (self.vision is None or not self.vision.virtual_test_passed()):
+            if self.state in {self.SENSOR_CALIBRATION, self.READY} and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and (self.vision is None or not self.vision.virtual_test_passed()):
                 self._invalidate_virtual_calibration_unlocked("Restart requires a fresh Froth Interface benchmark")
             return
         else:
@@ -1636,6 +1636,7 @@ class DigiFlot:
         ):
             return
 
+        self.calibration_edit = None
         self._touch_unlocked("CAMERA_CALIBRATION_COMPLETED")
         if self.vision is not None and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and not self.vision.virtual_test_passed():
             self._invalidate_virtual_calibration_unlocked("Camera calibration or geometry changed")
@@ -1778,7 +1779,8 @@ class DigiFlot:
     def _invalidate_virtual_calibration_unlocked(self, reason):
         """A changed optical/physical reference needs a new virtual benchmark."""
         item = self.sensor_calibration.get("froth_interface")
-        if item is None or self.state not in {self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION, self.READY}:
+        if (item is None or item.get("status") == "skipped"
+                or self.state not in {self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION, self.READY}):
             return
         self._mark_calibration_changed_unlocked()
         item["status"] = "pending"
