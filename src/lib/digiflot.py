@@ -1284,7 +1284,7 @@ class DigiFlot:
             self._sync_execution_state_unlocked("preparing", ensure=True)
             return self.status
 
-    def select_physical_cell(self, cell_id, camera_id=None):
+    def select_physical_cell(self, cell_id, camera_id=None, working_volume_l=None):
         """Propagate the selected physical cell to experiment and execution state."""
         with self.lock:
             if self.state != self.CELL_SELECTION or self.run_directory is None:
@@ -1318,6 +1318,16 @@ class DigiFlot:
                 item.update({"value": float(cell_volume), "source": "physical_cell",
                              "cell_revision": cell.get("revision"), "updated_at": _utc_now()})
                 profile["working_volume_l"] = float(cell_volume)
+            if working_volume_l is not None:
+                import math
+                volume = float(working_volume_l)
+                if not math.isfinite(volume) or volume <= 0:
+                    raise ValueError("Working cell volume override must be positive and finite")
+                if item is None:
+                    raise RuntimeError("Working cell volume input is unavailable")
+                item.update({"value": volume, "source": "operator", "updated_at": _utc_now()})
+                profile["working_volume_l"] = volume
+                profile["working_volume_source"] = "operator"
             self.virtual_camera_id = chosen
             self.experiment["cell_profile"] = deepcopy(profile)
             self.experiment["physical_cell_id"] = cell["id"]
