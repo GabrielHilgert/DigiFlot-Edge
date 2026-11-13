@@ -490,22 +490,20 @@ body[data-run-layout="compact"] .live-sensor-panel > .card-body { padding:15px; 
 
 /* Two columns appear only when live monitoring and stage controls both exist. */
 @media(min-width:1101px) {
-  body[data-run-layout="compact"][data-run-state="ready"] .run-workspace.has-live,
-  body[data-run-layout="compact"][data-run-state="running"] .run-workspace.has-live,
-  body[data-run-layout="compact"][data-run-state="paused"] .run-workspace.has-live {
+  body[data-run-layout="compact"] .run-workspace.is-dashboard {
     display:grid; grid-template-columns:minmax(0,1.7fr) minmax(345px,.96fr);
     grid-template-areas:"sensors action" "sensors acquisition" "sensors abort";
     align-items:start; gap:12px 14px;
   }
-  body[data-run-layout="compact"] .run-workspace.has-live > .live-sensor-panel { grid-area:sensors; min-width:0; align-self:start; }
-  body[data-run-layout="compact"] .run-workspace.has-live > #ready_panel,
-  body[data-run-layout="compact"] .run-workspace.has-live > #run_panel { grid-area:action; min-width:0; }
-  body[data-run-layout="compact"] .run-workspace.has-live > #measurement_launcher { grid-area:acquisition; min-width:0; }
-  body[data-run-layout="compact"] .run-workspace.has-live > #abort_bar { grid-area:abort; min-width:0; }
-  body[data-run-layout="compact"] .run-workspace.has-live > .panel { margin:0; }
-  body[data-run-layout="compact"] .run-workspace.has-live > #abort_bar { margin:0; }
+  body[data-run-layout="compact"] .run-workspace.is-dashboard > .live-sensor-panel { grid-area:sensors; min-width:0; align-self:start; }
+  body[data-run-layout="compact"] .run-workspace.is-dashboard > #ready_panel,
+  body[data-run-layout="compact"] .run-workspace.is-dashboard > #run_panel { grid-area:action; min-width:0; }
+  body[data-run-layout="compact"] .run-workspace.is-dashboard > #measurement_launcher { grid-area:acquisition; min-width:0; }
+  body[data-run-layout="compact"] .run-workspace.is-dashboard > #abort_bar { grid-area:abort; min-width:0; }
+  body[data-run-layout="compact"] .run-workspace.is-dashboard > .panel { margin:0; }
+  body[data-run-layout="compact"] .run-workspace.is-dashboard > #abort_bar { margin:0; }
   /* Expanding the data editor grants both columns to its tables and form. */
-  body[data-run-layout="compact"] .run-workspace.has-live.acquisition-expanded {
+  body[data-run-layout="compact"] .run-workspace.is-dashboard.acquisition-expanded {
     grid-template-areas:"sensors action" "sensors abort" "acquisition acquisition";
   }
 }
