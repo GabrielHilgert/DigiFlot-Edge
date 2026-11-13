@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -83,6 +84,8 @@ class PerformanceManager:
         self.telemetry_path = None
         self.telemetry_event_callback = None
         self.monitor_error = None
+        self._cpu_sample_lock = threading.Lock()
+        self._previous_cpu_times = None
         self.last_sample = self.sample_system()
         self.profile = self._load_profile()
 
@@ -147,6 +150,69 @@ class PerformanceManager:
             pass
         return {"raw": None, "value": None, "current": False, "thermal_current": False, "historical": False}
 
+    def _read_cpu_headroom(self):
+        """Real interval CPU busy/idle based on Linux /proc/stat, not load average."""
+        try:
+            values = [int(x) for x in Path("/proc/stat").read_text().splitlines()[0].split()[1:]]
+            if len(values) < 5:
+                return None
+            total, idle = sum(values[:8]), values[3] + values[4]
+            with self._cpu_sample_lock:
+                previous = self._previous_cpu_times
+                self._previous_cpu_times = (total, idle)
+            if not previous or total <= previous[0]:
+                return None
+            idle_pct = max(0., min(100., 100.*(idle-previous[1])/(total-previous[0])))
+            return {"used_pct": round(100.-idle_pct, 2), "free_pct": round(idle_pct, 2)}
+        except (OSError, ValueError, IndexError):
+            return None
+
+    @staticmethod
+    def _read_memory_headroom():
+        try:
+            values = {}
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                key, value = line.split(":", 1)
+                if key in ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree"):
+                    values[key] = int(value.strip().split()[0])
+            total, free = values["MemTotal"], values["MemAvailable"]
+            if total <= 0:
+                return None
+            result = {"total_gb": round(total/1024**2, 3),
+                      "available_gb": round(free/1024**2, 3),
+                      "free_pct": round(100*free/total, 2),
+                      "used_pct": round(100*(1-free/total), 2)}
+            if values.get("SwapTotal"):
+                result["swap_used_pct"] = round(
+                    100*(1-values.get("SwapFree", 0)/values["SwapTotal"]), 2)
+            return result
+        except (OSError, ValueError, IndexError, KeyError):
+            return None
+
+    @staticmethod
+    def headroom_risk(samples, threshold_pct=10.):
+        """Descriptive short-run low-headroom exposure, NOT a future failure probability.
+
+        One-sided Wilson upper bound assumes independent observations; nearby samples
+        share load and are correlated, so we avoid describing the bound as predictive.
+        """
+        valid = [s for s in samples if s.get("cpu", {}).get("free_pct") is not None
+                 and s.get("memory", {}).get("free_pct") is not None]
+        n = len(valid)
+        low = sum(min(s["cpu"]["free_pct"], s["memory"]["free_pct"]) < threshold_pct
+                  for s in valid)
+        if not n:
+            return {"threshold_pct": threshold_pct, "samples": 0, "low_samples": 0,
+                    "observed_pct": None, "upper_bound_95_pct": None,
+                    "interpretation": "Insufficient system headroom measurements"}
+        p, z = low/n, 1.645
+        upper = (p+z*z/(2*n)+z*math.sqrt(p*(1-p)/n+z*z/(4*n*n)))/(1+z*z/n)
+        return {"threshold_pct": threshold_pct, "samples": n, "low_samples": low,
+                "observed_pct": round(p*100, 2),
+                "upper_bound_95_pct": round(min(100., upper*100), 2),
+                "interpretation": "Descriptive only: independent-sample upper bound; "
+                    "autocorrelation and future load are not captured"}
+
     def sample_system(self):
         try:
             load1, load5, load15 = os.getloadavg()
@@ -163,8 +229,12 @@ class PerformanceManager:
         except Exception:
             disk = {"total_gb": None, "free_gb": None, "used_gb": None}
 
+        cpu = self._read_cpu_headroom()
+        memory = self._read_memory_headroom()
         return {
             "timestamp": _utc_now(),
+            "cpu": cpu,
+            "memory": memory,
             "temperature_c": self._read_temperature(),
             "throttled": self._read_throttled(),
             "load1": load1,
