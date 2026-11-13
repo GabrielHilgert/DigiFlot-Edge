@@ -57,3 +57,17 @@
     .app-logo { height:3.5em; }
     .app-nav-links { grid-column:1/-1; grid-row:2; justify-content:flex-start; overflow-x:auto; flex-wrap:nowrap; padding-bottom:3px; }
 }
+
+/* One lightweight feedback layer for all API-backed operations. */
+.app-operation-feedback { position:fixed; z-index:3000; right:22px; bottom:20px; max-width:min(500px,calc(100vw - 32px)); min-width:260px; display:flex; align-items:center; gap:11px; padding:11px 14px; border:1px solid var(--border-strong); border-radius:12px; background:var(--surface); box-shadow:0 8px 30px #0003; opacity:0; transform:translateY(10px); pointer-events:none; transition:opacity .18s ease,transform .18s ease; font-size:.83rem; line-height:1.35; }
+.app-operation-feedback.visible { opacity:1; transform:translateY(0); pointer-events:auto; }
+.app-operation-feedback.error { border-color:var(--danger); color:var(--danger); }
+.app-operation-feedback .operation-message { flex:1; min-width:0; overflow-wrap:anywhere; }
+.app-operation-feedback .operation-spinner { flex:0 0 18px; width:18px; height:18px; border:2px solid var(--border-strong); border-top-color:var(--accent); border-radius:50%; animation:digiflot-spin .75s linear infinite; }
+.app-operation-feedback.error .operation-spinner { animation:none; border:2px solid var(--danger); position:relative; }
+.app-operation-feedback.error .operation-spinner::after { content:"!"; position:absolute; inset:-2px; text-align:center; font-size:12px; font-weight:800; }
+.app-operation-feedback .operation-dismiss { font:inherit; background:transparent; border:0; color:inherit; cursor:pointer; padding:0 3px; font-size:1.35rem; }
+button[data-operation-pending="true"], input[data-operation-pending="true"] { cursor:progress; opacity:.7; }
+button[data-operation-pending="true"]::after, input[data-operation-pending="true"]::after { content:""; display:inline-block; vertical-align:middle; width:12px; height:12px; margin-left:8px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:digiflot-spin .8s linear infinite; }
+@keyframes digiflot-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .app-operation-feedback .operation-spinner,button[data-operation-pending="true"]::after { animation:none; } }
