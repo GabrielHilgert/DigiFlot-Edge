@@ -98,16 +98,19 @@
         const modifying = !["GET","HEAD","OPTIONS"].includes(method);
         const foreground = modifying && !passive.test(url.pathname);
         const clicked = performance.now()-current.clickedAt < 1000 ? current.anchor : null;
-        const foregroundRead = !modifying && clicked && /\/(?:snapshot|rectified|calibration|profile)(?:\/|$)/.test(url.pathname);
+        const cameraRead = !modifying && url.pathname.endsWith("/detection-roi-preview");
+        const foregroundRead = cameraRead || (!modifying && clicked &&
+            /\/(?:snapshot|rectified|calibration|profile)(?:\/|$)/.test(url.pathname));
         const tracked = foreground || foregroundRead;
-        if (foreground && current.exclusive) {
+        const exclusive = foreground || cameraRead;
+        if (exclusive && current.exclusive) {
             notice("Finish the current operation before starting another.", false, true);
             throw new Error("Another operation is still running; wait for its result.");
         }
         let label = null;
         if (tracked) {
             current.count++;
-            if (foreground) current.exclusive++;
+            if (exclusive) current.exclusive++;
             label = targetLabel(clicked, url.pathname);
             mark(clicked, true);
             notice(label + "…");
@@ -138,7 +141,7 @@
         } finally {
             if (tracked) {
                 current.count=Math.max(0,current.count-1);
-                if (foreground) current.exclusive=Math.max(0,current.exclusive-1);
+                if (exclusive) current.exclusive=Math.max(0,current.exclusive-1);
                 mark(clicked, false);
                 clearTimeout(current.slow);
                 if (!current.count && !current.panel?.classList.contains("error")) {
