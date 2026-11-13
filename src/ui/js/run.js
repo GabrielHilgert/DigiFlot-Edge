@@ -573,9 +573,9 @@ function updateRunMonitorFrame(card, frame) {
     const viewWidth=Math.min(available,Math.round(215*w/h));
     surface.style.width=viewWidth+"px";
     surface.style.height=Math.round(viewWidth*h/w)+"px";
-    image.src="data:image/jpeg;base64,"+frame.jpeg_base64;
-    image.dataset.revision=String(frame.revision);
     image.onload=()=>drawRunMonitorOverlay(card,frame);
+    image.dataset.revision=String(frame.revision);
+    image.src="data:image/jpeg;base64,"+frame.jpeg_base64;
     const time=new Date(frame.timestamp_ns/1e6).toLocaleTimeString();
     card.querySelector(".run-virtual-frame-age").textContent=
         (frame.valid?"Detection image":"Detection invalid")+" · "+time;
