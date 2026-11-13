@@ -1167,3 +1167,6 @@ code {
   background: var(--surface-soft);
   color: var(--text-soft);
 }
+
+/* A flex button must obey the hidden state set by the workflow controller. */
+#cancel_camera_recalibration[hidden] { display:none !important; }
