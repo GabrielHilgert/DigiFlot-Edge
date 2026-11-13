@@ -152,6 +152,14 @@ def skip_camera_calibration(camera_id: int, request: Request, payload: dict | No
         raise api_error(error) from error
 
 
+@router.post("/calibration/cancel")
+def cancel_calibration_edit(request: Request):
+    try:
+        return get_digiflot(request).cancel_calibration_edit()
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.post("/calibration/sensors/{sensor_id}/reopen")
 def reopen_sensor_calibration(sensor_id: str, request: Request):
     try:
