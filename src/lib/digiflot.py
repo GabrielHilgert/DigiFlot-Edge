@@ -535,7 +535,8 @@ class DigiFlot:
             ),
             "cell_selection": {"selected": bool((self.cell_profile or {}).get("physical_cell_id")),
                                "cell_id": (self.cell_profile or {}).get("physical_cell_id"),
-                               "camera_id": self.virtual_camera_id},
+                               "camera_id": self.virtual_camera_id,
+                               "references": self._reference_status_unlocked()},
             "virtual_sensors": ([self.vision.virtual_sensor_snapshot()] if self.vision is not None and self.virtual_camera_id is not None else []),
             "calibration": {
                 "cameras": deepcopy(self.camera_calibration),
@@ -558,6 +559,21 @@ class DigiFlot:
             "execution_inputs": self._execution_inputs_payload_unlocked(),
             "last_error": self.last_error,
         }
+
+    def _reference_status_unlocked(self):
+        cell_id = (self.cell_profile or {}).get("physical_cell_id")
+        if not cell_id or self.vision is None:
+            return None
+        try:
+            data = self.vision.registry.reference_points(cell_id)
+            point = next((p for p in data["points"] if p["id"] == data["default_reference_id"]), None)
+            ready = bool(point and (point.get("position_cm") is not None or point.get("source") in ("automatic","derived")))
+            return {"default_reference_id": data["default_reference_id"],
+                    "default_name": (point or {}).get("name"),
+                    "ready": ready, "revision": data.get("revision", 0),
+                    "count": len(data["points"])}
+        except (KeyError, ValueError):
+            return None
 
     def _experiment_summary_unlocked(self):
         if self.experiment is None:
