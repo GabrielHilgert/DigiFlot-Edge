@@ -42,7 +42,8 @@ class NamedReferenceTests(unittest.TestCase):
             self.assertEqual(len(saved["points"]),20)
             self.assertEqual(saved["revision"],1)
             self.assertEqual(registry.save_reference_points(cell["id"],saved)["revision"],1)
-            association={"reference_points":saved,"calibration":{"layout":self.layout}}
+            association={"reference_points":saved,"calibration":{"layout":self.layout},
+                         "calibration_id":"test-calibration"}
             datum=resolve_vertical_reference({"reference_id":"outlet_level"},association)
             self.assertEqual(datum["y_cm"],6.)
             self.assertEqual(datum["direction"],"up")
