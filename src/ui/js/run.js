@@ -316,12 +316,12 @@ function renderCalibrationReview(state) {
     for (const camera of Object.values(state.calibration?.cameras || {})) {
         const status = camera.status || "pending";
         const editable = camera.available !== false && ["passed", "skipped"].includes(status);
-        items.push(`<div class="calibration-review-item"><span class="review-kind">Camera</span><strong>${escapeHtml(camera.name || `Camera ${camera.id}`)}</strong><span class="calibration-status ${escapeHtml(status)}">${escapeHtml(status)}</span>${editable ? `<button class="button button-secondary button-small" type="button" data-edit-camera="${escapeHtml(camera.id)}">Edit</button>` : ""}</div>`);
+        items.push(`<div class="calibration-review-item"><span class="review-kind">Camera</span><strong>${escapeHtml(camera.name || `Camera ${camera.id}`)}</strong><span class="calibration-status ${escapeHtml(status)}">${escapeHtml(status)}</span>${editable ? `<button class="button button-secondary button-small" type="button" data-edit-camera="${escapeHtml(camera.id)}">Recalibrate</button>` : ""}</div>`);
     }
     for (const sensor of Object.values(state.calibration?.sensors || {})) {
         const status = sensor.status || "pending";
         const editable = ["passed", "skipped"].includes(status);
-        items.push(`<div class="calibration-review-item"><span class="review-kind">Sensor</span><strong>${escapeHtml(sensor.name || sensor.id)}</strong><span class="calibration-status ${escapeHtml(status)}">${escapeHtml(status)}</span>${editable ? `<button class="button button-secondary button-small" type="button" data-edit-sensor="${escapeHtml(sensor.id)}">Edit</button>` : ""}</div>`);
+        items.push(`<div class="calibration-review-item"><span class="review-kind">Sensor</span><strong>${escapeHtml(sensor.name || sensor.id)}</strong><span class="calibration-status ${escapeHtml(status)}">${escapeHtml(status)}</span>${editable ? `<button class="button button-secondary button-small" type="button" data-edit-sensor="${escapeHtml(sensor.id)}">Review</button>` : ""}</div>`);
     }
     ui.calibration_review_list.innerHTML = items.join("") || `<span class="review-empty">No calibration entries.</span>`;
 }
@@ -1160,14 +1160,8 @@ function bindActions() {
         }
         const sensorButton = event.target.closest("[data-edit-sensor]");
         if (sensorButton) {
-            sensorButton.disabled = true;
-            try {
-                await requestJson(`/api/digiflot/calibration/sensors/${encodeURIComponent(sensorButton.dataset.editSensor)}/reopen`, { method: "POST" });
-                window.location.href = "/sensors?calibration=1";
-            } catch (error) {
-                sensorButton.disabled = false;
-                showToast(error.message);
-            }
+            // Review is read-only. Reopening a completed calibration must be explicit.
+            window.location.href = "/sensors?review=" + encodeURIComponent(sensorButton.dataset.editSensor);
         }
     });
     ui.select_physical_cell.addEventListener("change",updateSelectedCellVolume);
