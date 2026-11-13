@@ -539,6 +539,48 @@ class VisionService:
         height = min(int(camera.frame_size[1])//2*2, height)
         return width, height
 
+    def performance_workload(self):
+        """Resolve the saved virtual sensor for the idle, two-camera hardware benchmark."""
+        settings = self.registry.settings()
+        camera_id, cell_id = settings.get("camera_id"), settings.get("cell_id")
+        if camera_id is None or not cell_id:
+            return None
+        camera = self.digiflot.cameras.get(int(camera_id))
+        if camera is None:
+            raise ValueError("Saved virtual sensor camera is not connected")
+        assoc = self.registry.association(camera.id, cell_id)
+        if assoc is None:
+            raise ValueError("No calibrated ArUco camera-cell association for the saved virtual sensor")
+        if (assoc["cell_revision"] != self.registry.get_cell(cell_id)["revision"] or
+                assoc["camera_revision"] != self.registry.camera_profile(camera.id)["revision"]):
+            raise ValueError("Saved Froth Interface ArUco geometry is out of date")
+        profile = self.registry.virtual_profile(camera.id, cell_id)
+        config = normalized_config(profile["config"])
+        if not config["vertical_reference_confirmed"]:
+            raise ValueError("Froth Interface physical reference is not confirmed")
+        datum = resolve_vertical_reference(config, assoc)
+        roi = detection_roi(config, assoc)
+        signature = config_signature(config, assoc)
+        return {"camera_id": camera.id, "cell_id": cell_id, "camera": camera,
+                "association": assoc, "config": config, "datum": datum, "roi": roi,
+                "signature": signature, "lores_size": self._desired_lores_size(camera, assoc, config)}
+
+    def performance_detection(self, workload):
+        """One real sensor acquisition with the two encoders already recording."""
+        camera, config = workload["camera"], workload["config"]
+        color = config["method"] in COLOR_METHODS
+        start = time.perf_counter()
+        raw, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
+        compiled = self._compiled_roi(camera, workload["cell_id"], workload["association"], frame, config)
+        patch = remap_yuv420_roi(raw, compiled, frame["size"]) if color else remap_roi(raw, compiled)
+        roi = workload["roi"]
+        density = compiled["size"][0] / (roi[2] - roi[0])
+        result = detect_interface(patch, config, roi, density, vertical_reference=workload["datum"])
+        return {"valid": bool(result.get("valid")), "latency_ms": round((time.perf_counter()-start)*1000, 2),
+                "captured_timestamp_ns": frame["captured_timestamp_ns"],
+                "sensor_timestamp_ns": frame.get("sensor_timestamp_ns"),
+                "error": result.get("error")}
+
     def benchmark_virtual_sensor(self, samples=20):
         if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
             raise RuntimeError("Virtual sensor benchmark is only allowed during sensor calibration")
