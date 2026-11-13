@@ -244,3 +244,10 @@ a { color: inherit; text-decoration: none; }
 .virtual-reference-geometry { display:flex; flex-wrap:wrap; gap:9px; margin:14px 0 8px; }
 .virtual-reference-help { font-size:.75rem; color:var(--text-faint); margin:8px 0 0; line-height:1.5; }
 @media(max-width:640px) { .virtual-reference-fields { grid-template-columns:1fr; } }
+
+.virtual-reference-levels { margin-top:10px; display:grid; gap:7px; font-size:.79rem; color:var(--text-soft); }
+.virtual-reference-level-list { display:flex; flex-wrap:wrap; gap:6px; }
+.virtual-reference-level { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); border-radius:7px; padding:5px 8px; font-size:.73rem; background:var(--surface-soft); }
+.virtual-reference-level i { display:inline-block; width:15px; height:3px; background:#fbbf24; }
+.virtual-reference-level.selected { border-color:#38bdf8; color:var(--text); }
+.virtual-reference-level.selected i { background:#38bdf8; }

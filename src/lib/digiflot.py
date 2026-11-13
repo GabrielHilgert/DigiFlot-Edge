@@ -166,6 +166,8 @@ class DigiFlot:
         self.state = self.IDLE
         self.stage_state = self.STAGE_NONE
         self.preview_camera_id = None
+        self.preview_owner_id = None
+        self.preview_owner_until = 0.
 
         self.storage_id = None
         self.run_directory = None
@@ -677,8 +679,8 @@ class DigiFlot:
         inputs = {}
         for key, spec in self.REQUIRED_EXECUTION_INPUTS.items():
             suggestion = planned.get(key, {})
-            value = suggestion.get("value")
-            source = suggestion.get("source")
+            value = suggestion.get("value") if key == "working_cell_volume" else None
+            source = suggestion.get("source") if key == "working_cell_volume" else None
             old = previous.get(key) if isinstance(previous.get(key), dict) else {}
             # Operator-confirmed values always override the planned recipe.
             if old.get("value") not in (None, ""):
@@ -692,7 +694,7 @@ class DigiFlot:
                 "id": key,
                 "label": spec["label"],
                 "unit": spec["unit"],
-                "required": True,
+                "required": key == "working_cell_volume",
                 "value": value,
                 "source": source,
                 "recipe_path": suggestion.get("recipe_path"),
@@ -710,7 +712,7 @@ class DigiFlot:
 
     def _execution_inputs_payload_unlocked(self):
         items = [deepcopy(self.execution_inputs.get(key, {})) for key in self.REQUIRED_EXECUTION_INPUTS]
-        missing = [item.get("id") for item in items if item.get("value") in (None, "")]
+        missing = [item.get("id") for item in items if item.get("required", True) and item.get("value") in (None, "")]
         suggestions = []
         manager = self.server_sync_manager
         if manager is not None:
@@ -739,6 +741,12 @@ class DigiFlot:
                 "points": item["points"],
                 "latest": deepcopy(item.get("latest")),
             })
+        # Show initialization variables before the operator records their first value.
+        for key in ("feed_mass", "water_volume"):
+            if not any(item["id"] == key for item in variables):
+                variables.append({"id": key, "name": self.REQUIRED_EXECUTION_INPUTS[key]["label"],
+                                  "unit": self.REQUIRED_EXECUTION_INPUTS[key]["unit"],
+                                  "points": 0, "latest": None, "role": "execution_input"})
         variables.sort(key=lambda item: item["name"].lower())
         return {
             "revision": self.measurement_revision,
@@ -926,6 +934,29 @@ class DigiFlot:
                 sensor_timestamp_ms = snapshot.get("timestamp_ms")
                 raw_value = snapshot.get("raw")
 
+            execution_value = None
+            if role == "execution_input":
+                import math
+                if value_type != "number":
+                    raise ValueError("Execution inputs must be numeric.")
+                # Preserve the sensor's original value/unit in the audit record,
+                # but store an SI-compatible canonical value for derived metrics.
+                conversions = {
+                    "feed_mass": {"g": 1., "kg": 1000., "mg": .001},
+                    "water_volume": {"l": 1., "ml": .001, "m3": 1000., "m³": 1000.},
+                    "working_cell_volume": {"l": 1., "ml": .001, "m3": 1000., "m³": 1000.},
+                }
+                expected = self.REQUIRED_EXECUTION_INPUTS[normalized_id]["unit"]
+                normalized_unit = str(captured_unit or (expected if source_type == "manual" else "")).strip().lower()
+                factor = conversions[normalized_id].get(normalized_unit)
+                if factor is None:
+                    raise ValueError(f"{name} expects {expected}; received {captured_unit or 'no sensor unit'}.")
+                execution_value = captured_value * factor
+                if not math.isfinite(execution_value) or execution_value < 0:
+                    raise ValueError("Execution input must be non-negative and finite.")
+                if captured_unit is None:
+                    captured_unit = expected
+
             stage = (
                 self.current_stage
                 if self.state in {self.RUNNING, self.PAUSED, self.RECOVERY_REQUIRED}
@@ -940,6 +971,9 @@ class DigiFlot:
                 "role": role,
                 "category": category,
                 "unit": captured_unit,
+                "execution_value": execution_value,
+                "execution_unit": self.REQUIRED_EXECUTION_INPUTS[normalized_id]["unit"]
+                    if role == "execution_input" else None,
                 "source_type": source_type,
                 "sensor_id": None if source_type == "manual" else source_id,
                 "sensor_name": sensor_name,
@@ -970,14 +1004,14 @@ class DigiFlot:
             if role == "execution_input":
                 target = self.execution_inputs[normalized_id]
                 target.update({
-                    "value": captured_value,
+                    "value": execution_value,
                     "source": source_id if source_type == "sensor" else "manual",
                     "measurement_id": record["measurement_id"],
                     "updated_at": record["captured_at"],
                 })
                 if normalized_id == "working_cell_volume":
                     profile = deepcopy(self.cell_profile or {})
-                    profile["working_volume_l"] = captured_value
+                    profile["working_volume_l"] = execution_value
                     self.cell_profile = profile
             variable = self.measurement_variables.get(normalized_id)
             if variable is None:
@@ -2302,7 +2336,7 @@ class DigiFlot:
         except Exception as error:
             print(f"[DigiFlot] Could not update storage history: {error}")
 
-    def abort_experiment(self, reason="Operator aborted experiment"):
+    def abort_experiment(self, reason="Operator aborted experiment", return_to_idle=False):
         with self.lock:
             if self.state == self.IDLE:
                 return self.status
@@ -2323,6 +2357,11 @@ class DigiFlot:
             self.recovery_context = None
             self._touch_unlocked("EXPERIMENT_ABORTED", {"reason": str(reason)})
             self._sync_execution_state_unlocked("aborted", ensure=True)
+            if return_to_idle:
+                # The aborted run is fully persisted before freeing cameras/tools.
+                self._reset_run_state_unlocked()
+                self.revision += 1
+                self.condition.notify_all()
             return self.status
 
     def _enter_recovery_unlocked(self, error, source="orchestrator"):
@@ -3413,7 +3452,7 @@ class DigiFlot:
                 "saved_to": paths,
             }
 
-    def start_preview(self, camera_id: int):
+    def start_preview(self, camera_id: int, owner_id=None):
         with self.lock:
             if self.recording:
                 raise RuntimeError("Preview is not available while recording.")
@@ -3421,16 +3460,30 @@ class DigiFlot:
                 raise RuntimeError("Preview is only available while idle or calibrating cameras or sensors.")
 
             camera = self.get_camera(camera_id)
+            now = time.monotonic()
+            if owner_id is not None:
+                if self.preview_owner_id and self.preview_owner_id != owner_id:
+                    if now < self.preview_owner_until:
+                        raise RuntimeError("Camera preview is already open in another browser tab. Close it there before continuing.")
+                    # An expired lease indicates a closed or disconnected tab.
+                    self.stop_preview()
+                self.preview_owner_id = str(owner_id)
+                self.preview_owner_until = now + 35.
             if self.preview_camera_id == camera.id and camera.state == camera.PREVIEW:
                 return self.status
 
             if self.preview_camera_id is not None:
                 self.stop_preview()
+                if owner_id is not None:
+                    self.preview_owner_id = str(owner_id)
+                    self.preview_owner_until = time.monotonic() + 35.
 
             try:
                 camera.start_preview()
             except Exception:
                 self.preview_camera_id = None
+                self.preview_owner_id = None
+                self.preview_owner_until = 0.
                 raise
 
             self.preview_camera_id = camera.id
@@ -3438,10 +3491,23 @@ class DigiFlot:
             self.condition.notify_all()
             return self.status
 
-    def stop_preview(self):
+    def preview_heartbeat(self, owner_id):
         with self.lock:
+            if (not owner_id or self.preview_owner_id != str(owner_id) or
+                    self.preview_camera_id is None or time.monotonic() >= self.preview_owner_until):
+                raise RuntimeError("Preview ownership expired or was transferred to another tab.")
+            self.preview_owner_until = time.monotonic() + 35.
+            return {"camera_id": self.preview_camera_id, "lease_s": 35}
+
+    def stop_preview(self, owner_id=None):
+        with self.lock:
+            if (owner_id is not None and self.preview_owner_id is not None and
+                    self.preview_owner_id != str(owner_id) and time.monotonic() < self.preview_owner_until):
+                raise RuntimeError("The camera preview belongs to another browser tab.")
             camera_id = self.preview_camera_id
             self.preview_camera_id = None
+            self.preview_owner_id = None
+            self.preview_owner_until = 0.
 
             if camera_id is not None and camera_id in self.cameras:
                 self.cameras[camera_id].stop_preview()

@@ -16,6 +16,11 @@ let stageTimelineSignature = null;
 let readyViewSignature = null;
 let runStorageEstimateFor = null;
 let monitorFrameRevision = 0, monitorFrame = null, monitorBusy = false, monitorRunId = null;
+let imageHidden = false, measurementOpen = false;
+try {
+    imageHidden = window.localStorage?.getItem("digiflot-hide-froth-image") === "1";
+    measurementOpen = window.sessionStorage?.getItem("digiflot-data-acquisition-open") === "1";
+} catch (_) { /* Browser private mode: fall back to hidden data tab. */ }
 
 function cacheUi() {
     [
@@ -37,6 +42,7 @@ function cacheUi() {
         "recovery_resume_button", "restart_stage_button", "recovery_skip_button",
         "recovery_abort_button", "operations_retry_devices",
         "live_sensor_panel", "live_sensor_grid", "measurement_panel",
+        "measurement_launcher", "toggle_measurement_panel",
         "measurement_form", "measurement_variable_name", "measurement_variable_names",
         "measurement_source", "measurement_value_type", "measurement_sensor_value", "measurement_sensor_value_text",
         "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value", "measurement_manual_text",
@@ -477,7 +483,10 @@ function ensureSensorCard(sensor) {
     card.dataset.liveSensor = key;
     card.innerHTML = virtual ? `
         <div class="live-sensor-head"><div><h3></h3><span class="live-sensor-status"></span></div>
-            <button class="plot-toggle" type="button" data-plot-toggle="${escapeHtml(key)}">Hide plot</button></div>
+            <div class="run-virtual-actions">
+                <button class="plot-toggle" type="button" data-image-toggle="1">Hide image</button>
+                <button class="plot-toggle" type="button" data-plot-toggle="${escapeHtml(key)}">Hide plot</button>
+            </div></div>
         <div class="run-virtual-layout">
             <div class="run-virtual-image-frame"><div class="run-virtual-image-surface">
                 <img class="run-virtual-image" alt="Last detected rectified froth ROI" draggable="false">
@@ -521,6 +530,12 @@ function renderLiveSensors(state) {
         appendSensorPlotSample(sensor);
         const card = ensureSensorCard(sensor);
         const hidden = hiddenSensorPlots.has(String(sensor.id));
+        if (sensor.type === "virtual_froth_interface") {
+            card.classList.toggle("live-sensor-card-wide", !imageHidden);
+            card.classList.toggle("virtual-image-hidden", imageHidden);
+            card.querySelector(".run-virtual-image-frame").hidden = imageHidden;
+            card.querySelector("[data-image-toggle]").textContent = imageHidden ? "Show image" : "Hide image";
+        }
         card.querySelector("h3").textContent = sensor.name || sensor.id;
         const status = card.querySelector(".live-sensor-status");
         status.textContent = sensor.status || "unknown";
@@ -542,7 +557,8 @@ function renderLiveSensors(state) {
         wrap.hidden = hidden;
         toggle.textContent = hidden ? "Show plot" : "Hide plot";
         if (!hidden) drawSensorPlot(card.querySelector(".sensor-sparkline"), sensor.id);
-        if (sensor.type === "virtual_froth_interface" && monitorFrame) updateRunMonitorFrame(card, monitorFrame);
+        if (sensor.type === "virtual_froth_interface" && monitorFrame && !imageHidden)
+            updateRunMonitorFrame(card, monitorFrame);
     });
 
     if (sensors.length === 0) {
@@ -585,7 +601,8 @@ async function pollRunMonitor() {
     if(monitorBusy||document.hidden||ui.live_sensor_panel.hidden||!latestState||
         !["Ready","Running","Paused","Completed"].includes(latestState.state))return;
     const card=ui.live_sensor_grid.querySelector(".live-sensor-card-wide");
-    if(!card)return;
+    if(!card || imageHidden || !card.isConnected || card.getBoundingClientRect().bottom < 0 ||
+        card.getBoundingClientRect().top > window.innerHeight)return;
     monitorBusy=true;
     try {
         const width=Math.max(96,Math.min(512,Math.ceil(card.querySelector(".run-virtual-image-frame").clientWidth*
@@ -665,22 +682,23 @@ function renderMeasurementTables() {
 }
 
 function selectMeasurementVariable(variableId) {
-    const variable = (measurementData.variables || []).find((item) => String(item.id) === String(variableId));
+    const variable = (measurementData.variables || []).find(item => String(item.id) === String(variableId));
     if (!variable) return;
-
     ui.measurement_variable_name.value = variable.name || "";
-    const latest = variable.latest || {};
-
-    if (latest.source_type === "sensor" && latest.sensor_id) {
-        const option = [...ui.measurement_source.options].find(
-            (item) => item.value === String(latest.sensor_id) && !item.disabled
-        );
-        ui.measurement_source.value = option ? option.value : "manual";
-    } else {
-        ui.measurement_source.value = "manual";
-        ui.measurement_manual_unit.value = latest.unit || "";
-    }
-
+    const input = (latestState?.execution_inputs?.items || []).find(item => item.id === variable.id);
+    const expected = input?.unit || variable.unit || variable.latest?.unit || "";
+    const accepted = variable.id === "feed_mass" ? ["g","kg","mg"] :
+        variable.id === "water_volume" ? ["l","ml","m3","m³"] :
+        expected ? [expected.toLowerCase()] : [];
+    const matching = sensorSnapshots(latestState || {}).find(sensor =>
+        sensorIsOnline(sensor) && sensor.value != null &&
+        accepted.includes(String(sensor.unit || "").trim().toLowerCase()));
+    const recentId = variable.latest?.source_type === "sensor" ? variable.latest.sensor_id : null;
+    const recent = [...ui.measurement_source.options].find(option =>
+        option.value === String(recentId) && !option.disabled);
+    ui.measurement_value_type.value = "number";
+    ui.measurement_source.value = recent?.value || (matching ? String(matching.id) : "manual");
+    ui.measurement_manual_unit.value = expected;
     updateMeasurementSourcePreview();
     ui.measurement_variable_name.focus();
 }
@@ -897,10 +915,14 @@ function renderRequiredInputs(state, {force = false, savedField = null} = {}) {
 }
 
 function renderMeasurements(state) {
-    const visible = ["Ready", "Running", "Paused", "Completed", "RecoveryRequired"].includes(state.state);
-    ui.measurement_panel.hidden = !visible;
-    if (!visible) return;
-    renderRequiredInputs(state);
+    const available = ["Ready","Running","Paused","Completed","RecoveryRequired"].includes(state.state);
+    ui.measurement_launcher.hidden = !available;
+    ui.measurement_panel.hidden = !available || !measurementOpen;
+    ui.toggle_measurement_panel.setAttribute("aria-expanded", String(available && measurementOpen));
+    ui.toggle_measurement_panel.innerHTML = measurementOpen ?
+        'Close data acquisition <span aria-hidden="true">▴</span>' :
+        'Data acquisition <span aria-hidden="true">▾</span>';
+    if (!available || !measurementOpen) return;
     updateMeasurementSources(state);
     const remoteRevision = Number(state.measurements?.revision || 0);
     if (remoteRevision !== Number(measurementData.revision || 0)) loadMeasurements();
@@ -1193,7 +1215,10 @@ function bindActions() {
     });
     ui.recovery_abort_button.addEventListener("click", async () => {
         const confirmed = window.confirm("Abort this experiment? Recorded data will be kept.");
-        if (confirmed) await action("/api/digiflot/abort", { reason: "Operator aborted from recovery" });
+        if (confirmed) {
+            await action("/api/digiflot/abort", {reason:"Operator aborted from recovery",return_to_idle:true});
+            window.location.replace("/");
+        }
     });
     ui.camera_list.addEventListener("click", async (event) => {
         const button = event.target.closest("[data-skip-camera]");
@@ -1211,12 +1236,27 @@ function bindActions() {
         window.location.href = "/";
     });
     ui.abort_button.addEventListener("click", async () => {
-        const confirmed = window.confirm("Abort this experiment? Current acquisition will stop, but recorded data will be kept.");
+        const confirmed = window.confirm("Abort this experiment? Current acquisition will stop, but recorded data will be kept. The system will return to Idle.");
         if (!confirmed) return;
-        await action("/api/digiflot/abort", { reason: "Operator aborted experiment" });
+        await action("/api/digiflot/abort", {reason:"Operator aborted experiment",return_to_idle:true});
+        window.location.replace("/");
     });
 
+    ui.toggle_measurement_panel.addEventListener("click", () => {
+        measurementOpen = !measurementOpen;
+        try { window.sessionStorage?.setItem("digiflot-data-acquisition-open", measurementOpen ? "1":"0"); } catch (_) {}
+        if (latestState) renderMeasurements(latestState);
+        if (measurementOpen) loadMeasurements();
+    });
     ui.live_sensor_grid.addEventListener("click", (event) => {
+        const imageButton=event.target.closest("[data-image-toggle]");
+        if (imageButton) {
+            imageHidden=!imageHidden;
+            try { window.localStorage?.setItem("digiflot-hide-froth-image",imageHidden?"1":"0"); } catch (_) {}
+            if (latestState) renderLiveSensors(latestState);
+            if (!imageHidden) pollRunMonitor();
+            return;
+        }
         const button = event.target.closest("[data-plot-toggle]");
         if (!button) return;
         const sensorId = String(button.dataset.plotToggle);
@@ -1237,6 +1277,11 @@ function bindActions() {
         if (!row) return;
         selectMeasurementVariable(row.dataset.variableId);
     };
+    ui.measurement_variable_name.addEventListener("change", () => {
+        const match=(measurementData.variables||[]).find(v =>
+            v.name.toLowerCase()===ui.measurement_variable_name.value.trim().toLowerCase());
+        if(match)selectMeasurementVariable(match.id);
+    });
     ui.measurement_summary_body.addEventListener("click", chooseMeasurementVariable);
     ui.measurement_summary_body.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
@@ -1335,13 +1380,16 @@ function bindActions() {
         }
         const valueType = ui.measurement_value_type.value || "number";
         const sourceId = valueType === "text" ? "manual" : (ui.measurement_source.value || "manual");
+        const variableId=variableName.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");
+        const initialCondition=valueType==="number"&&["feed_mass","water_volume"].includes(variableId);
         const payload = {
-            variable_name: variableName,
-            source_id: sourceId,
-            value_type: valueType,
-            role: valueType === "text" ? "note" : "measurement",
-            category: valueType === "text" ? "note" : "measurement",
+            variable_name: variableName, variable_id: variableId,
+            source_id: sourceId, value_type: valueType,
+            role: valueType==="text"?"note":initialCondition?"execution_input":"measurement",
+            category: valueType==="text"?"note":initialCondition?"initial_condition":"measurement",
         };
+        if(initialCondition && sourceId==="manual" && !ui.measurement_manual_unit.value.trim())
+            ui.measurement_manual_unit.value=variableId==="feed_mass"?"g":"L";
         if (sourceId === "manual") {
             const manualValue = valueType === "text" ? ui.measurement_manual_text.value : ui.measurement_manual_value.value;
             if (manualValue.trim() === "") {
@@ -1363,6 +1411,7 @@ function bindActions() {
             measurementData.revision = result.measurements?.revision || measurementData.revision;
             measurementData.count = result.measurements?.count || measurementData.observations.length;
             measurementData.variables = result.measurements?.variables || measurementData.variables;
+            if (latestState && result.execution_inputs) latestState.execution_inputs = result.execution_inputs;
             renderMeasurementTables();
             ui.measurement_manual_value.value = "";
             ui.measurement_manual_text.value = "";

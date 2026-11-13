@@ -255,7 +255,7 @@ def resume(request: Request):
 def abort(request: Request, payload: dict | None = None):
     try:
         reason = (payload or {}).get("reason", "Operator aborted experiment")
-        return get_digiflot(request).abort_experiment(reason)
+        return get_digiflot(request).abort_experiment(reason, return_to_idle=(payload or {}).get("return_to_idle", True))
     except Exception as error:
         raise api_error(error) from error
 

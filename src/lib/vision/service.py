@@ -380,8 +380,13 @@ class VisionService:
             with self._lock:
                 self._diagnostic_error = str(error)
 
-    def diagnostic_preview(self, enabled=True, last_revision=0):
-        """Renew a short-lived calibration UI lease; snapshots come from the existing worker."""
+    def diagnostic_preview(self, enabled=True, last_revision=0, owner_id=None):
+        """Renew a calibration lease without controlling another tab's camera."""
+        if owner_id and self.digiflot.preview_owner_id and owner_id != self.digiflot.preview_owner_id:
+            if time.monotonic() < self.digiflot.preview_owner_until:
+                if enabled:
+                    raise RuntimeError("Camera preview belongs to another browser tab; close it there before opening diagnostics.")
+                return {"enabled": False, "revision": self._diagnostic_revision}
         if enabled and self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
             raise RuntimeError("Diagnostic preview is only available while calibrating sensors")
         if enabled:
@@ -419,8 +424,20 @@ class VisionService:
             error = None
         except ValueError as exc:
             resolved, error = None, str(exc)
+        named = self.registry.reference_points(cell_id)
+        ref_selected = profile["config"].get("reference_id") or named.get("default_reference_id")
+        lines = []
+        for point in named.get("points", []):
+            try:
+                datum = resolve_vertical_reference({"reference_id": point["id"]}, assoc)
+                physical_y, warning = datum["y_cm"], None
+            except (ValueError, KeyError, TypeError) as exc:
+                physical_y, warning = None, str(exc)
+            lines.append({"id": point["id"], "name": point["name"], "type": point["type"],
+                          "y_cm": physical_y, "selected": point["id"] == ref_selected,
+                          "error": warning})
         return {**profile, "cell_vertical_reference": self.registry.cell_vertical_reference(cell_id),
-                "named_references": self.registry.reference_points(cell_id),
+                "named_references": named, "reference_lines": lines,
                 "reference_resolved": resolved, "reference_error": error,
                 "geometry": {"calibration_id": assoc["calibration_id"],
                                         "analysis_roi_cm": assoc.get("analysis_roi_cm"),
@@ -966,7 +983,7 @@ class VisionService:
             raise ValueError("Camera or cell changed since detection; detect again")
         return self.registry.save_association(camera_id, cell_id, pending["candidate"])
 
-    def virtual_detection_roi_preview(self):
+    def virtual_detection_roi_preview(self, owner_id=None):
         """One configuration snapshot of the entire calibrated camera plane.
 
         No detector pass, no full-frame rectification in the acquisition loop.
@@ -980,10 +997,10 @@ class VisionService:
                 raise RuntimeError("Camera is recording a benchmark; retry when the test has finished")
             if self.digiflot.preview_camera_id not in (None, camera.id):
                 raise RuntimeError("Close the other camera preview before selecting the Detection ROI")
-            if camera.state == camera.IDLE:
-                camera.start_preview()
-                self.digiflot.preview_camera_id = camera.id
-            elif camera.state != camera.PREVIEW:
+            # Claim the preview through the same tab lease as physical camera calibration.
+            if camera.state in (camera.IDLE, camera.PREVIEW):
+                self.digiflot.start_preview(camera.id, owner_id=owner_id)
+            else:
                 raise RuntimeError("Camera is unavailable for the planar preview")
             result = self.rectified_snapshot(camera.id, cell_id)
         config = self.registry.virtual_profile(camera.id, cell_id)["config"]

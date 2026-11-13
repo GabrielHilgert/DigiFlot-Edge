@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026b">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261113scrape1">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261113scrape1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261113runux1">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261113runux1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -139,17 +139,22 @@
             </div>
         </section>
 
+        <div id="measurement_launcher" class="measurement-launcher" hidden>
+            <button id="toggle_measurement_panel" class="button button-secondary" type="button"
+                    aria-expanded="false" aria-controls="measurement_panel">Data acquisition <span aria-hidden="true">▾</span></button>
+            <span>Feed mass, water volume, sensor readings and notes — open only when needed.</span>
+        </div>
         <section id="measurement_panel" class="card panel measurement-panel" hidden>
             <div class="card-header compact-card-header">
                 <div>
                     <span class="section-index">DATA</span>
                     <div>
                         <h2>Inputs &amp; measurements</h2>
-                        <p>Complete required execution inputs, capture sensor values, or add time-stamped notes. Recipe values can be corrected for this execution without changing the recipe.</p>
+                        <p>Record optional initial conditions, capture sensor values or add timestamped notes. Feed mass and water volume are available in Variables even before their first measurement.</p>
                     </div>
                 </div>
             </div>
-            <div id="required_inputs_panel" class="required-inputs-panel"></div>
+            <div id="required_inputs_panel" class="required-inputs-panel" hidden></div>
             <div class="card-body measurement-layout">
                 <form id="measurement_form" class="measurement-form">
                     <div class="form-field">
@@ -190,7 +195,7 @@
                     </div>
 
                     <button id="capture_measurement_button" class="button button-primary" type="submit">Capture measurement</button>
-                    <p id="measurement_form_hint" class="measurement-form-hint">The current experiment state and stage are stored automatically.</p>
+                    <p id="measurement_form_hint" class="measurement-form-hint">Select Feed mass or Water volume from Variables to record the initial condition. Source defaults to a compatible sensor when available; manual entry remains possible.</p>
                 </form>
 
                 <div class="measurement-data">

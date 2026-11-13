@@ -60,12 +60,12 @@ def froth_interface_monitor(request: Request, payload: dict | None = None):
 def froth_interface_diagnostics(request: Request, payload: dict | None = None):
     options = payload or {}
     return _invoke(service(request).diagnostic_preview, bool(options.get("enabled", True)),
-                   int(options.get("last_revision") or 0))
+                   int(options.get("last_revision") or 0), request.headers.get("X-DigiFlot-Tab-Id"))
 
 
 @router.get("/virtual-sensors/froth-interface/detection-roi-preview")
 def froth_detection_roi_preview(request: Request):
-    return _invoke(service(request).virtual_detection_roi_preview)
+    return _invoke(service(request).virtual_detection_roi_preview, request.headers.get("X-DigiFlot-Tab-Id"))
 
 
 @router.get("/cells")
