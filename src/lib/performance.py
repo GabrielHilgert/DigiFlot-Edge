@@ -431,7 +431,7 @@ class PerformanceManager:
         self.revision += 1
         self.condition.notify_all()
 
-    def start_benchmark(self, digiflot, rates=None, duration_s=None):
+    def start_benchmark(self, digiflot, rates=None, duration_s=None, include_virtual=True):
         with self.lock:
             if self.state == self.RUNNING:
                 raise RuntimeError("A performance benchmark is already running.")
@@ -452,6 +452,8 @@ class PerformanceManager:
                     "At least one positive frame rate is required."
                 )
 
+            workload = (digiflot.vision.performance_workload()
+                        if include_virtual and digiflot.vision is not None else None)
             self.state = self.RUNNING
             self.current_rate = None
             self.current_result = None
@@ -459,12 +461,13 @@ class PerformanceManager:
             self.elapsed_s = 0.0
             self.last_error = None
             self.results = []
+            self.virtual_sensor = self._virtual_summary(workload)
             self.abort_event.clear()
             self._touch()
 
             self.benchmark_thread = threading.Thread(
                 target=self._benchmark_loop,
-                args=(digiflot, test_rates, float(duration_s or self.quick_duration_s)),
+                args=(digiflot, test_rates, float(duration_s or self.quick_duration_s), workload),
                 daemon=True,
                 name="digiflot-performance-benchmark",
             )
@@ -484,9 +487,9 @@ class PerformanceManager:
             self._touch()
             return self.status
 
-    def _benchmark_loop(self, digiflot, rates, duration_s):
+    def _benchmark_loop(self, digiflot, rates, duration_s, workload=None):
         original_rates = {camera.id: camera.frame_rate for camera in digiflot.cameras.values()}
-        signature = self.hardware_signature(digiflot)
+        signature = self.hardware_signature(digiflot, virtual_sensor=self._virtual_summary(workload))
         benchmark_started = _utc_now()
         all_results = []
 
@@ -503,6 +506,7 @@ class PerformanceManager:
                         rate,
                         duration_s,
                         temporary,
+                        virtual_workload=workload,
                     )
                     all_results.append(result)
 
@@ -572,6 +576,7 @@ class PerformanceManager:
                 "tested_at": benchmark_started,
                 "completed_at": _utc_now(),
                 "hardware_signature": signature,
+                "virtual_sensor": self._virtual_summary(workload),
                 "results": all_results,
                 "recommended_camera_rates": recommended,
                 "max_stable_camera_rates": max_stable.get("camera_rates") if max_stable else None,
