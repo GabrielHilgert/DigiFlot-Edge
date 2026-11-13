@@ -409,3 +409,6 @@ a { color: inherit; text-decoration: none; }
 @media(max-width:920px) { .workflow-card { display:flex; gap:10px; } .workflow-card .workflow-step { min-width:110px; flex:0 0 110px; } .run-cell-references { flex-wrap:wrap; } }
 
 .run-virtual-frame-age.stale { color:var(--warning); font-weight:750; }
+
+.cell-volume-selection { display:flex; flex-direction:column; gap:6px; min-width:180px; }
+.cell-volume-selection input { min-height:38px; }
