@@ -356,6 +356,7 @@ class VisionService:
         except ValueError as exc:
             resolved, error = None, str(exc)
         return {**profile, "cell_vertical_reference": self.registry.cell_vertical_reference(cell_id),
+                "named_references": self.registry.reference_points(cell_id),
                 "reference_resolved": resolved, "reference_error": error,
                 "geometry": {"calibration_id": assoc["calibration_id"],
                                         "analysis_roi_cm": assoc.get("analysis_roi_cm"),
