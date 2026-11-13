@@ -380,8 +380,13 @@ class VisionService:
             with self._lock:
                 self._diagnostic_error = str(error)
 
-    def diagnostic_preview(self, enabled=True, last_revision=0):
-        """Renew a short-lived calibration UI lease; snapshots come from the existing worker."""
+    def diagnostic_preview(self, enabled=True, last_revision=0, owner_id=None):
+        """Renew a calibration lease without controlling another tab's camera."""
+        if owner_id and self.digiflot.preview_owner_id and owner_id != self.digiflot.preview_owner_id:
+            if time.monotonic() < self.digiflot.preview_owner_until:
+                if enabled:
+                    raise RuntimeError("Camera preview belongs to another browser tab; close it there before opening diagnostics.")
+                return {"enabled": False, "revision": self._diagnostic_revision}
         if enabled and self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
             raise RuntimeError("Diagnostic preview is only available while calibrating sensors")
         if enabled:
