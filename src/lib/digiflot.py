@@ -1084,6 +1084,40 @@ class DigiFlot:
         runtime["saved_at"] = _utc_now()
         _atomic_write_json(self.run_directory / "runtime.json", runtime)
 
+    def _freeze_effective_setup_unlocked(self):
+        """Immutable setup actually used at the first stage, not an editable preview."""
+        if self.run_directory is None or self.vision is None:
+            return
+        registry = self.vision.registry
+        cell_id = (self.cell_profile or {}).get("physical_cell_id")
+        if not cell_id:
+            return
+        cell = registry.get_cell(cell_id)
+        # Refresh the preliminary snapshot made at physical-cell selection.
+        _atomic_write_json(self.run_directory / "physical_cell_snapshot.json", cell)
+        cameras = {}
+        for entry in self.config.get("cameras", []):
+            cid = entry["id"]
+            cameras[str(cid)] = {
+                "id": cid, "name": entry.get("name"),
+                "camera_profile": registry.camera_profile(cid),
+                "aruco_association": registry.association(cid, cell_id),
+                "run_calibration": deepcopy(self.camera_calibration.get(str(cid))),
+                "recording_config": deepcopy(entry),
+            }
+        snapshot = {
+            "schema_version": 1, "captured_at": _utc_now(),
+            "experiment_id": (self.experiment or {}).get("id"),
+            "physical_cell": cell, "named_references": cell.get("reference_points"),
+            "cameras": cameras, "sensor_calibration": deepcopy(self.sensor_calibration),
+            "execution_inputs": deepcopy(self.execution_inputs),
+            "cell_profile": deepcopy(self.cell_profile),
+            "virtual_sensor_config": deepcopy(self.vision._run_virtual) if
+                self.vision._run_virtual else None,
+        }
+        # _run_virtual includes the frozen run directory but no credentials.
+        _atomic_write_json(self.run_directory / "effective_setup_snapshot.json", snapshot)
+
     def _write_config_snapshot_unlocked(self):
         if self.run_directory is None:
             return
@@ -1259,6 +1293,15 @@ class DigiFlot:
                             "physical_cell_revision": cell["revision"],
                             "virtual_camera_id": chosen, "updated_at": _utc_now()})
             self.cell_profile = profile
+            # The selected cell is the authoritative default for working volume.
+            # Keep an operator-confirmed measurement/override if one already exists.
+            cell_volume = cell.get("working_volume_l")
+            item = self.execution_inputs.get("working_cell_volume")
+            if item is not None and cell_volume is not None and item.get("source") not in (
+                    "manual", "sensor", "operator", "execution"):
+                item.update({"value": float(cell_volume), "source": "physical_cell",
+                             "cell_revision": cell.get("revision"), "updated_at": _utc_now()})
+                profile["working_volume_l"] = float(cell_volume)
             self.virtual_camera_id = chosen
             self.experiment["cell_profile"] = deepcopy(profile)
             self.experiment["physical_cell_id"] = cell["id"]
@@ -1967,6 +2010,7 @@ class DigiFlot:
                     self.vision.freeze_run_config(self.run_directory)
                 elif self.vision is not None:
                     self.vision.disable_run_sensor()
+                self._freeze_effective_setup_unlocked()
                 now = time.monotonic()
                 self.run_started_monotonic = now
                 self.run_started_at = _utc_now()
