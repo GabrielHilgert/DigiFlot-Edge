@@ -181,6 +181,9 @@ function updateSelectedCellVolume() {
     const id=ui.select_physical_cell.value,cell=physicalCells.find(c=>String(c.id)===String(id));
     const target=document.getElementById("selected_cell_volume");
     if(!target)return;
+    const input=document.getElementById("cell_volume_override");
+    if(input && document.activeElement!==input)
+        input.value=cell?.working_volume_l==null?"":String(cell.working_volume_l);
     target.textContent=cell ? (cell.working_volume_l!=null ?
         "Working cell volume: "+Number(cell.working_volume_l).toLocaleString()+" L (inherited; editable override in Ready)." :
         "This cell has no stored working volume. Set it in Cells or provide it before Run.") :
@@ -1107,8 +1110,14 @@ function bindActions() {
         button.disabled = true;
         try {
             const cameraId = ui.select_virtual_camera.value;
+            const volumeInput=document.getElementById("cell_volume_override");
+            const cell=physicalCells.find(item=>String(item.id)===String(cellId));
+            const rawVolume=volumeInput?.value?.trim()||"";
+            const override=rawVolume!=="" && (cell?.working_volume_l==null ||
+                Math.abs(Number(rawVolume)-Number(cell.working_volume_l))>1e-9);
             await action("/api/digiflot/calibration/cell/select",
-                {cell_id:cellId, camera_id:cameraId === "none" ? "none" : (cameraId ? Number(cameraId) : null)});
+                {cell_id:cellId, camera_id:cameraId === "none" ? "none" : (cameraId ? Number(cameraId) : null),
+                 ...(override?{working_volume_l:Number(rawVolume)}:{})});
         } catch (_) { button.disabled = false; }
     });
     document.addEventListener("click", async (event) => {
