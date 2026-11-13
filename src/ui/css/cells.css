@@ -163,3 +163,26 @@ a { color: inherit; text-decoration: none; }
 
 .cv-reference-action { display:flex; flex-direction:column; align-items:flex-start; justify-content:end; gap:7px; padding-top:10px; }
 .cv-reference-action .cv-mono { font-size:.75rem; color:var(--text-muted,var(--text-soft)); }
+
+/* Named references: calibrated ArUco coordinates survive a changed camera crop. */
+.cell-vision-page .cv-reference-editor { border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface-soft); padding:13px; display:grid; gap:11px; }
+.cv-reference-list { display:grid; gap:7px; max-height:420px; overflow:auto; }
+.cv-named-point { display:grid; grid-template-columns:20px minmax(0,1fr) auto; align-items:start; gap:9px; border:1px solid var(--border); border-radius:9px; padding:10px; background:var(--surface); }
+.cv-named-point.active { border-color:var(--accent); }
+.cv-named-point input[type="radio"] { accent-color:var(--accent); margin-top:10px; }
+.cv-named-main { min-width:0; display:grid; gap:5px; }
+.cv-named-main > input { font-weight:730; }
+.cv-named-main small { color:var(--text-soft); font-size:.74rem; overflow-wrap:anywhere; }
+.cv-named-controls { display:flex; gap:6px; }
+.cv-named-controls select { min-width:0; width:50%; }
+.cv-named-actions { display:flex; flex-direction:column; gap:5px; }
+.cell-vision-page .cv-named-actions button { width:auto; padding:6px 9px; }
+.cv-reference-new { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto; gap:6px; }
+.cv-reference-new input, .cv-reference-new select { min-width:0; }
+#reference_overlays { position:absolute; pointer-events:none; z-index:2; overflow:hidden; }
+.cv-named-overlay { position:absolute; width:100%; left:0; border-top:2px dashed #fbbf24; height:0; }
+.cv-named-overlay.selected { border-color:#38bdf8; border-top-style:solid; }
+.cv-named-overlay > span { width:11px; height:11px; position:absolute; top:-7px; border:2px solid white; border-radius:50%; background:#f59e0b; transform:translateX(-50%); }
+.cv-named-overlay.selected > span { background:#38bdf8; }
+.cell-vision-page .cv-legacy-reference { display:none; }
+@media (max-width:680px) { .cv-reference-new { grid-template-columns:1fr; } .cv-named-point { grid-template-columns:20px minmax(0,1fr); } .cv-named-actions { grid-column:2; flex-direction:row; } }
