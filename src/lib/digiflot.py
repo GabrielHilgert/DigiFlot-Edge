@@ -679,8 +679,8 @@ class DigiFlot:
         inputs = {}
         for key, spec in self.REQUIRED_EXECUTION_INPUTS.items():
             suggestion = planned.get(key, {})
-            value = suggestion.get("value")
-            source = suggestion.get("source")
+            value = suggestion.get("value") if key == "working_cell_volume" else None
+            source = suggestion.get("source") if key == "working_cell_volume" else None
             old = previous.get(key) if isinstance(previous.get(key), dict) else {}
             # Operator-confirmed values always override the planned recipe.
             if old.get("value") not in (None, ""):
@@ -694,7 +694,7 @@ class DigiFlot:
                 "id": key,
                 "label": spec["label"],
                 "unit": spec["unit"],
-                "required": True,
+                "required": key == "working_cell_volume",
                 "value": value,
                 "source": source,
                 "recipe_path": suggestion.get("recipe_path"),
@@ -712,7 +712,7 @@ class DigiFlot:
 
     def _execution_inputs_payload_unlocked(self):
         items = [deepcopy(self.execution_inputs.get(key, {})) for key in self.REQUIRED_EXECUTION_INPUTS]
-        missing = [item.get("id") for item in items if item.get("value") in (None, "")]
+        missing = [item.get("id") for item in items if item.get("required", True) and item.get("value") in (None, "")]
         suggestions = []
         manager = self.server_sync_manager
         if manager is not None:
