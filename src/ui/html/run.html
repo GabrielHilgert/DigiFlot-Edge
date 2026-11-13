@@ -139,22 +139,19 @@
             </div>
         </section>
 
-        <div id="measurement_launcher" class="measurement-launcher" hidden>
-            <button id="toggle_measurement_panel" class="button button-secondary" type="button"
-                    aria-expanded="false" aria-controls="measurement_panel">Data acquisition <span aria-hidden="true">▾</span></button>
-            <span>Feed mass, water volume, sensor readings and notes — open only when needed.</span>
-        </div>
-        <section id="measurement_panel" class="card panel measurement-panel" hidden>
-            <div class="card-header compact-card-header">
-                <div>
-                    <span class="section-index">DATA</span>
-                    <div>
-                        <h2>Inputs &amp; measurements</h2>
-                        <p>Record optional initial conditions, capture sensor values or add timestamped notes. Feed mass and water volume are available in Variables even before their first measurement.</p>
-                    </div>
-                </div>
-            </div>
-            <div id="required_inputs_panel" class="required-inputs-panel" hidden></div>
+        <section id="measurement_launcher" class="card panel measurement-accordion" hidden>
+            <h2 class="measurement-accordion-heading">
+                <button id="toggle_measurement_panel" class="measurement-accordion-toggle" type="button"
+                        aria-expanded="false" aria-controls="measurement_panel">
+                    <span class="measurement-accordion-copy">
+                        <span class="measurement-accordion-title">Data acquisition</span>
+                        <span class="measurement-accordion-description">Feed mass, water volume, sensor readings and notes</span>
+                    </span>
+                    <span class="measurement-accordion-chevron" aria-hidden="true"></span>
+                </button>
+            </h2>
+            <div id="measurement_panel" class="measurement-accordion-content" hidden>
+                <div id="required_inputs_panel" class="required-inputs-panel" hidden></div>
             <div class="card-body measurement-layout">
                 <form id="measurement_form" class="measurement-form">
                     <div class="form-field">
@@ -229,6 +226,7 @@
                         </div>
                     </div>
                 </div>
+            </div>
             </div>
         </section>
 
