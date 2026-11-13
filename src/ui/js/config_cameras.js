@@ -1802,4 +1802,21 @@ document.addEventListener("DOMContentLoaded", async () => {
         elements.camera_select.value = String(requestedCamera);
         await onCameraChanged();
     }
+    const cancel = document.getElementById("cancel_camera_recalibration");
+    if (cancel) {
+        try {
+            const status = await requestJson("/api/digiflot/state");
+            cancel.hidden = !(status.calibration_edit?.kind === "camera" && !status.calibration_edit.dirty);
+        } catch (_) { cancel.hidden = true; }
+        cancel.addEventListener("click", async () => {
+            cancel.disabled = true;
+            try {
+                await requestJson("/api/digiflot/calibration/cancel", {method:"POST"});
+                window.location.href="/run";
+            } catch (error) {
+                showToast(error.message,"error");
+                cancel.disabled = false;
+            }
+        });
+    }
 });
