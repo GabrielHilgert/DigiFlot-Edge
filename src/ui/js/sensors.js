@@ -158,6 +158,7 @@ function virtualCollectInputs() {
     const custom=document.getElementById("virtual_reference_y").value.trim();
     virtualDraft.vertical_reference_mode=mode;
     virtualDraft.vertical_reference_y_cm=mode==="cell_default"||mode==="aruco_bottom"||custom===""?null:Number(custom);
+    virtualDraft.reference_id=document.getElementById("virtual_named_reference").value||null;
     virtualDraft.vertical_reference_confirmed=document.getElementById("virtual_reference_confirm").checked;
     return {...virtualDraft};
 }
@@ -173,6 +174,21 @@ function renderVirtualFields() {
 
 function renderVerticalReference() {
     if(!virtualDraft)return;
+    const library=virtualProfileData?.named_references||{points:[],default_reference_id:null};
+    const named=document.getElementById("virtual_named_reference");
+    named.innerHTML=library.points.map(point=>{
+        const calibrated=point.position_cm||point.source==='automatic'||point.source==='derived';
+        return '<option value="'+escapeHtml(point.id)+'">'+escapeHtml(point.name)+
+            (calibrated?'':' · not calibrated')+'</option>';
+    }).join("");
+    const chosen=virtualDraft.reference_id||library.default_reference_id||'';
+    named.value=chosen;
+    const point=library.points.find(item=>item.id===chosen);
+    document.getElementById("virtual_named_reference_info").textContent=point?
+        point.name+' · '+(point.position_cm?point.position_cm.map(Number).map(v=>v.toFixed(2)).join(', ')+' cm':
+            point.source==='automatic'?'Automatic ArUco reference':'Position not calibrated')+
+            ' · '+(point.direction==='down'?'Depth downward':'Height upward')+
+            ' · revision '+(library.revision||0):'Configure references in Cells first';
     const mode=virtualDraft.vertical_reference_mode||"cell_default";
     const select=document.getElementById("virtual_reference_mode");
     select.value=mode==="historical_offset"?"cell_default":mode;
@@ -517,6 +533,7 @@ async function openVirtualCalibration() {
     document.getElementById("virtual_source").textContent = cameraId == null ? "No camera" : `Camera ${cameraId}`;
     document.getElementById("virtual_open_cells").href = `/cells?cell=${encodeURIComponent(cellId)}&camera=${encodeURIComponent(cameraId ?? "")}`;
     document.getElementById("virtual_recalibrate_camera").href = document.getElementById("virtual_open_cells").href;
+    document.getElementById("virtual_edit_named").href = document.getElementById("virtual_open_cells").href;
     try {
         virtualProfileData = await requestJson("/api/vision/virtual-sensors/froth-interface/profile");
         virtualDraft = {...virtualProfileData.config};
@@ -1206,6 +1223,13 @@ document.getElementById("virtual_diagnostics_toggle").addEventListener("click", 
 });
 document.getElementById("virtual_show_grid").addEventListener("change", () => {
     drawVirtualOverlays();drawVirtualRoiOverlay();
+});
+document.getElementById("virtual_named_reference").addEventListener("change",()=>{
+    if(!virtualDraft)return;
+    virtualDraft.reference_id=document.getElementById("virtual_named_reference").value;
+    virtualDraft.vertical_reference_confirmed=false;
+    document.getElementById("virtual_reference_confirm").checked=false;
+    virtualBenchmarkMarkup(null);renderVirtualTestTimeline([]);renderVerticalReference();
 });
 document.getElementById("virtual_reference_mode").addEventListener("change",()=>{
     if(!virtualDraft)return;
