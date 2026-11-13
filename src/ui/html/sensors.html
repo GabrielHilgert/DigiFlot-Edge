@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026a">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261110datum2">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261110datum2"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261113v3">
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261113v3"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -80,7 +80,12 @@
                 <section class="virtual-reference-config">
                   <div class="virtual-roi-heading"><div><h3>Vertical reference</h3>
                     <p>Choose the physical datum before testing. Y increases downward in the calibrated ArUco plane. References can lie outside the camera view.</p></div></div>
-                  <div class="virtual-reference-fields">
+                  <div class="virtual-named-reference">
+                    <label>Physical reference <select id="virtual_named_reference"></select></label>
+                    <div id="virtual_named_reference_info" class="virtual-roi-caption">References are managed in Cells.</div>
+                    <a class="button button-secondary" id="virtual_edit_named" href="/cells">Edit named references in Cells</a>
+                  </div>
+                  <div class="virtual-reference-fields" hidden>
                     <label>Position reference <select id="virtual_reference_mode">
                       <option value="cell_default">Use cell reference (default: lowest ArUco marker)</option>
                       <option value="aruco_bottom">ArUco reference — lowest marker</option>
