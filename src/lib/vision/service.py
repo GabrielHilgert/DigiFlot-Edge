@@ -458,6 +458,7 @@ class VisionService:
         result = self.registry.save_virtual_profile(camera.id, cell_id, proposed)
         self.clear_virtual_test()
         with self.digiflot.lock:
+            self.digiflot._mark_calibration_changed_unlocked("sensor", "froth_interface")
             item = self.digiflot.sensor_calibration.get("froth_interface")
             if item is not None:
                 item["status"] = "pending"
@@ -627,6 +628,8 @@ class VisionService:
         errors, timings, valid_count, sensor_times, test_series = [], [], 0, [], []
         last_reading, last_preview, last_diag, last_stamp = None, None, None, None
         count = max(12, min(60, int(samples)))
+        with self.digiflot.lock:
+            self.digiflot._mark_calibration_changed_unlocked("sensor", "froth_interface")
         warmup = 3
         original_enabled = camera.analysis_enabled
         camera.analysis_enabled = True
@@ -862,20 +865,26 @@ class VisionService:
             self._sync_camera_flags()
             return result
 
+    def save_cell(self, values):
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Cell definitions cannot change during an experiment")
+        record = self.registry.save_cell(values)
+        with self.digiflot.lock:
+            if str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(record["id"]):
+                self.clear_virtual_test()
+                self.digiflot._invalidate_virtual_calibration_unlocked("Physical cell definition updated")
+        return record
+
     def save_cell_vertical_reference(self, cell_id, values):
         if self.digiflot.execution_locked or self.digiflot.recording:
             raise RuntimeError("Cell vertical reference cannot change during an active run")
+        before = self.registry.cell_vertical_reference(cell_id)
         result = self.registry.save_cell_vertical_reference(cell_id, values)
-        self.clear_virtual_test()
-        with self.digiflot.lock:
-            if str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id):
-                item = self.digiflot.sensor_calibration.get("froth_interface")
-                if item and item.get("status") == "passed":
-                    item["status"] = "pending"
-                    item["confirmed_at"] = None
-                    item.pop("benchmark", None)
-                    self.digiflot._touch_unlocked("CELL_VERTICAL_REFERENCE_UPDATED",
-                                                  {"cell_id": str(cell_id), "revision": result["revision"]})
+        if result["revision"] != before["revision"]:
+            self.clear_virtual_test()
+            with self.digiflot.lock:
+                if str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id):
+                    self.digiflot._invalidate_virtual_calibration_unlocked("Cell vertical reference updated")
         return result
 
     def save_reference_points(self, cell_id, values):
@@ -888,13 +897,7 @@ class VisionService:
             self.clear_virtual_test()
             with self.digiflot.lock:
                 if str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id):
-                    item = self.digiflot.sensor_calibration.get("froth_interface")
-                    if item and item.get("status") == "passed":
-                        item["status"] = "pending"
-                        item["confirmed_at"] = None
-                        item.pop("benchmark", None)
-                    self.digiflot._touch_unlocked("CELL_REFERENCE_POINTS_UPDATED",
-                        {"cell_id": str(cell_id), "revision": result["revision"]})
+                    self.digiflot._invalidate_virtual_calibration_unlocked("Named physical references updated")
         return result
 
     def camera_profile(self, camera_id):
@@ -909,7 +912,16 @@ class VisionService:
         camera = self.digiflot.get_camera(int(camera_id))
         values = dict(values or {})
         values["sensor_size"] = list(camera.picam2.sensor_resolution)
-        return self.registry.save_camera_profile(camera.id, values)
+        before = self.registry.camera_profile(camera.id)
+        result = self.registry.save_camera_profile(camera.id, values)
+        if result["revision"] != before["revision"]:
+            with self.digiflot.lock:
+                self.digiflot._mark_calibration_changed_unlocked("camera", camera.id)
+                if (str(self.digiflot.virtual_camera_id) == str(camera.id)
+                        and (self.digiflot.cell_profile or {}).get("physical_cell_id")):
+                    self.clear_virtual_test()
+                    self.digiflot._invalidate_virtual_calibration_unlocked("Camera optical profile updated")
+        return result
 
     def save_analysis_roi(self, camera_id, cell_id, values):
         if self.digiflot.execution_locked or self.digiflot.recording:
@@ -918,8 +930,15 @@ class VisionService:
             raise RuntimeError("Stop recording before editing the analysis ROI")
         if not isinstance(values, dict) or "roi_cm" not in values:
             raise ValueError("Provide roi_cm (or null to clear the ROI)")
+        before = self.registry.analysis_roi(camera_id, cell_id)
         result = self.registry.save_analysis_roi(camera_id, cell_id, values["roi_cm"])
         self._map_key, self._roi_map = None, None
+        if result["revision"] != before["revision"]:
+            with self.digiflot.lock:
+                if (str(self.digiflot.virtual_camera_id) == str(camera_id)
+                        and str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id)):
+                    self.clear_virtual_test()
+                    self.digiflot._invalidate_virtual_calibration_unlocked("Cells analysis ROI updated")
         return result
 
     def _capture(self, camera_id):
@@ -981,7 +1000,13 @@ class VisionService:
         if (self.registry.camera_profile(camera_id)["revision"] != pending["camera_revision"]
                 or self.registry.get_cell(cell_id)["revision"] != pending["cell_revision"]):
             raise ValueError("Camera or cell changed since detection; detect again")
-        return self.registry.save_association(camera_id, cell_id, pending["candidate"])
+        result = self.registry.save_association(camera_id, cell_id, pending["candidate"])
+        with self.digiflot.lock:
+            if (str(self.digiflot.virtual_camera_id) == str(camera_id)
+                    and str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id)):
+                self.clear_virtual_test()
+                self.digiflot._invalidate_virtual_calibration_unlocked("ArUco camera-cell association updated")
+        return result
 
     def virtual_detection_roi_preview(self, owner_id=None):
         """One configuration snapshot of the entire calibrated camera plane.
