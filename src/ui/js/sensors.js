@@ -24,6 +24,7 @@ const el = {
     calibrationProgress: document.getElementById("calibration_progress"),
     calibrationHint: document.getElementById("calibration_hint"),
     finishCalibration: document.getElementById("finish_calibration"),
+    cancelCalibrationEdit: document.getElementById("cancel_calibration_edit"),
     calibrationDrawer: document.getElementById("calibration_drawer"),
     calibrationDrawerTitle: document.getElementById("calibration_drawer_title"),
     calibrationDrawerBody: document.getElementById("calibration_drawer_body"),
@@ -635,6 +636,22 @@ async function virtualRunTest() {
 }
 
 function calibrationMarkup(snapshot) {
+    if (state.digiflot?.state === "Ready") {
+        const item = calibrationItem(snapshot.id) || {};
+        const status = item.status || "unconfigured";
+        const details = item.mode === "ph_points"
+            ? ` · ${item.chip_points ?? "—"} chip points · ${item.requested_points ?? "—"} requested`
+            : item.mode === "virtual_interface"
+                ? " · Live geometry and benchmark preserved until recalibration starts"
+                : "";
+        return `<div class="calibration-block complete-block">
+            <div><strong>Calibration review (read-only)</strong>
+                <span>Status: ${escapeHtml(status)}${escapeHtml(details)}. Review does not change experiment readiness.</span></div>
+            <div class="calibration-actions">
+                <button class="button button-secondary sensor-reopen" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Recalibrate</button>
+            </div>
+        </div>`;
+    }
     if (snapshot.type === "virtual_froth_interface") {
         if (!state.calibrationMode) return '<div class="calibration-block"><strong>Virtual camera-based sensor</strong><span>Configured in the experiment calibration workflow.</span></div>';
         const item = calibrationItem(snapshot.id) || {};
@@ -1024,12 +1041,22 @@ async function refreshDigiFlotState() {
     state.maintenanceMode = state.digiflot.state === "Idle";
     setExperimentState(state.digiflot.state);
 
-    el.calibrationBanner.hidden = !state.calibrationMode;
+    const reviewing = state.digiflot.state === "Ready";
+    el.calibrationBanner.hidden = !state.calibrationMode && !reviewing;
     el.calibrationFooter.hidden = !state.calibrationMode;
-    el.pageTitle.textContent = state.calibrationMode ? "Sensor calibration" : "Sensor monitoring & calibration";
-    el.pageDescription.textContent = state.calibrationMode
-        ? "All configured sensors are monitored simultaneously. Calibrate supported devices while observing their live signals."
-        : "Live measurements from every configured sensor. Supported sensors can be calibrated here without creating an experiment.";
+    const heading = el.calibrationBanner.querySelector("strong");
+    const detail = el.calibrationBanner.querySelector("span");
+    if (heading) heading.textContent = reviewing ? "Review sensor calibration" : "Sensor calibration";
+    if (detail) detail.textContent = reviewing
+        ? "Review is read-only. Select Recalibrate for a deliberate workflow change; otherwise return to Run."
+        : "Calibrate, confirm, or explicitly skip each connected sensor before returning to Run.";
+    el.pageTitle.textContent = reviewing ? "Sensor calibration review" : state.calibrationMode ? "Sensor calibration" : "Sensor monitoring & calibration";
+    el.pageDescription.textContent = reviewing
+        ? "Review previously confirmed sensor checks without invalidating the experiment setup."
+        : state.calibrationMode
+            ? "All configured sensors are monitored simultaneously. Calibrate supported devices while observing their live signals."
+            : "Live measurements from every configured sensor. Supported sensors can be calibrated here without creating an experiment.";
+    updateCalibrationProgress();
 }
 
 function renderCalibrationDrawer() {
@@ -1094,10 +1121,9 @@ function bindCalibrationControls(root = document) {
             button.disabled = true;
             try {
                 state.digiflot = await requestJson(`/api/digiflot/calibration/sensors/${encodeURIComponent(button.dataset.sensorId)}/reopen`, { method: "POST" });
-                state.calibrationMode = true;
+                await refreshDigiFlotState();
                 renderCards();
-                updateCalibrationProgress();
-                showToast("Calibration reopened.");
+                showToast("Recalibration started. Cancel before changes to restore the earlier approval.");
             } catch (error) {
                 button.disabled = false;
                 showToast(error.message);
@@ -1216,6 +1242,12 @@ function updateCalibrationProgress() {
         ? `${details.join(" · ")}. Skipped and offline sensors are recorded in the execution metadata.`
         : "Calibrate, check, or explicitly skip each connected sensor.";
     el.finishCalibration.disabled = resolved.length !== connected.length;
+    const edit = state.digiflot.calibration_edit;
+    if (el.cancelCalibrationEdit) {
+        el.cancelCalibrationEdit.hidden = !edit || Boolean(edit.dirty);
+        el.cancelCalibrationEdit.disabled = !edit || Boolean(edit.dirty);
+    }
+    if (edit?.dirty) el.calibrationHint.textContent += " Existing approval cannot be restored after changes; finish or skip calibration.";
 }
 
 function connectSensor(snapshot) {
@@ -1340,6 +1372,18 @@ async function initialise() {
         el.emptyState.querySelector("p").textContent = error.message;
     }
 }
+
+if (el.cancelCalibrationEdit) el.cancelCalibrationEdit.addEventListener("click", async () => {
+    el.cancelCalibrationEdit.disabled = true;
+    try {
+        await requestJson("/api/digiflot/calibration/cancel", {method:"POST"});
+        window.location.href = "/run";
+    } catch(error) {
+        showToast(error.message);
+        await refreshDigiFlotState();
+        renderCards();
+    }
+});
 
 el.finishCalibration.addEventListener("click", async () => {
     el.finishCalibration.disabled = true;
