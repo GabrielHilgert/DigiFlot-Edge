@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026b">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261110virtual2">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261110virtual2"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261113v3">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261113v3"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -26,29 +26,15 @@
             </div>
         </header>
 
-        <section class="workflow-card card">
-            <div class="workflow-step" data-step="cell"><span>01</span><strong>Cell</strong></div>
-<div class="workflow-line"></div>
-<div class="workflow-step" data-step="camera">
-                <span>02</span>
-                <strong>Cameras</strong>
-            </div>
-            <div class="workflow-line"></div>
-            <div class="workflow-step" data-step="sensor">
-                <span>03</span>
-                <strong>Sensors</strong>
-            </div>
-            <div class="workflow-line"></div>
-            <div class="workflow-step" data-step="ready">
-                <span>04</span>
-                <strong>Ready</strong>
-            </div>
-            <div class="workflow-line"></div>
-            <div class="workflow-step" data-step="run">
-                <span>05</span>
-                <strong>Run</strong>
-            </div>
-        </section>
+        <nav class="workflow-card card" aria-label="Experiment preparation steps">
+            <div class="workflow-step" data-step="experiment"><span>01</span><strong>Experiment</strong></div>
+            <div class="workflow-step" data-step="camera"><span>02</span><strong>Cameras</strong></div>
+            <div class="workflow-step" data-step="references"><span>03</span><strong>Cell &amp; References</strong></div>
+            <div class="workflow-step" data-step="sensor"><span>04</span><strong>Sensors</strong></div>
+            <div class="workflow-step" data-step="froth"><span>05</span><strong>Froth Interface</strong></div>
+            <div class="workflow-step" data-step="ready"><span>06</span><strong>Ready</strong></div>
+            <div class="workflow-step" data-step="run"><span>07</span><strong>Run</strong></div>
+        </nav>
 
         <section id="calibration_review_panel" class="calibration-review-strip card" hidden>
             <div class="calibration-review-heading">
@@ -90,7 +76,7 @@
 </div></div></div>
 <div class="card-body">
 <form id="select_physical_cell_form" class="cell-selection-form">
-<label>Physical cell<select id="select_physical_cell" required><option value="">Select a cell</option></select></label>
+<label>Physical cell<select id="select_physical_cell" required><option value="">Select a cell</option></select></label><p id="selected_cell_volume" class="cell-volume-hint">Working volume is inherited from the selected cell and can be overridden before Run.</p>
 <label>Virtual sensor source camera<select id="select_virtual_camera"><option value="">Auto-select camera</option><option value="none">No virtual sensor</option></select></label>
 <div class="button-group"><button class="button button-primary" type="submit">Confirm cell and continue</button>
 <a class="button button-secondary" href="/cells">Create or edit cell / ArUco layout</a></div>
@@ -121,6 +107,12 @@
                 </div>
             </div>
             <div class="card-body sensor-calibration-entry">
+<div class="run-cell-references">
+                    <div><strong>Cell &amp; physical references</strong>
+                    <p id="run_reference_state">Review saved reference points after camera calibration. Outlet level is the named default.</p></div>
+                    <a id="open_cell_references" class="button button-secondary" href="/cells">Open Cells</a>
+                </div>
+                
                 <div>
                     <div id="sensor_list" class="sensor-summary-list"></div>
                     <p class="sensor-calibration-note">Sensor calibration can be explicitly skipped. Offline sensors also do not stop the workflow; both cases are recorded in the execution metadata.</p>
