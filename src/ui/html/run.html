@@ -152,81 +152,81 @@
             </h2>
             <div id="measurement_panel" class="measurement-accordion-content" hidden>
                 <div id="required_inputs_panel" class="required-inputs-panel" hidden></div>
-            <div class="card-body measurement-layout">
-                <form id="measurement_form" class="measurement-form">
-                    <div class="form-field">
-                        <label for="measurement_variable_name">Variable name</label>
-                        <input id="measurement_variable_name" name="variable_name" type="text" list="measurement_variable_names" autocomplete="off" placeholder="e.g. Feed mass" required>
-                        <datalist id="measurement_variable_names"></datalist>
-                    </div>
-
-                    <div class="form-field">
-                        <label for="measurement_value_type">Entry type</label>
-                        <select id="measurement_value_type" name="value_type">
-                            <option value="number">Numeric measurement</option>
-                            <option value="text">Text / note</option>
-                        </select>
-                    </div>
-
-                    <div class="form-field">
-                        <label for="measurement_source">Source</label>
-                        <select id="measurement_source" name="source_id"></select>
-                    </div>
-
-                    <div id="measurement_sensor_value" class="measurement-source-preview" hidden>
-                        <span>Latest sensor value</span>
-                        <strong id="measurement_sensor_value_text">—</strong>
-                        <small id="measurement_sensor_age">—</small>
-                    </div>
-
-                    <div id="measurement_manual_fields" class="manual-measurement-fields">
+                <div class="card-body measurement-layout">
+                    <form id="measurement_form" class="measurement-form">
                         <div class="form-field">
-                            <label for="measurement_manual_value">Value</label>
-                            <input id="measurement_manual_value" name="value" type="number" step="any" inputmode="decimal" placeholder="e.g. 4.02">
-                            <textarea id="measurement_manual_text" name="text_value" rows="3" placeholder="Observation, intervention, comment…" hidden></textarea>
+                            <label for="measurement_variable_name">Variable name</label>
+                            <input id="measurement_variable_name" name="variable_name" type="text" list="measurement_variable_names" autocomplete="off" placeholder="e.g. Feed mass" required>
+                            <datalist id="measurement_variable_names"></datalist>
                         </div>
+    
                         <div class="form-field">
-                            <label for="measurement_manual_unit">Unit <span>(optional)</span></label>
-                            <input id="measurement_manual_unit" name="unit" type="text" autocomplete="off" placeholder="g, °C, mL… or blank">
+                            <label for="measurement_value_type">Entry type</label>
+                            <select id="measurement_value_type" name="value_type">
+                                <option value="number">Numeric measurement</option>
+                                <option value="text">Text / note</option>
+                            </select>
                         </div>
-                    </div>
-
-                    <button id="capture_measurement_button" class="button button-primary" type="submit">Capture measurement</button>
-                    <p id="measurement_form_hint" class="measurement-form-hint">Select Feed mass or Water volume from Variables to record the initial condition. Source defaults to a compatible sensor when available; manual entry remains possible.</p>
-                </form>
-
-                <div class="measurement-data">
-                    <div>
-                        <div class="measurement-table-heading">
-                            <h3>Variables</h3>
-                            <span id="measurement_count">0 points</span>
+    
+                        <div class="form-field">
+                            <label for="measurement_source">Source</label>
+                            <select id="measurement_source" name="source_id"></select>
                         </div>
-                        <div class="table-scroll">
-                            <table class="measurement-table">
-                                <thead>
-                                    <tr><th>Variable</th><th>Latest</th><th>Points</th></tr>
-                                </thead>
-                                <tbody id="measurement_summary_body"></tbody>
-                            </table>
+    
+                        <div id="measurement_sensor_value" class="measurement-source-preview" hidden>
+                            <span>Latest sensor value</span>
+                            <strong id="measurement_sensor_value_text">—</strong>
+                            <small id="measurement_sensor_age">—</small>
                         </div>
-                    </div>
-
-                    <div>
-                        <div class="measurement-table-heading">
-                            <h3>Recent points</h3>
-                            <span>Newest first</span>
+    
+                        <div id="measurement_manual_fields" class="manual-measurement-fields">
+                            <div class="form-field">
+                                <label for="measurement_manual_value">Value</label>
+                                <input id="measurement_manual_value" name="value" type="number" step="any" inputmode="decimal" placeholder="e.g. 4.02">
+                                <textarea id="measurement_manual_text" name="text_value" rows="3" placeholder="Observation, intervention, comment…" hidden></textarea>
+                            </div>
+                            <div class="form-field">
+                                <label for="measurement_manual_unit">Unit <span>(optional)</span></label>
+                                <input id="measurement_manual_unit" name="unit" type="text" autocomplete="off" placeholder="g, °C, mL… or blank">
+                            </div>
                         </div>
-                        <div class="table-scroll">
-                            <table class="measurement-table measurement-history-table">
-                                <thead>
-                                    <tr><th>Variable</th><th>Value</th><th>Source</th><th>Time</th><th>Context</th></tr>
-                                </thead>
-                                <tbody id="measurement_history_body"></tbody>
-                            </table>
+    
+                        <button id="capture_measurement_button" class="button button-primary" type="submit">Capture measurement</button>
+                        <p id="measurement_form_hint" class="measurement-form-hint">Select Feed mass or Water volume from Variables to record the initial condition. Source defaults to a compatible sensor when available; manual entry remains possible.</p>
+                    </form>
+    
+                    <div class="measurement-data">
+                        <div>
+                            <div class="measurement-table-heading">
+                                <h3>Variables</h3>
+                                <span id="measurement_count">0 points</span>
+                            </div>
+                            <div class="table-scroll">
+                                <table class="measurement-table">
+                                    <thead>
+                                        <tr><th>Variable</th><th>Latest</th><th>Points</th></tr>
+                                    </thead>
+                                    <tbody id="measurement_summary_body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+    
+                        <div>
+                            <div class="measurement-table-heading">
+                                <h3>Recent points</h3>
+                                <span>Newest first</span>
+                            </div>
+                            <div class="table-scroll">
+                                <table class="measurement-table measurement-history-table">
+                                    <thead>
+                                        <tr><th>Variable</th><th>Value</th><th>Source</th><th>Time</th><th>Context</th></tr>
+                                    </thead>
+                                    <tbody id="measurement_history_body"></tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
             </div>
         </section>
 
