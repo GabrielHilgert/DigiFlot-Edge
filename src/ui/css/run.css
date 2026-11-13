@@ -398,3 +398,12 @@ a { color: inherit; text-decoration: none; }
 .run-virtual-boundaries strong { color:var(--text); font-variant-numeric:tabular-nums; }
 .run-virtual-side .sensor-sparkline-wrap { margin-top:11px; }
 @media(max-width:720px) { .live-sensor-card-wide { grid-column:1/-1; } .run-virtual-layout { grid-template-columns:1fr; } .run-virtual-image-frame { min-height:0; } }
+
+/* Seven visual substeps reuse the existing runtime stages. */
+.workflow-card { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:9px; overflow-x:auto; }
+.workflow-card .workflow-step { min-width:0; justify-content:center; text-align:center; flex-direction:column; padding:6px 2px; font-size:.74rem; gap:4px; }
+.workflow-card .workflow-step span { flex:0 0 25px; width:25px; height:25px; font-size:.65rem; }
+.workflow-card .workflow-step strong { white-space:normal; line-height:1.15; }
+.run-cell-references { display:flex; align-items:center; justify-content:space-between; gap:16px; border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px; margin-bottom:16px; background:var(--surface-soft); }
+.run-cell-references p, .cell-volume-hint { font-size:.78rem; color:var(--text-soft); margin:6px 0 0; line-height:1.45; }
+@media(max-width:920px) { .workflow-card { display:flex; gap:10px; } .workflow-card .workflow-step { min-width:110px; flex:0 0 110px; } .run-cell-references { flex-wrap:wrap; } }
