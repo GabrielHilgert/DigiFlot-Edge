@@ -24,7 +24,7 @@ function cacheUi() {
         "camera_panel", "camera_list", "sensor_panel", "sensor_list",
         "ready_panel", "ready_stage", "start_first_stage", "run_panel",
         "stage_type", "stage_name", "camera_indicator", "sensor_indicator",
-        "active_view", "stage_timer", "stage_elapsed", "scraping_box",
+        "active_view", "stage_timer", "stage_elapsed", "scraping_box", "scraping_alerts_enabled",
         "scraping_timer", "stage_parameters", "transition_view",
         "next_stage_name", "next_stage_message", "transition_timer",
         "start_now_button", "pause_button", "resume_button", "completed_panel",
@@ -964,8 +964,9 @@ function renderRun(state) {
         ui.scraping_box.hidden = !scraping.enabled;
         if (scraping.enabled) {
             ui.scraping_timer.textContent = scraping.next_in_s == null ? "—" : `${Math.max(0, Number(scraping.next_in_s)).toFixed(1)} s`;
-            const detail = ui.scraping_box.querySelector("span:last-child");
-            if (detail) detail.textContent = `Manual scraping signal every ${scraping.interval_s ?? "—"} s`;
+            const detail = ui.scraping_box.querySelector(".scraping-description");
+            if (detail) detail.textContent = `Scraping signal every ${scraping.interval_s ?? "—"} s`;
+            if (ui.scraping_alerts_enabled) ui.scraping_alerts_enabled.checked = scraping.alerts_enabled !== false;
         }
     } else {
         const next = state.next_stage;
@@ -1080,6 +1081,10 @@ function handleScrapingSignal(state) {
     }
     if (sequence <= lastScrapingSequence) return;
     lastScrapingSequence = sequence;
+    if (state.scraping?.alerts_enabled === false) {
+        ui.scrape_signal.classList.remove("show");
+        return;
+    }
     beep();
     ui.scrape_signal.classList.add("show");
     window.clearTimeout(scrapeFlashTimer);
@@ -1148,6 +1153,23 @@ function bindActions() {
     ui.select_physical_cell.addEventListener("change",updateSelectedCellVolume);
     ui.start_first_stage.addEventListener("click", () => action("/api/digiflot/stages/start"));
     ui.start_now_button.addEventListener("click", () => action("/api/digiflot/stages/start"));
+    ui.scraping_alerts_enabled.addEventListener("change", async () => {
+        const selected = ui.scraping_alerts_enabled.checked;
+        if (!selected) {
+            ui.scrape_signal.classList.remove("show");
+            window.clearTimeout(scrapeFlashTimer);
+        }
+        ui.scraping_alerts_enabled.disabled = true;
+        try {
+            await requestJson("/api/digiflot/scraping/alerts", {
+                method:"POST", headers:{"Content-Type":"application/json"},
+                body:JSON.stringify({enabled:selected})
+            });
+        } catch (error) {
+            ui.scraping_alerts_enabled.checked = !selected;
+            showToast(error.message);
+        } finally { ui.scraping_alerts_enabled.disabled = false; }
+    });
     ui.pause_button.addEventListener("click", () => action("/api/digiflot/pause"));
     ui.resume_button.addEventListener("click", () => action("/api/digiflot/resume"));
     ui.finish_stage_button.addEventListener("click", async () => {
