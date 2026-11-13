@@ -193,6 +193,7 @@ class DigiFlot:
 
         self.camera_calibration = {}
         self.sensor_calibration = {}
+        self.calibration_edit = None
         self.active_camera_segments = {}
         self.camera_segment_count = {}
 
@@ -543,6 +544,7 @@ class DigiFlot:
                                "camera_id": self.virtual_camera_id,
                                "references": self._reference_status_unlocked()},
             "virtual_sensors": ([self.vision.virtual_sensor_snapshot()] if self.vision is not None and self.virtual_camera_id is not None else []),
+            "calibration_edit": deepcopy(self.calibration_edit),
             "calibration": {
                 "cameras": deepcopy(self.camera_calibration),
                 "sensors": deepcopy(self.sensor_calibration),
@@ -1422,6 +1424,8 @@ class DigiFlot:
         self.last_error = runtime.get("last_error")
         self.stage_attempt = int(runtime.get("stage_attempt", 0) or 0)
         self._initialise_calibration_state_unlocked()
+        edit = runtime.get("calibration_edit")
+        self.calibration_edit = deepcopy(edit) if isinstance(edit, dict) else None
 
         saved_calibration = runtime.get("calibration") or {}
         if isinstance(saved_calibration.get("cameras"), dict):
@@ -1456,6 +1460,8 @@ class DigiFlot:
             self.condition.notify_all()
             if self.state == self.CAMERA_CALIBRATION:
                 self._advance_from_camera_calibration_unlocked()
+            elif self.state == self.READY and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and (self.vision is None or not self.vision.virtual_test_passed()):
+                self._invalidate_virtual_calibration_unlocked("Restart requires a fresh Froth Interface benchmark")
             return
         else:
             self.state = self.RECOVERY_REQUIRED
@@ -1534,6 +1540,7 @@ class DigiFlot:
         self.last_scraping_at = None
         self.camera_calibration = {}
         self.sensor_calibration = {}
+        self.calibration_edit = None
         self.active_camera_segments = {}
         self.camera_segment_count = {}
         self.camera_storage_samples = []
@@ -1630,6 +1637,8 @@ class DigiFlot:
             return
 
         self._touch_unlocked("CAMERA_CALIBRATION_COMPLETED")
+        if self.vision is not None and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and not self.vision.virtual_test_passed():
+            self._invalidate_virtual_calibration_unlocked("Camera calibration or geometry changed")
         if self.sensor_calibration and not self._sensor_calibration_resolved_unlocked():
             self.state = self.SENSOR_CALIBRATION
             self._touch_unlocked("SENSOR_CALIBRATION_STARTED")
@@ -1654,7 +1663,10 @@ class DigiFlot:
             if item.get("available") is False:
                 raise RuntimeError(item.get("error") or "Camera is not available.")
 
-            if self.vision is not None: self.vision.clear_virtual_test()
+            if self.state == self.READY:
+                self.calibration_edit = {"kind": "camera", "id": key, "previous": deepcopy(item), "dirty": False}
+            else:
+                self._mark_calibration_changed_unlocked()
             if self.preview_camera_id is not None and self.preview_camera_id != int(camera_id):
                 try:
                     self.stop_preview()
@@ -1677,6 +1689,7 @@ class DigiFlot:
 
             camera = self.get_camera(camera_id)
             item = self.camera_calibration[str(camera.id)]
+            self._mark_calibration_changed_unlocked("camera", camera.id)
             item["status"] = "calibrating"
             self._touch_unlocked("CAMERA_CALIBRATION_STARTED", {"camera_id": camera.id})
 
@@ -1715,6 +1728,7 @@ class DigiFlot:
                 raise RuntimeError(f"{camera.name} exposure has not been calibrated.")
 
             item = self.camera_calibration[str(camera.id)]
+            self._mark_calibration_changed_unlocked("camera", camera.id)
             item["status"] = "passed"
             item["exposure"] = deepcopy(camera.exposure)
             item["confirmed_at"] = _utc_now()
@@ -1742,6 +1756,7 @@ class DigiFlot:
                     pass
 
             item = self.camera_calibration[key]
+            self._mark_calibration_changed_unlocked("camera", camera_id)
             item["status"] = "skipped"
             item["confirmed_at"] = _utc_now()
             item["skip_reason"] = str(reason or "Operator skipped calibration")
@@ -1754,6 +1769,45 @@ class DigiFlot:
 
             return self.status
 
+    def _mark_calibration_changed_unlocked(self, kind=None, ident=None):
+        """A physical/configuration change forbids restoring an older approval."""
+        edit = self.calibration_edit
+        if edit and (kind is None or (edit.get("kind") == kind and edit.get("id") == str(ident))):
+            edit["dirty"] = True
+
+    def _invalidate_virtual_calibration_unlocked(self, reason):
+        """A changed optical/physical reference needs a new virtual benchmark."""
+        item = self.sensor_calibration.get("froth_interface")
+        if item is None or self.state not in {self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION, self.READY}:
+            return
+        self._mark_calibration_changed_unlocked()
+        item["status"] = "pending"
+        item["confirmed_at"] = None
+        item.pop("benchmark", None)
+        if self.state == self.READY:
+            self.state = self.SENSOR_CALIBRATION
+            self.stage_state = self.STAGE_WAITING
+        self._touch_unlocked("VIRTUAL_SENSOR_CALIBRATION_INVALIDATED", {"reason": str(reason)})
+
+    def cancel_calibration_edit(self):
+        """Undo a pre-run reopen only if no calibration-affecting action occurred."""
+        with self.lock:
+            edit = self.calibration_edit
+            if not edit or self.state not in {self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION}:
+                raise RuntimeError("There is no recalibration to cancel.")
+            if edit.get("dirty"):
+                raise RuntimeError("Calibration settings or hardware were changed. Confirm or skip the new calibration before returning.")
+            if self.preview_camera_id is not None:
+                self.stop_preview()
+            kind, key = edit["kind"], str(edit["id"])
+            records = self.camera_calibration if kind == "camera" else self.sensor_calibration
+            records[key] = deepcopy(edit["previous"])
+            self.calibration_edit = None
+            self.state = self.READY
+            self.stage_state = self.STAGE_WAITING
+            self._touch_unlocked("CALIBRATION_EDIT_CANCELLED", {"kind": kind, "id": key})
+            return self.status
+
     def reopen_sensor_calibration(self, sensor_id: str):
         with self.lock:
             if self.state not in {self.SENSOR_CALIBRATION, self.READY}:
@@ -1764,12 +1818,14 @@ class DigiFlot:
                 raise KeyError(f"Sensor '{sensor_id}' is not part of this calibration.")
 
             item = self.sensor_calibration[sensor_id]
+            if self.state == self.READY:
+                self.calibration_edit = {"kind": "sensor", "id": sensor_id, "previous": deepcopy(item), "dirty": False}
+            else:
+                self._mark_calibration_changed_unlocked()
             item["status"] = "pending"
             item["confirmed_at"] = None
             item.pop("skip_reason", None)
             item.pop("error", None)
-            if item.get("mode") == "virtual_interface" and self.vision is not None:
-                self.vision.clear_virtual_test()
             if item.get("mode") in {"two_point", "ph_points"}:
                 for point in (item.get("points") or {}).values():
                     point["status"] = "pending"
@@ -1913,6 +1969,7 @@ class DigiFlot:
                 self.stop_preview()
             self.state = self.READY
             self.stage_state = self.STAGE_WAITING
+            self.calibration_edit = None
             self._write_config_snapshot_unlocked()
             self._touch_unlocked("SENSOR_CALIBRATION_COMPLETED")
             return self.status
@@ -1951,6 +2008,7 @@ class DigiFlot:
             complete = all((item.get("points") or {}).get(name, {}).get("status") == "passed" for name in required_names)
             item["status"] = "passed" if complete else "calibrating"
             item["confirmed_at"] = _utc_now() if complete else None
+            self._mark_calibration_changed_unlocked("sensor", sensor_id)
             self._touch_unlocked(
                 "SENSOR_CALIBRATION_MODE_CHANGED",
                 {"sensor_id": sensor_id, "requested_points": requested_points},
@@ -1996,6 +2054,7 @@ class DigiFlot:
             except (TypeError, ValueError) as error:
                 raise ValueError("Calibration buffer value must be numeric.") from error
 
+            self._mark_calibration_changed_unlocked("sensor", sensor_id)
             item["status"] = "calibrating"
             points[point]["status"] = "calibrating"
             points[point]["value"] = value
@@ -2063,6 +2122,19 @@ class DigiFlot:
     def start_next_stage(self):
         with self.lock:
             if self.state == self.READY:
+                if any(item.get("status") not in {"passed", "skipped"} for item in self.camera_calibration.values()):
+                    self.state = self.CAMERA_CALIBRATION
+                    self.stage_state = self.STAGE_WAITING
+                    self._touch_unlocked("CAMERA_CALIBRATION_REQUIRED")
+                    raise RuntimeError("Camera calibration needs review. Complete or skip it before starting.")
+                if any(item.get("status") not in {"passed", "skipped"} for item in self.sensor_calibration.values()):
+                    self.state = self.SENSOR_CALIBRATION
+                    self.stage_state = self.STAGE_WAITING
+                    self._touch_unlocked("SENSOR_CALIBRATION_REQUIRED")
+                    raise RuntimeError("Sensor calibration needs review. Complete or skip it before starting.")
+                if self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and (self.vision is None or not self.vision.virtual_test_passed()):
+                    self._invalidate_virtual_calibration_unlocked("Saved Froth Interface benchmark is not valid")
+                    raise RuntimeError("Froth Interface requires a fresh benchmark. Reopen its sensor calibration.")
                 if self.current_stage_index is not None:
                     raise RuntimeError("The first stage has already been started.")
                 required = self._execution_inputs_payload_unlocked()
