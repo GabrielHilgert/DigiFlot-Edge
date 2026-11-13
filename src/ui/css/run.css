@@ -426,3 +426,6 @@ a { color: inherit; text-decoration: none; }
 .virtual-image-hidden .run-virtual-side { min-height:145px; }
 .virtual-image-hidden .run-virtual-image-frame { display:none !important; }
 @media(max-width:780px) { .measurement-launcher { padding:10px; } }
+
+/* Author-level flex/grid rules must never override the runtime hidden state. */
+#measurement_launcher[hidden], #measurement_panel[hidden], #required_inputs_panel[hidden] { display:none !important; }
