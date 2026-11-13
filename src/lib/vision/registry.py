@@ -90,6 +90,7 @@ class VisionRegistry:
             if cell is None:
                 raise KeyError(f"Cell not found: {cell_id}")
             cell["vertical_reference"] = self.cell_vertical_reference(cell_id)
+            cell["reference_points"] = self.reference_points(cell_id)
             return cell
 
     def cell_vertical_reference(self, cell_id):
@@ -110,6 +111,26 @@ class VisionRegistry:
                 return current
             result = {**updated, "revision": current["revision"] + 1, "updated_at": _timestamp()}
             _write(self.root / "cell_references" / f"{_safe_id(cell_id)}.json", result)
+            return result
+
+    def reference_points(self, cell_id):
+        from .reference import default_reference_points
+        with self.lock:
+            cell_id = _safe_id(cell_id)
+            record = _read(self.root / "reference_points" / f"{cell_id}.json")
+            return record if record is not None else default_reference_points()
+
+    def save_reference_points(self, cell_id, values):
+        from .reference import normalize_reference_points
+        with self.lock:
+            self.get_cell(cell_id)
+            current = self.reference_points(cell_id)
+            normalized = normalize_reference_points(values)
+            if all(current.get(key) == normalized[key] for key in ("points", "default_reference_id")):
+                return current
+            result = {**normalized, "revision": int(current.get("revision", 0))+1,
+                      "updated_at": _timestamp()}
+            _write(self.root / "reference_points" / f"{_safe_id(cell_id)}.json", result)
             return result
 
     def save_cell(self, record):
@@ -242,6 +263,7 @@ class VisionRegistry:
                 record["analysis_roi_cm"] = selection["roi_cm"]
                 record["analysis_roi_revision"] = selection["revision"]
                 record["cell_vertical_reference"] = self.cell_vertical_reference(cell_id)
+                record["reference_points"] = self.reference_points(cell_id)
             return record
 
     def save_association(self, camera_id, cell_id, calibration):
