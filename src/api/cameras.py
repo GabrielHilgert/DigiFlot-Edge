@@ -133,9 +133,7 @@ def start_preview(
     digiflot = get_digiflot(request)
 
     try:
-        status = digiflot.start_preview(
-            camera_id
-        )
+        status = digiflot.start_preview(camera_id, owner_id=request.headers.get("X-DigiFlot-Tab-Id"))
 
         return {
             "camera_id": camera_id,
@@ -148,13 +146,21 @@ def start_preview(
         raise api_error(error) from error
 
 
+@router.post("/preview/heartbeat")
+def preview_heartbeat(request: Request):
+    try:
+        return get_digiflot(request).preview_heartbeat(request.headers.get("X-DigiFlot-Tab-Id"))
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.post("/preview/stop")
 @router.delete("/preview")
-def stop_preview(request: Request):
+def stop_preview(request: Request, tab_id: str | None = None):
     digiflot = get_digiflot(request)
 
     try:
-        return digiflot.stop_preview()
+        return digiflot.stop_preview(owner_id=request.headers.get("X-DigiFlot-Tab-Id") or tab_id)
     except Exception as error:
         raise api_error(error) from error
 
