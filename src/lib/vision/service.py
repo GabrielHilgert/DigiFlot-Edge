@@ -750,6 +750,25 @@ class VisionService:
                                                   {"cell_id": str(cell_id), "revision": result["revision"]})
         return result
 
+    def save_reference_points(self, cell_id, values):
+        """Edit physical named points while cameras are not recording."""
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Reference points cannot change during a running experiment")
+        before = self.registry.reference_points(cell_id)
+        result = self.registry.save_reference_points(cell_id, values)
+        if result.get("revision") != before.get("revision"):
+            self.clear_virtual_test()
+            with self.digiflot.lock:
+                if str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id):
+                    item = self.digiflot.sensor_calibration.get("froth_interface")
+                    if item and item.get("status") == "passed":
+                        item["status"] = "pending"
+                        item["confirmed_at"] = None
+                        item.pop("benchmark", None)
+                    self.digiflot._touch_unlocked("CELL_REFERENCE_POINTS_UPDATED",
+                        {"cell_id": str(cell_id), "revision": result["revision"]})
+        return result
+
     def camera_profile(self, camera_id):
         camera = self.digiflot.get_camera(int(camera_id))
         profile = self.registry.camera_profile(camera.id)
