@@ -15,7 +15,7 @@ let requiredInputsSignature = null;
 let stageTimelineSignature = null;
 let readyViewSignature = null;
 let runStorageEstimateFor = null;
-let monitorFrameRevision = 0, monitorFrame = null, monitorBusy = false;
+let monitorFrameRevision = 0, monitorFrame = null, monitorBusy = false, monitorRunId = null;
 
 function cacheUi() {
     [
@@ -575,7 +575,7 @@ function updateRunMonitorFrame(card, frame) {
     image.onload=()=>drawRunMonitorOverlay(card,frame);
     const time=new Date(frame.timestamp_ns/1e6).toLocaleTimeString();
     card.querySelector(".run-virtual-frame-age").textContent=
-        (frame.valid?"Detection image":"Detection invalid")+" · "+time+" (last processed frame)";
+        (frame.valid?"Detection image":"Detection invalid")+" · "+time;
 }
 
 async function pollRunMonitor() {
@@ -592,11 +592,19 @@ async function pollRunMonitor() {
              body:JSON.stringify({width,last_revision:monitorFrameRevision})});
         if(!payload?.enabled)return;
         if(payload.frame){
+            if(String(payload.frame.cell_id)!==String(latestState.cell_selection?.cell_id))return;
             monitorFrameRevision=payload.revision;monitorFrame=payload.frame;
             monitorFrame.revision=payload.revision;
             updateRunMonitorFrame(card,monitorFrame);
         } else if(payload.error)card.querySelector(".run-virtual-frame-age").textContent=
             "Image unavailable (measurements continue): "+payload.error;
+        if(monitorFrame){
+            const age=Math.max(0,Math.floor(Date.now()/1000-monitorFrame.timestamp_ns/1e9));
+            const label=card.querySelector(".run-virtual-frame-age");
+            label.textContent=(monitorFrame.valid?"Detection image":"Detection invalid")+
+                " · "+age+" s old"+(age>12?" · STALE":"");
+            label.classList.toggle("stale",age>12);
+        }
     } catch(error){
         card.querySelector(".run-virtual-frame-age").textContent=
             "Preview unavailable; measurements continue";
@@ -1005,6 +1013,9 @@ function renderError(state) {
 }
 
 function render(state) {
+    if(monitorRunId!==state.storage_id){
+        monitorRunId=state.storage_id;monitorFrame=null;monitorFrameRevision=0;
+    }
     latestState = state;
     setStateBadge(state.state);
     setWorkflow(state);
