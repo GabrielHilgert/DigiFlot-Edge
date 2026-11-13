@@ -32,6 +32,8 @@ class FakeFlow:
     complete_sensor_calibration=extract("complete_sensor_calibration")
     skip_sensor_calibration=extract("skip_sensor_calibration")
     start_next_stage=extract("start_next_stage")
+    _complete_stage_unlocked=extract("_complete_stage_unlocked")
+    resume_recovery=extract("resume_recovery")
     pause=extract("pause")
     resume=extract("resume")
     reset=extract("reset")
@@ -138,6 +140,42 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(actions),1)
         self.assertTrue(actions[0][1])
         self.assertNotEqual(actions[0][0],"unsafe direct reset")
+
+    def test_stage_completion_and_next_stage_transition(self):
+        run=FakeFlow();run.state=run.RUNNING;run.stage_state=run.STAGE_ACTIVE
+        run.current_stage={"id":"stage-1","duration":60};run.next_stage={"id":"stage-2","duration":60}
+        run.stage_attempt=1;run.stage_started_monotonic=time.monotonic()-3
+        run._append_event_unlocked=lambda event,values:run.events.append(event)
+        run.recording=False;run._camera_required=lambda stage:False
+        run.auto_advance_enabled=False;run.transition_timeout_s=30
+        run._complete_stage_unlocked(early=True)
+        self.assertEqual(run.state,run.RUNNING)
+        self.assertEqual(run.stage_state,run.STAGE_TRANSITION)
+        self.assertIn("TRANSITION_STARTED",run.events)
+        run.current_stage_index=0
+        run._start_stage_unlocked=lambda stage,new_attempt=False:setattr(run,"stage_state",run.STAGE_ACTIVE)
+        run.start_next_stage()
+        self.assertEqual(run.current_stage_index,1)
+        self.assertEqual(run.stage_state,run.STAGE_ACTIVE)
+        run.next_stage=None
+        run._finish_experiment_unlocked=lambda:setattr(run,"state",run.COMPLETED)
+        run._complete_stage_unlocked()
+        self.assertEqual(run.state,run.COMPLETED)
+
+    def test_recovery_can_resume_existing_active_stage(self):
+        run=FakeFlow();run.state=run.RECOVERY_REQUIRED;run.current_stage={"id":"stage-1","duration":60}
+        run.recovery_context={"previous_stage_state":run.STAGE_ACTIVE,
+            "stage_elapsed_s":12.,"stage_remaining_s":48.}
+        run.run_directory=None;run.last_error="Device disconnected"
+        run._start_sensor_recording_unlocked=lambda:None
+        run._start_performance_telemetry_unlocked=lambda:None
+        run._camera_required=lambda stage:False
+        run._scraping_required=lambda stage:False
+        run.resume_recovery()
+        self.assertEqual(run.state,run.RUNNING)
+        self.assertEqual(run.stage_state,run.STAGE_ACTIVE)
+        self.assertIsNone(run.recovery_context)
+        self.assertAlmostEqual(run.stage_deadline-time.monotonic(),48.,delta=.2)
 
     def test_pause_and_resume_preserve_active_stage_remaining_time(self):
         run=FakeFlow();run.state=run.RUNNING;run.stage_state=run.STAGE_ACTIVE
