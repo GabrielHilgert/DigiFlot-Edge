@@ -39,3 +39,10 @@ input { min-height: 42px; padding: .55rem .7rem; font-size: 1rem; border: 1px so
     border-style: dashed;
     opacity: .58;
 }
+
+.summary-grid { grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); }
+.benchmark-virtual-choice { display:flex; flex-direction:row; align-items:center; max-width:240px; gap:8px; font-weight:650; }
+.benchmark-virtual-choice input { width:18px; height:18px; min-height:18px; flex:0 0 18px; }
+.benchmark-virtual-hint, .benchmark-confidence-note { font-size:.82rem; opacity:.8; line-height:1.45; margin:8px 0 16px; }
+.result-resources { grid-column:1/-1; display:block; padding-top:5px; border-top:1px solid color-mix(in srgb,CanvasText 12%,transparent); font-size:.79rem; line-height:1.5; }
+@media(max-width:760px){.summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.live-test{grid-template-columns:repeat(2,minmax(0,1fr))}}
