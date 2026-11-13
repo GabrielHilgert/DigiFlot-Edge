@@ -158,3 +158,61 @@ reference mode. For new calibrations, the datum and its direction are saved
 explicitly in `virtual_sensors/froth_interface.json` and the latest
 physical-cell snapshot is written before the experiment. Old experiment
 measurements are never silently recomputed using an updated cell datum.
+
+## DigiFlot workflow v3 (named references and lightweight run preview)
+
+The run page now presents seven **visual preparation substeps**:
+Experiment → Cameras → Cell & References → Sensors → Froth Interface → Ready → Run.
+The underlying state machine still uses the existing camera/sensor calibration
+states; camera and Atlas/scale procedures are unchanged.
+
+Physical references are a separately versioned, cell-level list stored in
+`vision/reference_points/<cell_id>.json`, with stable IDs, editable names,
+type, direction and ArUco-local physical coordinates (cm).
+`Outlet level` is the initially preferred **named custom reference**, but
+is uncalibrated until an operator selects its level. The automatic ArUco
+reference remains available. The Cells page supports selecting a point on
+the rectified plane, a measured off-frame coordinate, or deriving a
+vertical level from a known saved point and Y offset. An operator may add
+as many named references as needed; the default can be changed without
+renaming or replacing points. Legacy manually entered cell top/bottom
+values are imported into the editor non-destructively when no new
+reference list has been saved.
+
+Camera motion, changes in sensor crop, or repeating ArUco detection do not
+change stored **ArUco-local** reference coordinates if the marker ruler
+remains physically fixed relative to the cell. When reusing points after
+camera changes, the interface explicitly asks the operator to confirm
+that condition. If the ruler moved physically, remeasure the points.
+The virtual sensor profile stores a selected `reference_id` and its
+immutable run snapshot freezes the resolved Y coordinate and direction.
+Older profiles without a `reference_id` retain the earlier vertical
+reference logic, including archived +offset experiment snapshots.
+
+Selecting a physical cell propagates its `working_volume_l` to the
+`working_cell_volume` execution input unless an operator-confirmed value
+exists. The operator may override it before the first stage. Feed mass
+and water volume remain required pre-run measurements/inputs and are
+not inferred from the cell properties; a future Preparation workflow
+can replace the current entry form. The start of Run creates
+`effective_setup_snapshot.json` with the cell, named references, camera
+profiles, optical/ArUco associations for configured cameras, physical
+sensor calibrations, frozen virtual sensor and effective inputs.
+Previous snapshots are preserved rather than silently reinterpreted.
+
+The wide (two-column) Froth Interface card in Run and Ready displays
+thickness, both positions, a mini time-series, and the last rectified
+camera ROI. The monitor endpoint
+`POST /api/vision/virtual-sensors/froth-interface/monitor` renews a
+12-second view lease and accepts `width` plus `last_revision`.
+JPEG output is quantized to small width buckets (192/256/384/512 px)
+and produced from the **already detected lores ROI**, at most once per
+5 seconds using the existing low-priority image encoder. The detector
+is not called twice, and there is no second camera request. The
+browser overlays the two lines using rows captured with the JPEG,
+never rows from another frame. Duplicate revisions transmit no image;
+when the view closes or becomes hidden, the lease expires automatically.
+A stale indicator flags when the image is more than 12 seconds old;
+sensor values and TSV acquisition continue independently. Two-camera
+recording FPS/latency should be verified on the physical Pi with the
+monitor enabled and disabled before production use.
