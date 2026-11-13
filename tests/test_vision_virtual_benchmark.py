@@ -84,6 +84,8 @@ class FakeRun:
         return [{"id":1,"name":"Side"}]
     def _touch_unlocked(self, *args, **kwargs):
         pass
+    def _mark_calibration_changed_unlocked(self, *args, **kwargs):
+        pass
 
 
 class VirtualBenchmarkTests(unittest.TestCase):
