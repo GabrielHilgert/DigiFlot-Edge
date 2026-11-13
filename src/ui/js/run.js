@@ -918,10 +918,8 @@ function renderMeasurements(state) {
     const available = ["Ready","Running","Paused","Completed","RecoveryRequired"].includes(state.state);
     ui.measurement_launcher.hidden = !available;
     ui.measurement_panel.hidden = !available || !measurementOpen;
+    // The static accordion header stays mounted; aria-expanded drives its chevron.
     ui.toggle_measurement_panel.setAttribute("aria-expanded", String(available && measurementOpen));
-    ui.toggle_measurement_panel.innerHTML = measurementOpen ?
-        'Close data acquisition <span aria-hidden="true">▴</span>' :
-        'Data acquisition <span aria-hidden="true">▾</span>';
     if (!available || !measurementOpen) return;
     updateMeasurementSources(state);
     const remoteRevision = Number(state.measurements?.revision || 0);
