@@ -682,22 +682,23 @@ function renderMeasurementTables() {
 }
 
 function selectMeasurementVariable(variableId) {
-    const variable = (measurementData.variables || []).find((item) => String(item.id) === String(variableId));
+    const variable = (measurementData.variables || []).find(item => String(item.id) === String(variableId));
     if (!variable) return;
-
     ui.measurement_variable_name.value = variable.name || "";
-    const latest = variable.latest || {};
-
-    if (latest.source_type === "sensor" && latest.sensor_id) {
-        const option = [...ui.measurement_source.options].find(
-            (item) => item.value === String(latest.sensor_id) && !item.disabled
-        );
-        ui.measurement_source.value = option ? option.value : "manual";
-    } else {
-        ui.measurement_source.value = "manual";
-        ui.measurement_manual_unit.value = latest.unit || "";
-    }
-
+    const input = (latestState?.execution_inputs?.items || []).find(item => item.id === variable.id);
+    const expected = input?.unit || variable.unit || variable.latest?.unit || "";
+    const accepted = variable.id === "feed_mass" ? ["g","kg","mg"] :
+        variable.id === "water_volume" ? ["l","ml","m3","m³"] :
+        expected ? [expected.toLowerCase()] : [];
+    const matching = sensorSnapshots(latestState || {}).find(sensor =>
+        sensorIsOnline(sensor) && sensor.value != null &&
+        accepted.includes(String(sensor.unit || "").trim().toLowerCase()));
+    const recentId = variable.latest?.source_type === "sensor" ? variable.latest.sensor_id : null;
+    const recent = [...ui.measurement_source.options].find(option =>
+        option.value === String(recentId) && !option.disabled);
+    ui.measurement_value_type.value = "number";
+    ui.measurement_source.value = recent?.value || (matching ? String(matching.id) : "manual");
+    ui.measurement_manual_unit.value = expected;
     updateMeasurementSourcePreview();
     ui.measurement_variable_name.focus();
 }
@@ -1276,6 +1277,11 @@ function bindActions() {
         if (!row) return;
         selectMeasurementVariable(row.dataset.variableId);
     };
+    ui.measurement_variable_name.addEventListener("change", () => {
+        const match=(measurementData.variables||[]).find(v =>
+            v.name.toLowerCase()===ui.measurement_variable_name.value.trim().toLowerCase());
+        if(match)selectMeasurementVariable(match.id);
+    });
     ui.measurement_summary_body.addEventListener("click", chooseMeasurementVariable);
     ui.measurement_summary_body.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
@@ -1374,13 +1380,16 @@ function bindActions() {
         }
         const valueType = ui.measurement_value_type.value || "number";
         const sourceId = valueType === "text" ? "manual" : (ui.measurement_source.value || "manual");
+        const variableId=variableName.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");
+        const initialCondition=valueType==="number"&&["feed_mass","water_volume"].includes(variableId);
         const payload = {
-            variable_name: variableName,
-            source_id: sourceId,
-            value_type: valueType,
-            role: valueType === "text" ? "note" : "measurement",
-            category: valueType === "text" ? "note" : "measurement",
+            variable_name: variableName, variable_id: variableId,
+            source_id: sourceId, value_type: valueType,
+            role: valueType==="text"?"note":initialCondition?"execution_input":"measurement",
+            category: valueType==="text"?"note":initialCondition?"initial_condition":"measurement",
         };
+        if(initialCondition && sourceId==="manual" && !ui.measurement_manual_unit.value.trim())
+            ui.measurement_manual_unit.value=variableId==="feed_mass"?"g":"L";
         if (sourceId === "manual") {
             const manualValue = valueType === "text" ? ui.measurement_manual_text.value : ui.measurement_manual_value.value;
             if (manualValue.trim() === "") {
@@ -1402,6 +1411,7 @@ function bindActions() {
             measurementData.revision = result.measurements?.revision || measurementData.revision;
             measurementData.count = result.measurements?.count || measurementData.observations.length;
             measurementData.variables = result.measurements?.variables || measurementData.variables;
+            if (latestState && result.execution_inputs) latestState.execution_inputs = result.execution_inputs;
             renderMeasurementTables();
             ui.measurement_manual_value.value = "";
             ui.measurement_manual_text.value = "";
