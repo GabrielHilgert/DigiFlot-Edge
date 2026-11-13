@@ -118,7 +118,18 @@ class VisionRegistry:
         with self.lock:
             cell_id = _safe_id(cell_id)
             record = _read(self.root / "reference_points" / f"{cell_id}.json")
-            return record if record is not None else default_reference_points()
+            if record is not None:
+                return record
+            # Non-destructive migration of older manually entered top/bottom datums.
+            default = default_reference_points()
+            legacy = self.cell_vertical_reference(cell_id)
+            for kind, key, direction in (("top", "cell_top_y_cm", "down"),
+                                         ("bottom", "cell_bottom_y_cm", "up")):
+                if legacy.get(key) is not None:
+                    default["points"].append({"id": "cell_"+kind, "name": "Cell "+kind,
+                        "type": kind, "position_cm": [0., float(legacy[key])],
+                        "direction": direction, "source": "measured"})
+            return default
 
     def save_reference_points(self, cell_id, values):
         from .reference import normalize_reference_points
