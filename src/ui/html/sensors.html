@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026a">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261113refs2">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261113refs2"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261113state1">
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261113state1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -157,6 +157,7 @@
                 <strong id="calibration_progress">Checking calibration status…</strong>
                 <span id="calibration_hint">Calibrate, check, or explicitly skip each connected sensor before continuing.</span>
             </div>
+            <button id="cancel_calibration_edit" class="button button-secondary" type="button" hidden>Cancel recalibration</button>
             <button id="finish_calibration" class="button button-primary button-large" type="button">
                 Finish sensor calibration
             </button>
