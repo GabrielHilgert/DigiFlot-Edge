@@ -74,6 +74,7 @@ class PerformanceManager:
         self.elapsed_s = 0.0
         self.last_error = None
         self.results = []
+        self.virtual_sensor = None
         self.abort_event = threading.Event()
         self.benchmark_thread = None
 
@@ -418,6 +419,7 @@ class PerformanceManager:
                 "elapsed_s": self.elapsed_s,
                 "last_error": self.last_error,
                 "results": deepcopy(self.results),
+                "virtual_sensor": deepcopy(self.virtual_sensor),
                 "profile": deepcopy(self.profile),
                 "system": deepcopy(self.last_sample),
             }
@@ -549,6 +551,7 @@ class PerformanceManager:
                     "tested_at": benchmark_started,
                     "completed_at": _utc_now(),
                     "hardware_signature": signature,
+                    "virtual_sensor": self._virtual_summary(workload),
                     "results": all_results,
                 }
                 self._save_history_record(record)
