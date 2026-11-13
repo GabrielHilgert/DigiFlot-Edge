@@ -23,10 +23,10 @@ assert.match(css,/\.run-health-row\s*\{\s*display:contents/);
 assert.match(css,/\.run-workspace\s*\{\s*display:flex;\s*flex-direction:column/);
 assert.match(css,/@media\(min-width:1101px\)/);
 assert.match(css,/grid-template-areas:"sensors action" "sensors acquisition" "sensors abort"/);
-assert.match(css,/\.run-workspace\.has-live\.acquisition-expanded/);
+assert.match(css,/\.run-workspace\.is-dashboard\.acquisition-expanded/);
 assert.match(css,/@media\(max-width:1100px\)/);
 assert.match(js,/classList\.toggle\("acquisition-expanded"/);
-assert.match(js,/classList\.toggle\("has-live"/);
+assert.match(js,/classList\.toggle\("is-dashboard"/);
 
 // Check that the inner HTML panels are nested correctly after introducing wrappers.
 const main = html.slice(html.indexOf("<main "), html.indexOf("</main>") + 7);
