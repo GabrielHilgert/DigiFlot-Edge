@@ -34,6 +34,12 @@
         }, error ? 7500 : 2000);
     }
     function targetLabel(element, path) {
+        if (/\/preview\/start$/.test(path)) return "Starting camera preview";
+        if (/\/exposure\/calibrate$/.test(path)) return "Calibrating camera exposure";
+        if (/\/detection-roi-preview$/.test(path)) return "Loading rectified camera plane";
+        if (/\/rectified$/.test(path)) return "Processing rectified camera image";
+        if (/\/benchmark$/.test(path)) return "Testing Froth Interface detection and timing";
+        if (/\/performance\/benchmark\/start$/.test(path)) return "Starting system performance test";
         const label = element?.getAttribute("aria-label") || element?.textContent?.trim();
         if (label && label.length <= 70) return label;
         const part = path.split("/").filter(Boolean).slice(-2).join(" ").replaceAll("-", " ");
