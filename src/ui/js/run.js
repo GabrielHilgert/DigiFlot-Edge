@@ -16,8 +16,10 @@ let stageTimelineSignature = null;
 let readyViewSignature = null;
 let runStorageEstimateFor = null;
 let monitorFrameRevision = 0, monitorFrame = null, monitorBusy = false, monitorRunId = null;
-let imageHidden = false, measurementOpen = false;
+let imageHidden = false, measurementOpen = false, runLayout = "standard";
 try {
+    const preference = window.localStorage?.getItem("digiflot-run-layout");
+    if (preference === "compact" || preference === "standard") runLayout = preference;
     imageHidden = window.localStorage?.getItem("digiflot-hide-froth-image") === "1";
     measurementOpen = window.sessionStorage?.getItem("digiflot-data-acquisition-open") === "1";
 } catch (_) { /* Browser private mode: fall back to hidden data tab. */ }
@@ -48,9 +50,24 @@ function cacheUi() {
         "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value", "measurement_manual_text",
         "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint", "required_inputs_panel",
         "measurement_count", "measurement_summary_body", "measurement_history_body",
-        "calibration_review_panel", "calibration_review_list", "run_stage_timeline", "run_stage_position"
+        "calibration_review_panel", "calibration_review_list", "run_stage_timeline", "run_stage_position",
+        "run_workspace"
     ].forEach((id) => { ui[id] = document.getElementById(id); });
     ui.workflowSteps = [...document.querySelectorAll(".workflow-step")];
+    ui.layoutButtons = [...document.querySelectorAll("[data-run-layout]")];
+}
+
+function applyRunLayout(value, persist = true) {
+    runLayout = value === "compact" ? "compact" : "standard";
+    document.body.dataset.runLayout = runLayout;
+    for (const button of ui.layoutButtons || []) {
+        button.setAttribute("aria-pressed", String(button.dataset.runLayout === runLayout));
+    }
+    if (persist) {
+        try { window.localStorage?.setItem("digiflot-run-layout", runLayout); } catch (_) {}
+    }
+    // Refit the existing plot canvases after their parent grid changes width.
+    if (latestState) window.requestAnimationFrame?.(() => renderLiveSensors(latestState));
 }
 
 async function requestJson(url, options = {}) {
@@ -920,6 +937,7 @@ function renderMeasurements(state) {
     ui.measurement_panel.hidden = !available || !measurementOpen;
     // The static accordion header stays mounted; aria-expanded drives its chevron.
     ui.toggle_measurement_panel.setAttribute("aria-expanded", String(available && measurementOpen));
+    ui.run_workspace?.classList.toggle("acquisition-expanded", Boolean(available && measurementOpen));
     if (!available || !measurementOpen) return;
     updateMeasurementSources(state);
     const remoteRevision = Number(state.measurements?.revision || 0);
@@ -1041,6 +1059,7 @@ function render(state) {
         monitorRunId=state.storage_id;monitorFrame=null;monitorFrameRevision=0;
     }
     latestState = state;
+    document.body.dataset.runState = String(state.state || "idle").toLowerCase();
     setStateBadge(state.state);
     setWorkflow(state);
     renderOperations(state);
@@ -1067,6 +1086,7 @@ function render(state) {
 
     ui.abort_bar.hidden = !["CellSelection", "CameraCalibration", "SensorCalibration", "Ready", "Running", "Paused", "RecoveryRequired"].includes(state.state);
     renderLiveSensors(state);
+    ui.run_workspace?.classList.toggle("has-live", !ui.live_sensor_panel.hidden);
     renderMeasurements(state);
     handleScrapingSignal(state);
 }
@@ -1127,6 +1147,9 @@ async function action(url, body = null) {
 }
 
 function bindActions() {
+    for (const button of ui.layoutButtons || []) {
+        button.addEventListener("click", () => applyRunLayout(button.dataset.runLayout));
+    }
     ui.select_physical_cell_form.addEventListener("submit", async event => {
         event.preventDefault();
         const cellId = ui.select_physical_cell.value;
@@ -1432,6 +1455,7 @@ function connectStateStream() {
 
 async function initialise() {
     cacheUi();
+    applyRunLayout(runLayout, false);
     bindActions();
     try {
         render(await requestJson("/api/digiflot/state"));
