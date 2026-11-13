@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   const state = {cells: [], cameras: [], settings: {}, profile: null, cell: null,
     cameraId: null, cellId: null, association: null, pending: null, frame: null,
-    roi: [0, 0, 1, 1], analysisRoi: null, roiDirty: false, view: 'raw', plane: null, drag: null};
+    roi: [0, 0, 1, 1], analysisRoi: null, roiDirty: false, view: 'raw', plane: null, drag: null, named:null, activePoint:null, pointClick:null, namedDirty:false};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -38,6 +38,10 @@
 
   function setCellForm(cell) {
     state.cell = cell;
+    state.named = JSON.parse(JSON.stringify(cell?.reference_points || {default_reference_id:'outlet_level',points:[
+      {id:'outlet_level',name:'Outlet level',type:'custom',position_cm:null,direction:'up',source:'unset'},
+      {id:'aruco_reference',name:'ArUco reference',type:'aruco',position_cm:null,direction:'up',source:'automatic'}]}));
+    state.activePoint=null;state.namedDirty=false;renderNamedPoints();
     $('cell_name').value = cell?.name || '';
     $('cell_volume').value = cell?.working_volume_l ?? '';
     const g = cell?.geometry || {};
@@ -57,6 +61,106 @@
     l.marker_ids.forEach((v,i) => { $(`marker_${i}`).value = v; });
     $('marker_size').value = l.marker_size_cm;
     $('marker_span').value = l.span_cm;
+  }
+
+
+  function renderNamedPoints() {
+    const record=state.named||{points:[]},list=$('named_reference_list');
+    list.innerHTML=record.points.map(p=>{
+      const locked=p.id==='aruco_reference';
+      const pos=p.source==='automatic'?'Automatic from markers':p.position_cm?p.position_cm.map(n=>Number(n).toFixed(2)).join(', ')+' cm':'Not calibrated';
+      return '<div class="cv-named-point'+(state.activePoint===p.id?' active':'')+'" data-ref-id="'+esc(p.id)+'">'+
+        '<label><input type="radio" name="ref_default" value="'+esc(p.id)+'" '+(record.default_reference_id===p.id?'checked':'')+' title="Default reference"></label>'+
+        '<div class="cv-named-main"><input data-ref-field="name" value="'+esc(p.name)+'" '+(locked?'disabled':'')+' maxlength="80" aria-label="Name">'+
+        '<small>'+esc(pos)+'</small><div class="cv-named-controls"><select data-ref-field="type" '+(locked?'disabled':'')+'>'+
+        ['custom','top','bottom','aruco'].map(x=>'<option value="'+x+'" '+(x===p.type?'selected':'')+'>'+x+'</option>').join('')+
+        '</select><select data-ref-field="direction" '+(locked?'disabled':'')+'>'+
+        ['up','down'].map(x=>'<option value="'+x+'" '+(x===p.direction?'selected':'')+'>'+ (x==='up'?'Height ↑':'Depth ↓')+'</option>').join('')+
+        '</select></div></div><div class="cv-named-actions"><button class="button button-secondary" data-ref-action="place" type="button" '+(locked?'disabled':'')+'>'+
+        (state.activePoint===p.id?'Cancel':'Place')+'</button><button class="button button-secondary" data-ref-action="delete" type="button" '+(locked?'disabled':'')+'>Remove</button></div></div>';
+    }).join('');
+    text('reference_status',!state.cellId?'Save the cell first':state.activePoint?
+      'Click the point on the rectified plane. Saved coordinates remain independent of camera crop.':
+      'Default: '+(record.points.find(p=>p.id===record.default_reference_id)?.name||'—')+
+      (state.namedDirty?' · Unsaved changes':''));
+    $('reference_save').disabled=!state.cellId;
+    drawNamedPoints();
+  }
+
+  function drawNamedPoints() {
+    const layer=$('reference_overlays'),img=$('camera_image');layer.replaceChildren();
+    if(state.view!=='rectified'||!state.plane||!img.naturalWidth||!state.named)return;
+    const outer=$('image_surface').getBoundingClientRect(),rect=img.getBoundingClientRect();
+    Object.assign(layer.style,{left:(rect.left-outer.left)+'px',top:(rect.top-outer.top)+'px',
+      width:rect.width+'px',height:rect.height+'px'});
+    const [x0,y0]=state.plane.min_xy_cm,[x1,y1]=state.plane.max_xy_cm;
+    for(const point of state.named.points) {
+      const auto=point.type==='aruco'&&point.source==='automatic';
+      const pos=auto?[x0,Math.max(Number(state.cell?.marker_layout?.span_cm||14),
+        Number(state.cell?.marker_layout?.marker_size_cm||2))]:point.position_cm;
+      if(!pos)continue;
+      const x=(pos[0]-x0)/(x1-x0),y=(pos[1]-y0)/(y1-y0);
+      if(y<0||y>1)continue;
+      const line=document.createElement('div');line.className='cv-named-overlay'+
+        (point.id===state.named.default_reference_id?' selected':'');line.style.top=(100*y)+'%';
+      const pin=document.createElement('span');pin.style.left=(100*x)+'%';line.appendChild(pin);
+      layer.appendChild(line);
+    }
+  }
+
+  async function saveNamedPoints() {
+    if(!state.cellId)throw new Error('Save the cell first');
+    state.named=await api('/cells/'+encodeURIComponent(state.cellId)+'/reference-points',
+      {method:'PUT',body:state.named});state.namedDirty=false;renderNamedPoints();
+    toast('Named references saved (revision '+state.named.revision+').');
+  }
+
+  async function reuseNamedPoints() {
+    if(!state.cellId)throw new Error('Select a cell');
+    if(!window.confirm('Confirm the ArUco ruler did not move relative to this cell. Reusing points otherwise gives incorrect coordinates.'))return;
+    state.named=await api('/cells/'+encodeURIComponent(state.cellId)+'/reference-points');
+    state.namedDirty=false;state.activePoint=null;
+    if(state.view!=='rectified')await rectifiedSnapshot();
+    renderNamedPoints();toast('Reprojected named points with the current ArUco geometry.');
+  }
+
+  function addNamedPoint() {
+    if(!state.named)throw new Error('Select a cell first');
+    const name=$('reference_new_name').value.trim(),type=$('reference_new_type').value;
+    if(!name)throw new Error('Enter a reference name');
+    const id='ref_'+Math.random().toString(36).slice(2,12);
+    state.named.points.push({id,name,type,direction:type==='top'?'down':'up',
+      position_cm:null,source:'unset'});
+    state.activePoint=id;state.namedDirty=true;$('reference_new_name').value='';
+    renderNamedPoints();
+  }
+
+  async function handleNamedPoint(event) {
+    const row=event.target.closest('[data-ref-id]');if(!row||!state.named)return;
+    const point=state.named.points.find(p=>p.id===row.dataset.refId);if(!point)return;
+    if(event.target.name==='ref_default'){
+      state.named.default_reference_id=point.id;state.namedDirty=true;renderNamedPoints();return;
+    }
+    const action=event.target.dataset.refAction;
+    if(action==='place'){
+      state.activePoint=state.activePoint===point.id?null:point.id;
+      if(state.activePoint&&state.view!=='rectified')await rectifiedSnapshot();
+      renderNamedPoints();return;
+    }
+    if(action==='delete'){
+      state.named.points=state.named.points.filter(p=>p.id!==point.id);
+      if(state.named.default_reference_id===point.id)state.named.default_reference_id='aruco_reference';
+      if(state.activePoint===point.id)state.activePoint=null;
+      state.namedDirty=true;renderNamedPoints();return;
+    }
+    const field=event.target.dataset.refField;
+    if(field&&field in point){
+      point[field]=event.target.value;
+      if(field==='type')point.direction=point.type==='top'?'down':'up';
+      state.namedDirty=true;
+      if(field!=='name')renderNamedPoints();
+      else text('reference_status','Unsaved name · Save references to apply');
+    }
   }
 
   function cellPayload() {
@@ -282,6 +386,7 @@
   function renderSelection() {
     const selection = $('roi_selection'), img = $('camera_image');
     selection.hidden = true;
+    drawNamedPoints();
     if (!img.naturalWidth || !img.getAttribute('src')) return;
     let region = null;
     if (state.view === 'rectified' && state.plane && state.analysisRoi) {
@@ -310,6 +415,15 @@
   }
 
   function finishDrag(event) {
+    if(state.pointClick){
+      const p=pointOnImage(event)||state.pointClick,down=state.pointClick;state.pointClick=null;
+      if(state.activePoint&&state.plane&&Math.hypot(p[0]-down[0],p[1]-down[1])<.025){
+        const point=state.named.points.find(x=>x.id===state.activePoint);
+        if(point){point.position_cm=planePoint(p);point.source='image_selection';
+          state.namedDirty=true;state.activePoint=null;renderNamedPoints();}
+      }
+      return;
+    }
     if (!state.drag) return;
     const a = state.drag.start, b = pointOnImage(event) || state.drag.end || a;
     state.drag = null; $('roi_drag').hidden = true;
@@ -368,6 +482,11 @@
   $('cell_select').addEventListener('change',action(async()=>loadCell($('cell_select').value)));
   $('save_cell').addEventListener('click',action(saveCell));
   $('save_cell_reference').addEventListener('click',action(saveCellReference));
+  $('reference_add').addEventListener('click',action(addNamedPoint));
+  $('reference_save').addEventListener('click',action(saveNamedPoints));
+  $('reference_reuse').addEventListener('click',action(reuseNamedPoints));
+  $('named_reference_list').addEventListener('click',e=>{if(e.target.dataset.refAction)action(()=>handleNamedPoint(e))();});
+  $('named_reference_list').addEventListener('change',e=>action(()=>handleNamedPoint(e))());
   $('camera_select').addEventListener('change',action(async()=>loadCamera($('camera_select').value)));
   $('optics_mode').addEventListener('change',()=>{$('lens_preset').disabled=$('optics_mode').value!=='preset';});
   $('import_intrinsics').addEventListener('change',action(importIntrinsics));
@@ -390,11 +509,14 @@
     if(state.view==='rectified' && (!state.plane || !state.association))return;
     const p=pointOnImage(event);if(!p)return;
     event.preventDefault();
+    if(state.view==='rectified'&&state.activePoint){
+      state.pointClick=p;img.setPointerCapture(event.pointerId);return;
+    }
     state.drag={start:p,end:p};
     img.setPointerCapture(event.pointerId);
   });
   img.addEventListener('pointermove',drawDrag);
   img.addEventListener('pointerup',finishDrag);
-  img.addEventListener('pointercancel',()=>{state.drag=null;$('roi_drag').hidden=true;});
+  img.addEventListener('pointercancel',()=>{state.drag=null;state.pointClick=null;$('roi_drag').hidden=true;});
   initialize().catch(err=>toast(err.message,true));
 })();
