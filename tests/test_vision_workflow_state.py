@@ -33,6 +33,7 @@ class FakeFlow:
     start_next_stage=extract("start_next_stage")
     pause=extract("pause")
     resume=extract("resume")
+    reset=extract("reset")
     def __init__(self):
         self.lock=threading.RLock()
         self.state=self.READY; self.stage_state=self.STAGE_WAITING
@@ -113,6 +114,29 @@ class WorkflowTests(unittest.TestCase):
             run.start_next_stage()
         self.assertEqual(run.state,run.SENSOR_CALIBRATION)
         self.assertEqual(run.sensor_calibration["froth_interface"]["status"],"pending")
+
+    def test_camera_calibration_resolves_to_expected_node(self):
+        run=FakeFlow();run.state=run.CAMERA_CALIBRATION
+        run._advance_from_camera_calibration_unlocked()
+        self.assertEqual(run.state,run.READY)
+        run=FakeFlow();run.state=run.CAMERA_CALIBRATION;run.sensor_calibration["ph1"]["status"]="pending"
+        run._advance_from_camera_calibration_unlocked()
+        self.assertEqual(run.state,run.SENSOR_CALIBRATION)
+
+    def test_recovery_reset_persists_abort_before_discarding_runtime(self):
+        run=FakeFlow();run.state=run.RECOVERY_REQUIRED
+        actions=[]
+        def abort(reason,return_to_idle):
+            actions.append((reason,return_to_idle))
+            run.state=run.IDLE
+            return run.status
+        run.abort_experiment=abort
+        run._reset_run_state_unlocked=lambda:actions.append(("unsafe direct reset",))
+        run.reset()
+        self.assertEqual(run.state,run.IDLE)
+        self.assertEqual(len(actions),1)
+        self.assertTrue(actions[0][1])
+        self.assertNotEqual(actions[0][0],"unsafe direct reset")
 
     def test_pause_and_resume_preserve_active_stage_remaining_time(self):
         run=FakeFlow();run.state=run.RUNNING;run.stage_state=run.STAGE_ACTIVE
