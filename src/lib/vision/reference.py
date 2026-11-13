@@ -49,8 +49,91 @@ def aruco_bottom_y_cm(layout):
     return max(span, size)
 
 
+
+def default_reference_points():
+    """Uncalibrated Outlet level is preferred; the ArUco datum is always available."""
+    return {"schema_version": 2, "revision": 0, "default_reference_id": "outlet_level",
+            "points": [
+                {"id": "outlet_level", "name": "Outlet level", "type": "custom",
+                 "position_cm": None, "direction": "up", "source": "unset"},
+                {"id": "aruco_reference", "name": "ArUco reference", "type": "aruco",
+                 "position_cm": None, "direction": "up", "source": "automatic"},
+            ]}
+
+
+def normalize_reference_points(value):
+    """Validate a named, repeatable list of references without imposing a count limit."""
+    import re
+    if not isinstance(value, dict):
+        raise ValueError("Reference points must be an object")
+    points = value.get("points")
+    if not isinstance(points, list) or not points or len(points) > 4096:
+        raise ValueError("Provide at least one named reference (maximum 4096)")
+    seen, normalized = set(), []
+    for raw in points:
+        if not isinstance(raw, dict):
+            raise ValueError("Each reference must be an object")
+        ident = str(raw.get("id", "")).strip()
+        name = str(raw.get("name", "")).strip()
+        kind = str(raw.get("type", "custom"))
+        direction = str(raw.get("direction", "up"))
+        source = str(raw.get("source", "unset"))
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", ident) or ident in seen:
+            raise ValueError("References require unique stable identifiers")
+        if not 1 <= len(name) <= 80 or kind not in ("top", "bottom", "aruco", "custom"):
+            raise ValueError("Reference name or type is invalid")
+        if direction not in ("up", "down") or source not in ("unset", "automatic", "image_selection", "measured", "derived", "reused"):
+            raise ValueError("Reference direction or source is invalid")
+        pos = raw.get("position_cm")
+        if pos is not None:
+            if not isinstance(pos, (list, tuple)) or len(pos) != 2:
+                raise ValueError("Reference position must be [x_cm, y_cm]")
+            pos = [_optional_cm(x, "Reference position") for x in pos]
+            if any(x is None for x in pos):
+                raise ValueError("Reference coordinates must be finite")
+        if kind == "aruco" and ident == "aruco_reference":
+            pos, source = None, "automatic"
+        seen.add(ident)
+        normalized.append({"id": ident, "name": name, "type": kind, "position_cm": pos,
+                           "direction": direction, "source": source,
+                           "derived_from": raw.get("derived_from") if source == "derived" else None,
+                           "offset_y_cm": _optional_cm(raw.get("offset_y_cm"), "Derived Y offset")
+                           if source == "derived" else None})
+    default_id = str(value.get("default_reference_id") or "")
+    if default_id not in seen:
+        raise ValueError("Default reference must be one of the saved named points")
+    return {"schema_version": 2, "default_reference_id": default_id, "points": normalized}
+
+
+def resolve_named_reference(config, association):
+    library = association.get("reference_points") or default_reference_points()
+    ident = str(config.get("reference_id") or library.get("default_reference_id") or "")
+    points = {item["id"]: item for item in library.get("points", [])}
+    selected = points.get(ident)
+    if selected is None:
+        raise ValueError("Selected named physical reference no longer exists")
+    if selected["type"] == "aruco" and selected["source"] == "automatic":
+        cell = association.get("cell_snapshot") or {}
+        layout = (association.get("calibration") or {}).get("layout") or cell.get("marker_layout")
+        y = aruco_bottom_y_cm(layout)
+    elif selected["source"] == "derived":
+        base = points.get(selected.get("derived_from"))
+        if not base or base.get("position_cm") is None:
+            raise ValueError("Derived reference requires a calibrated source point")
+        y = float(base["position_cm"][1]) + float(selected.get("offset_y_cm") or 0.0)
+    else:
+        position = selected.get("position_cm")
+        if position is None:
+            raise ValueError(f"Reference '{selected['name']}' has no physical position. Select it in Cells.")
+        y = float(position[1])
+    return {"mode": "named", "reference_id": ident, "name": selected["name"],
+            "type": selected["type"], "y_cm": y, "direction": selected["direction"],
+            "source": selected["source"], "reference_revision": library.get("revision", 0)}
+
 def resolve_vertical_reference(config, association):
     """Return a frozen, explicit datum that can be used without raw image pixels."""
+    if (config or {}).get("reference_id"):
+        return resolve_named_reference(config, association)
     mode = (config or {}).get("vertical_reference_mode") or "cell_default"
     if mode == "historical_offset":
         return {"mode": mode, "y_cm": None, "direction": "down",
