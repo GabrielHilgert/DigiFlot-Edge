@@ -2304,7 +2304,7 @@ class DigiFlot:
         except Exception as error:
             print(f"[DigiFlot] Could not update storage history: {error}")
 
-    def abort_experiment(self, reason="Operator aborted experiment"):
+    def abort_experiment(self, reason="Operator aborted experiment", return_to_idle=False):
         with self.lock:
             if self.state == self.IDLE:
                 return self.status
@@ -2325,6 +2325,11 @@ class DigiFlot:
             self.recovery_context = None
             self._touch_unlocked("EXPERIMENT_ABORTED", {"reason": str(reason)})
             self._sync_execution_state_unlocked("aborted", ensure=True)
+            if return_to_idle:
+                # The aborted run is fully persisted before freeing cameras/tools.
+                self._reset_run_state_unlocked()
+                self.revision += 1
+                self.condition.notify_all()
             return self.status
 
     def _enter_recovery_unlocked(self, error, source="orchestrator"):
