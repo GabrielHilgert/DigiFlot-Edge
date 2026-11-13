@@ -76,7 +76,18 @@
         ['custom','top','bottom','aruco'].map(x=>'<option value="'+x+'" '+(x===p.type?'selected':'')+'>'+x+'</option>').join('')+
         '</select><select data-ref-field="direction" '+(locked?'disabled':'')+'>'+
         ['up','down'].map(x=>'<option value="'+x+'" '+(x===p.direction?'selected':'')+'>'+ (x==='up'?'Height ↑':'Depth ↓')+'</option>').join('')+
-        '</select></div></div><div class="cv-named-actions"><button class="button button-secondary" data-ref-action="place" type="button" '+(locked?'disabled':'')+'>'+
+        '</select></div>'+
+        '<div class="cv-named-controls"><select data-ref-field="source" '+(locked?'disabled':'')+'>'+
+        ['unset','image_selection','measured','derived','reused','automatic'].map(x=>
+            '<option value="'+x+'" '+(x===p.source?'selected':'')+'>'+x.replaceAll('_',' ')+'</option>').join('')+
+        '</select>'+
+        (p.source==='derived'?
+            '<select data-ref-field="derived_from">'+record.points.filter(other=>other.id!==p.id).map(other=>
+                '<option value="'+esc(other.id)+'" '+(other.id===p.derived_from?'selected':'')+'>'+esc(other.name)+'</option>').join('')+
+            '</select></div><label class="cv-named-coord">ΔY from reference (cm) <input data-ref-field="offset_y_cm" type="number" step="any" value="'+esc(p.offset_y_cm??0)+'"></label>' :
+            '</select></div><div class="cv-named-coord"><label>X cm <input data-ref-field="x_cm" type="number" step="any" value="'+esc(p.position_cm?.[0]??'')+'" placeholder="0"></label>'+
+            '<label>Y cm <input data-ref-field="y_cm" type="number" step="any" value="'+esc(p.position_cm?.[1]??'')+'" placeholder="Measured level"></label></div>')+
+        '</div><div class="cv-named-actions"><button class="button button-secondary" data-ref-action="place" type="button" '+(locked?'disabled':'')+'>'+
         (state.activePoint===p.id?'Cancel':'Place')+'</button><button class="button button-secondary" data-ref-action="delete" type="button" '+(locked?'disabled':'')+'>Remove</button></div></div>';
     }).join('');
     text('reference_status',!state.cellId?'Save the cell first':state.activePoint?
@@ -154,9 +165,26 @@
       state.namedDirty=true;renderNamedPoints();return;
     }
     const field=event.target.dataset.refField;
+    if(field==='x_cm'||field==='y_cm'){
+      const value=event.target.value.trim();
+      const previous=point.position_cm||[0,null];
+      const x=field==='x_cm'?(value===''?0:Number(value)):previous[0];
+      const y=field==='y_cm'?(value===''?null:Number(value)):previous[1];
+      point.position_cm=y==null?null:[x,y];point.source=point.position_cm?'measured':'unset';
+      state.namedDirty=true;renderNamedPoints();return;
+    }
+    if(field==='offset_y_cm'){
+      point.offset_y_cm=event.target.value.trim()===''?null:Number(event.target.value);
+      state.namedDirty=true;renderNamedPoints();return;
+    }
     if(field&&field in point){
       point[field]=event.target.value;
       if(field==='type')point.direction=point.type==='top'?'down':'up';
+      if(field==='source'&&point.source==='derived'){
+        point.position_cm=null;
+        point.derived_from=state.named.points.find(other=>other.id!==point.id)?.id||null;
+        point.offset_y_cm=0;
+      }
       state.namedDirty=true;
       if(field!=='name')renderNamedPoints();
       else text('reference_status','Unsaved name · Save references to apply');
