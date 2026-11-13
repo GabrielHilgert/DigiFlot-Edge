@@ -27,7 +27,7 @@
       <div class="cv-three"><label>Marker 0 ID <input id="marker_0" type="number" min="0" step="1" value="0"></label><label>Marker 1 ID <input id="marker_1" type="number" min="0" step="1" value="1"></label><label>Marker 2 ID <input id="marker_2" type="number" min="0" step="1" value="2"></label></div>
       <div class="cv-two"><label>Marker size (cm) <input id="marker_size" type="number" min="0.01" step="any" value="2"></label>
       <label>Ruler span (cm) <input id="marker_span" type="number" min="0.01" step="any" value="14"></label></div></div>
-      <div class="cv-field-group"><div class="cv-group-heading"><strong>Vertical height reference</strong><span>Physical datum, independent of ArUco recalibration</span></div>
+      <div class="cv-field-group cv-legacy-reference"><div class="cv-group-heading"><strong>Vertical height reference (legacy)</strong><span>Physical datum, independent of ArUco recalibration</span></div>
       <p class="cv-description">Image-plane Y increases downward. The reference can be outside the camera view. Set a physical Y coordinate for the cell top or bottom, or use the lowest ArUco marker corner. Cell height can derive the opposite boundary.</p>
       <div class="cv-two"><label>Default reference <select id="cell_reference_mode">
         <option value="aruco_bottom">ArUco reference (lowest marker)</option>
