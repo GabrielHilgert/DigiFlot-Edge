@@ -454,8 +454,14 @@ class PerformanceManager:
                     "At least one positive frame rate is required."
                 )
 
+            if type(include_virtual) is not bool:
+                raise ValueError("include_virtual must be a boolean")
             workload = (digiflot.vision.performance_workload()
                         if include_virtual and digiflot.vision is not None else None)
+            if include_virtual and workload is None:
+                raise ValueError("No saved, calibrated Froth Interface source was found. "
+                                 "Configure a camera/cell sensor profile or explicitly uncheck "
+                                 "'Include Froth Interface' for a camera-only benchmark.")
             self.state = self.RUNNING
             self.current_rate = None
             self.current_result = None
