@@ -2654,6 +2654,11 @@ class DigiFlot:
         with self.lock:
             if self.state not in {self.COMPLETED, self.ABORTED, self.ERROR, self.RECOVERY_REQUIRED}:
                 raise RuntimeError("Only a completed, aborted, failed or recovery run can be reset.")
+            if self.state == self.RECOVERY_REQUIRED:
+                # Recovery still owns an unfinished execution. Never discard its
+                # runtime without first persisting an explicit aborted outcome.
+                return self.abort_experiment("Operator reset an interrupted execution",
+                                             return_to_idle=True)
             self._reset_run_state_unlocked()
             self.revision += 1
             self.condition.notify_all()
