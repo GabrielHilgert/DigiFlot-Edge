@@ -28,6 +28,7 @@ class FakeFlow:
     _mark_calibration_changed_unlocked=extract("_mark_calibration_changed_unlocked")
     _invalidate_virtual_calibration_unlocked=extract("_invalidate_virtual_calibration_unlocked")
     _advance_from_camera_calibration_unlocked=extract("_advance_from_camera_calibration_unlocked")
+    _sensor_calibration_resolved_unlocked=extract("_sensor_calibration_resolved_unlocked")
     complete_sensor_calibration=extract("complete_sensor_calibration")
     skip_sensor_calibration=extract("skip_sensor_calibration")
     start_next_stage=extract("start_next_stage")
