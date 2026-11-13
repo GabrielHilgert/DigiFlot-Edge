@@ -81,6 +81,17 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(run.sensor_calibration["ph1"]["status"],"skipped")
         self.assertIsNone(run.calibration_edit)
 
+    def test_virtual_reopen_cannot_restore_an_expired_benchmark(self):
+        run=FakeFlow()
+        run.sensor_calibration["froth_interface"]={"id":"froth_interface","status":"passed",
+            "mode":"virtual_interface","confirmed_at":"old"}
+        run.reopen_sensor_calibration("froth_interface")
+        run.vision.virtual_test_passed=lambda:False
+        with self.assertRaisesRegex(RuntimeError,"benchmark"):
+            run.cancel_calibration_edit()
+        self.assertEqual(run.state,run.SENSOR_CALIBRATION)
+        self.assertEqual(run.sensor_calibration["froth_interface"]["status"],"pending")
+
     def test_camera_reopen_can_be_cancelled_before_changes(self):
         run=FakeFlow();original=deepcopy(run.camera_calibration["1"])
         run.reopen_camera_calibration(1)
