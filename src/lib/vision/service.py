@@ -351,7 +351,7 @@ class VisionService:
         if self.digiflot.state not in (self.digiflot.READY, self.digiflot.RUNNING,
                                       self.digiflot.PAUSED, self.digiflot.COMPLETED):
             return {"enabled": False, "revision": self._monitor_revision}
-        if not self.digiflot.virtual_camera_id:
+        if self.digiflot.virtual_camera_id is None:
             return {"enabled": False, "revision": self._monitor_revision}
         width = max(96, min(512, int(requested_width)))
         bucket = next((size for size in (192, 256, 384, 512) if size >= width), 512)
