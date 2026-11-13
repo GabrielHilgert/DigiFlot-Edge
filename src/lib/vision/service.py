@@ -73,6 +73,22 @@ def build_interface_diagnostic(image, reading, roi_cm, timestamp_ns):
             "valid": bool(reading.get("valid")), "timestamp_ns": int(timestamp_ns or 0)}
 
 
+def encode_monitor_frame(image, reading, timestamp_ns, requested_width=320):
+    """Small JPEG from the exact frame the detector used (no second detector pass)."""
+    height, width = image.shape[:2]
+    output_width = min(width, max(1, int(requested_width)))
+    if output_width != width:
+        image = cv2.resize(image, (output_width, max(1, int(round(height*output_width/width)))),
+                           interpolation=cv2.INTER_AREA)
+    return {"jpeg_base64": _jpeg_base64(image, quality=65),
+            "source_size": [width, height], "output_size": [image.shape[1], image.shape[0]],
+            "froth_row_px": reading.get("froth_surface_row_px"),
+            "pulp_row_px": reading.get("pulp_froth_row_px"),
+            "valid": bool(reading.get("valid")), "timestamp_ns": int(timestamp_ns),
+            "camera_id": reading.get("camera_id"), "cell_id": reading.get("cell_id")}
+
+
+
 class VisionService:
     def __init__(self, digiflot, storage_root):
         self.digiflot = digiflot
@@ -100,6 +116,13 @@ class VisionService:
         self._diagnostic_error = None
         self._diagnostic_future = None
         self._diagnostic_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vision-diagnostic")
+        self._monitor_until = 0.
+        self._monitor_next_due = 0.
+        self._monitor_width = 320
+        self._monitor_revision = 0
+        self._monitor_latest = None
+        self._monitor_future = None
+        self._monitor_error = None
         self._sync_camera_flags()
 
     def _sync_camera_flags(self):
@@ -283,6 +306,15 @@ class VisionService:
                         reading["sample_count"] = self._virtual_sample_count
                         self._last_virtual_measurement = reading
                         self._write_virtual_sample(active, reading, frame)
+                        now_monitor = time.monotonic()
+                        if (now_monitor < self._monitor_until and now_monitor >= self._monitor_next_due and
+                            (self._monitor_future is None or self._monitor_future.done())):
+                            self._monitor_next_due = now_monitor + 5.
+                            # Copy one existing processed ROI at low frequency; never acquire again.
+                            self._monitor_future = self._diagnostic_executor.submit(
+                                encode_monitor_frame, transformed.copy(), dict(reading),
+                                frame["captured_timestamp_ns"], self._monitor_width)
+                            self._monitor_future.add_done_callback(self._store_monitor)
                         status["virtual_sensor"] = {"valid": reading["valid"],
                                                     "pulp_froth_interface_cm": reading.get("pulp_froth_interface_cm"),
                                                     "froth_surface_cm": reading.get("froth_surface_cm"),
@@ -302,6 +334,38 @@ class VisionService:
                         self._seen_runs.add(str(directory))
             except Exception as error:
                 self._latest = {"state": "error", "error": str(error), "updated_at": _utc()}
+
+    def _store_monitor(self, future):
+        try:
+            rendered = future.result()
+            with self._lock:
+                self._monitor_revision += 1
+                self._monitor_latest = {**rendered, "revision": self._monitor_revision}
+                self._monitor_error = None
+        except Exception as error:
+            with self._lock:
+                self._monitor_error = str(error)
+
+    def monitor_preview(self, requested_width=320, last_revision=0):
+        """Renew a short-lived subscriber lease; return JPEG only for changed frames."""
+        if self.digiflot.state not in (self.digiflot.READY, self.digiflot.RUNNING,
+                                      self.digiflot.PAUSED, self.digiflot.COMPLETED):
+            return {"enabled": False, "revision": self._monitor_revision}
+        if not self.digiflot.virtual_camera_id:
+            return {"enabled": False, "revision": self._monitor_revision}
+        width = max(96, min(512, int(requested_width)))
+        bucket = next((size for size in (192, 256, 384, 512) if size >= width), 512)
+        with self._lock:
+            if bucket != self._monitor_width:
+                self._monitor_width = bucket
+                self._monitor_next_due = 0.
+            self._monitor_until = time.monotonic() + 12.
+            latest = self._monitor_latest
+            if latest is not None and int(last_revision or 0) != self._monitor_revision:
+                return {"enabled": True, "interval_s": 5,
+                        "revision": self._monitor_revision, "frame": deepcopy(latest)}
+            return {"enabled": True, "interval_s": 5, "revision": self._monitor_revision,
+                    "error": self._monitor_error}
 
     def _store_diagnostic(self, future):
         try:
@@ -684,6 +748,10 @@ class VisionService:
         self._run_virtual = None
         self._virtual_sample_count = 0
         self._last_virtual_measurement = None
+        with self._lock:
+            self._monitor_until = 0.
+            self._monitor_latest = None
+            self._monitor_revision += 1
         settings = self.registry.settings()
         if settings["enabled"]:
             self.registry.save_settings({"enabled": False})
