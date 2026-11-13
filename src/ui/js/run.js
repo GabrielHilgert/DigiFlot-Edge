@@ -129,18 +129,20 @@ function formatTime(seconds) {
     return `${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
 }
 
-function setWorkflow(state) {
-    const order = ["cell", "camera", "sensor", "ready", "run"];
-    let active = 0;
-    if (state === "CameraCalibration") active = 1;
-    else if (state === "SensorCalibration") active = 2;
-    else if (state === "Ready") active = 3;
-    else if (["Running", "Paused", "Completed", "Aborted", "Error", "RecoveryRequired"].includes(state)) active = 4;
-
-    ui.workflowSteps.forEach((element) => {
-        const index = order.indexOf(element.dataset.step);
-        element.classList.toggle("done", index < active || state === "Completed");
-        element.classList.toggle("active", index === active && state !== "Completed");
+function setWorkflow(data) {
+    const order=["experiment","camera","references","sensor","froth","ready","run"];
+    const state=data.state||"Idle", calibrated=Object.values(data.calibration?.sensors||{});
+    const physical=calibrated.filter(s=>s.type!=="virtual_froth_interface");
+    const physicalReady=physical.every(s=>["passed","skipped"].includes(s.status));
+    let active=0;
+    if(state==="CameraCalibration")active=1;
+    else if(state==="SensorCalibration")active=!data.cell_selection?.references?.ready?2:!physicalReady?3:4;
+    else if(state==="Ready")active=5;
+    else if(["Running","Paused","Completed","Aborted","Error","RecoveryRequired"].includes(state))active=6;
+    ui.workflowSteps.forEach(element=>{
+        const index=order.indexOf(element.dataset.step);
+        element.classList.toggle("done",index<active||state==="Completed");
+        element.classList.toggle("active",index===active&&state!=="Completed");
     });
 }
 
@@ -172,6 +174,17 @@ function renderCellSelection(state) {
         cameras.map(cam => `<option value="${escapeHtml(cam.id)}">${escapeHtml(cam.name)} · Camera ${escapeHtml(cam.id)}</option>`).join("");
     ui.select_physical_cell.value = selectedId;
     ui.select_virtual_camera.value = selectedCamera == null ? "" : String(selectedCamera);
+    updateSelectedCellVolume();
+}
+
+function updateSelectedCellVolume() {
+    const id=ui.select_physical_cell.value,cell=physicalCells.find(c=>String(c.id)===String(id));
+    const target=document.getElementById("selected_cell_volume");
+    if(!target)return;
+    target.textContent=cell ? (cell.working_volume_l!=null ?
+        "Working cell volume: "+Number(cell.working_volume_l).toLocaleString()+" L (inherited; editable override in Ready)." :
+        "This cell has no stored working volume. Set it in Cells or provide it before Run.") :
+        "Select a cell to inherit its working volume and physical references.";
 }
 
 function renderCameraCalibration(state) {
@@ -213,6 +226,15 @@ function findSensorSnapshot(state, id) {
 
 function renderSensorCalibration(state) {
     ui.sensor_panel.hidden = false;
+    const refs=state.cell_selection?.references;
+    const cellId=state.cell_selection?.cell_id||"";
+    const cameraId=state.cell_selection?.camera_id??"";
+    const anchor=document.getElementById("open_cell_references");
+    anchor.href="/cells?cell="+encodeURIComponent(cellId)+"&camera="+encodeURIComponent(cameraId);
+    document.getElementById("run_reference_state").textContent=refs?
+        (refs.ready?"Default: "+refs.default_name+" · "+refs.count+" named references · revision "+refs.revision:
+        "Default reference "+refs.default_name+" is not calibrated. Open Cells and place it before the Froth Interface test.") :
+        "Select a physical cell and calibrate its named references first.";
     const sensors = Object.values(state.calibration?.sensors || {});
     ui.sensor_list.innerHTML = sensors.map((sensor) => {
         const snapshot = findSensorSnapshot(state, sensor.id) || {};
@@ -985,7 +1007,7 @@ function renderError(state) {
 function render(state) {
     latestState = state;
     setStateBadge(state.state);
-    setWorkflow(state.state);
+    setWorkflow(state);
     renderOperations(state);
     renderCalibrationReview(state);
 
@@ -1103,6 +1125,7 @@ function bindActions() {
             }
         }
     });
+    ui.select_physical_cell.addEventListener("change",updateSelectedCellVolume);
     ui.start_first_stage.addEventListener("click", () => action("/api/digiflot/stages/start"));
     ui.start_now_button.addEventListener("click", () => action("/api/digiflot/stages/start"));
     ui.pause_button.addEventListener("click", () => action("/api/digiflot/pause"));
