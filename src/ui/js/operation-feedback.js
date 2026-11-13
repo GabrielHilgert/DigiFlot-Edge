@@ -118,7 +118,8 @@
         }
         try {
             const response = await originalFetch(input, options);
-            if (url.pathname.match(/^\/api\/cameras\/\d+\/preview\/start$/) && response.ok) {
+            if ((url.pathname.match(/^\/api\/cameras\/\d+\/preview\/start$/) ||
+                    url.pathname === "/api/vision/virtual-sensors/froth-interface/detection-roi-preview") && response.ok) {
                 ownedPreview = true;
                 startLease();
             } else if (url.pathname === "/api/cameras/preview/stop" && response.ok) {
