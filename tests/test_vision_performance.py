@@ -152,10 +152,10 @@ class PerformanceVirtualTests(unittest.TestCase):
         self.assertEqual(run.config["orchestration"]["scraping_alerts_enabled"], False)
         self.assertEqual(events[0][0], "SCRAPING_ALERTS_CHANGED")
         self.assertEqual(len(events), 1)
-        run.set_scraping_alerts(False)
+        toggle(run, False)
         self.assertEqual(len(events), 1)
         with self.assertRaises(ValueError):
-            run.set_scraping_alerts("false")
+            toggle(run, "false")
 
 
 if __name__ == "__main__":
