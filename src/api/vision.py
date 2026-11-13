@@ -65,7 +65,7 @@ def froth_interface_diagnostics(request: Request, payload: dict | None = None):
 
 @router.get("/virtual-sensors/froth-interface/detection-roi-preview")
 def froth_detection_roi_preview(request: Request):
-    return _invoke(service(request).virtual_detection_roi_preview)
+    return _invoke(service(request).virtual_detection_roi_preview, request.headers.get("X-DigiFlot-Tab-Id"))
 
 
 @router.get("/cells")
