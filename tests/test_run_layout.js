@@ -57,4 +57,18 @@ assert.equal(buttons[0].attributes["aria-pressed"],"true");
 vm.runInContext('applyRunLayout("compact")',context);
 assert.equal(storage.get("digiflot-run-layout"),"compact");
 assert.equal(buttons[1].attributes["aria-pressed"],"true");
-console.log("Run dashboard layout and saved preference checks passed");
+// The collapsed accordion summary uses already-streamed state, without polling.
+const description = {textContent:""};
+context.launcher = {hidden:false,querySelector:selector=>selector === ".measurement-accordion-description" ? description : null};
+context.panel = {hidden:true};
+context.toggle = {setAttribute(){}};
+context.workspace = {classList:{toggle(){}}};
+vm.runInContext('ui.measurement_launcher=launcher; ui.measurement_panel=panel; ui.toggle_measurement_panel=toggle; ui.run_workspace=workspace;',context);
+vm.runInContext(`measurementOpen=false; runLayout="compact"; renderMeasurements({
+    state:"Ready", execution_inputs:{items:[{id:"feed_mass",value:250},{id:"water_volume",value:null}]},
+    measurements:{count:3,revision:1}
+});`,context);
+assert.equal(description.textContent,"Feed set · Water not set · 3 points");
+vm.runInContext('runLayout="standard"; renderMeasurements({state:"Ready",measurements:{count:3}});',context);
+assert.equal(description.textContent,"Feed mass, water volume, sensor readings and notes");
+console.log("Run dashboard layout, summary and saved preference checks passed");
