@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026a">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261113v3">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261113v3"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261113refs2">
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261113refs2"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -76,6 +76,9 @@
                         <canvas id="virtual_roi_canvas" aria-label="Drag here to select Detection ROI on the calibrated plane"></canvas>
                     </div>
                     <div id="virtual_roi_label" class="virtual-roi-caption">Loading calibrated camera plane…</div>
+                    <div class="virtual-reference-levels"><strong>Cell reference levels</strong>
+                        <div id="virtual_roi_reference_levels" class="virtual-reference-level-list" aria-live="polite">Physical reference lines will appear after the rectified image is loaded.</div>
+                    </div>
                 </section>
                 <section class="virtual-reference-config">
                   <div class="virtual-roi-heading"><div><h3>Vertical reference</h3>
