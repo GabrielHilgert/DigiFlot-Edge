@@ -1789,6 +1789,25 @@ class DigiFlot:
             self.stage_state = self.STAGE_WAITING
         self._touch_unlocked("VIRTUAL_SENSOR_CALIBRATION_INVALIDATED", {"reason": str(reason)})
 
+    def _camera_configuration_changed_unlocked(self, camera_id, reason):
+        """Changes to camera settings invalidate matching pre-run approvals."""
+        self._mark_calibration_changed_unlocked("camera", camera_id)
+        if self.state not in {self.CAMERA_CALIBRATION, self.SENSOR_CALIBRATION, self.READY}:
+            return
+        item = self.camera_calibration.get(str(camera_id))
+        if item is not None:
+            item["status"] = "pending"
+            item["confirmed_at"] = None
+            item.pop("skip_reason", None)
+            if self.state == self.READY:
+                self.state = self.CAMERA_CALIBRATION
+                self.stage_state = self.STAGE_WAITING
+        if (self.vision is not None and str(self.virtual_camera_id) == str(camera_id)
+                and self.sensor_calibration.get("froth_interface")):
+            self.vision.clear_virtual_test()
+            self._invalidate_virtual_calibration_unlocked(reason)
+        self._touch_unlocked("CAMERA_CONFIGURATION_INVALIDATED", {"camera_id": int(camera_id), "reason": reason})
+
     def cancel_calibration_edit(self):
         """Undo a pre-run reopen only if no calibration-affecting action occurred."""
         with self.lock:
@@ -3508,6 +3527,8 @@ class DigiFlot:
                     raise ValueError(f"Camera name '{new_name}' is already in use.")
 
             camera.update_config(updates)
+            if self.state == self.CAMERA_CALIBRATION:
+                self._camera_configuration_changed_unlocked(camera.id, "Camera settings saved")
             paths = self.save_config()
             if self.run_directory is not None:
                 calibration = self.camera_calibration.get(str(camera.id))
@@ -3597,6 +3618,7 @@ class DigiFlot:
                 )
 
             exposure = camera.calibrate_exposure()
+            self._camera_configuration_changed_unlocked(camera.id, "Camera exposure calibrated")
             self.save_config()
             if self.run_directory is not None:
                 calibration = self.camera_calibration.get(str(camera.id))
@@ -3613,6 +3635,7 @@ class DigiFlot:
                     "Manual exposure requires this camera to be the active preview."
                 )
             exposure = camera.set_exposure(exposure_time_us, analogue_gain)
+            self._camera_configuration_changed_unlocked(camera.id, "Camera exposure set manually")
             self.save_config()
             if self.run_directory is not None:
                 calibration = self.camera_calibration.get(str(camera.id))
@@ -3623,10 +3646,11 @@ class DigiFlot:
 
     def set_camera_controls(self, camera_id: int, controls: dict):
         with self.lock:
-            if self.recording:
-                raise RuntimeError("Camera controls cannot be changed while recording.")
+            if self.recording or self.execution_locked:
+                raise RuntimeError("Camera controls cannot be changed during an active experiment.")
             camera = self.get_camera(camera_id)
             values = camera.set_controls(controls)
+            self._camera_configuration_changed_unlocked(camera.id, "Camera controls updated")
             self.save_config()
             if self.run_directory is not None:
                 self._write_config_snapshot_unlocked()
