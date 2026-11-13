@@ -741,6 +741,12 @@ class DigiFlot:
                 "points": item["points"],
                 "latest": deepcopy(item.get("latest")),
             })
+        # Show initialization variables before the operator records their first value.
+        for key in ("feed_mass", "water_volume"):
+            if not any(item["id"] == key for item in variables):
+                variables.append({"id": key, "name": self.REQUIRED_EXECUTION_INPUTS[key]["label"],
+                                  "unit": self.REQUIRED_EXECUTION_INPUTS[key]["unit"],
+                                  "points": 0, "latest": None, "role": "execution_input"})
         variables.sort(key=lambda item: item["name"].lower())
         return {
             "revision": self.measurement_revision,
@@ -928,6 +934,29 @@ class DigiFlot:
                 sensor_timestamp_ms = snapshot.get("timestamp_ms")
                 raw_value = snapshot.get("raw")
 
+            execution_value = None
+            if role == "execution_input":
+                import math
+                if value_type != "number":
+                    raise ValueError("Execution inputs must be numeric.")
+                # Preserve the sensor's original value/unit in the audit record,
+                # but store an SI-compatible canonical value for derived metrics.
+                conversions = {
+                    "feed_mass": {"g": 1., "kg": 1000., "mg": .001},
+                    "water_volume": {"l": 1., "ml": .001, "m3": 1000., "m³": 1000.},
+                    "working_cell_volume": {"l": 1., "ml": .001, "m3": 1000., "m³": 1000.},
+                }
+                expected = self.REQUIRED_EXECUTION_INPUTS[normalized_id]["unit"]
+                normalized_unit = str(captured_unit or (expected if source_type == "manual" else "")).strip().lower()
+                factor = conversions[normalized_id].get(normalized_unit)
+                if factor is None:
+                    raise ValueError(f"{name} expects {expected}; received {captured_unit or 'no sensor unit'}.")
+                execution_value = captured_value * factor
+                if not math.isfinite(execution_value) or execution_value < 0:
+                    raise ValueError("Execution input must be non-negative and finite.")
+                if captured_unit is None:
+                    captured_unit = expected
+
             stage = (
                 self.current_stage
                 if self.state in {self.RUNNING, self.PAUSED, self.RECOVERY_REQUIRED}
@@ -942,6 +971,9 @@ class DigiFlot:
                 "role": role,
                 "category": category,
                 "unit": captured_unit,
+                "execution_value": execution_value,
+                "execution_unit": self.REQUIRED_EXECUTION_INPUTS[normalized_id]["unit"]
+                    if role == "execution_input" else None,
                 "source_type": source_type,
                 "sensor_id": None if source_type == "manual" else source_id,
                 "sensor_name": sensor_name,
@@ -972,14 +1004,14 @@ class DigiFlot:
             if role == "execution_input":
                 target = self.execution_inputs[normalized_id]
                 target.update({
-                    "value": captured_value,
+                    "value": execution_value,
                     "source": source_id if source_type == "sensor" else "manual",
                     "measurement_id": record["measurement_id"],
                     "updated_at": record["captured_at"],
                 })
                 if normalized_id == "working_cell_volume":
                     profile = deepcopy(self.cell_profile or {})
-                    profile["working_volume_l"] = captured_value
+                    profile["working_volume_l"] = execution_value
                     self.cell_profile = profile
             variable = self.measurement_variables.get(normalized_id)
             if variable is None:
