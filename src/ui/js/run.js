@@ -1086,7 +1086,9 @@ function render(state) {
 
     ui.abort_bar.hidden = !["CellSelection", "CameraCalibration", "SensorCalibration", "Ready", "Running", "Paused", "RecoveryRequired"].includes(state.state);
     renderLiveSensors(state);
-    ui.run_workspace?.classList.toggle("has-live", !ui.live_sensor_panel.hidden);
+    const hasLive = !ui.live_sensor_panel.hidden;
+    ui.run_workspace?.classList.toggle("has-live", hasLive);
+    ui.run_workspace?.classList.toggle("is-dashboard", hasLive && ["Ready", "Running", "Paused"].includes(state.state));
     renderMeasurements(state);
     handleScrapingSignal(state);
 }
