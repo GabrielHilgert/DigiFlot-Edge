@@ -85,6 +85,16 @@ def update_cell(cell_id: str, request: Request, payload: dict):
     return _invoke(service(request).registry.save_cell, {**payload, "id": cell_id})
 
 
+@router.get("/cells/{cell_id}/reference-points")
+def list_reference_points(cell_id: str, request: Request):
+    return _invoke(service(request).registry.reference_points, cell_id)
+
+
+@router.put("/cells/{cell_id}/reference-points")
+def save_reference_points(cell_id: str, request: Request, payload: dict):
+    return _invoke(service(request).save_reference_points, cell_id, payload)
+
+
 @router.put("/cells/{cell_id}/vertical-reference")
 def save_cell_vertical_reference(cell_id: str, request: Request, payload: dict):
     return _invoke(service(request).save_cell_vertical_reference, cell_id, payload)
