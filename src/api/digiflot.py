@@ -561,6 +561,21 @@ def performance_status(request: Request):
     return manager.status
 
 
+@router.get("/performance/virtual-workload")
+def performance_virtual_workload(request: Request):
+    digiflot = get_digiflot(request)
+    if digiflot.vision is None:
+        return {"available": False, "reason": "Vision subsystem is not enabled"}
+    try:
+        workload = digiflot.vision.performance_workload()
+        if workload is None:
+            return {"available": False, "reason": "No saved virtual sensor camera/cell association. Configure Froth Interface first."}
+        return {"available": True, "configuration": digiflot.performance._virtual_summary(workload)
+                if digiflot.performance else None}
+    except Exception as error:
+        return {"available": False, "reason": str(error)}
+
+
 @router.post("/performance/evaluate")
 def performance_evaluate(request: Request, payload: dict | None = None):
     payload = payload or {}
@@ -585,6 +600,7 @@ def performance_benchmark_start(request: Request, payload: dict | None = None):
             digiflot,
             rates=payload.get("rates"),
             duration_s=payload.get("duration_s"),
+            include_virtual=payload.get("include_virtual", True),
         )
     except Exception as error:
         raise api_error(error) from error
