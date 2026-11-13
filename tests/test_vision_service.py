@@ -1,6 +1,7 @@
 """End-to-end local camera/cell association tests without Raspberry Pi hardware."""
 import tempfile
 import unittest
+import threading
 import numpy as np
 from lib.vision.service import VisionService
 from test_vision_aruco import synthetic_ruler
@@ -24,6 +25,8 @@ class FakeCamera:
 class FakeDigiFlot:
     def __init__(self):
         self.cameras={1:FakeCamera()};self.execution_locked=False;self.recording=False;self.run_directory=None
+        self.lock=threading.RLock(); self.virtual_camera_id=None; self.cell_profile=None
+    def _mark_calibration_changed_unlocked(self, *args): pass
     def get_camera(self, camera_id):
         return self.cameras[int(camera_id)]
     def camera_summaries(self):
