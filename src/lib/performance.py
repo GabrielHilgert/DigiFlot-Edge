@@ -196,8 +196,8 @@ class PerformanceManager:
         One-sided Wilson upper bound assumes independent observations; nearby samples
         share load and are correlated, so we avoid describing the bound as predictive.
         """
-        valid = [s for s in samples if s.get("cpu", {}).get("free_pct") is not None
-                 and s.get("memory", {}).get("free_pct") is not None]
+        valid = [s for s in samples if (s.get("cpu") or {}).get("free_pct") is not None
+                 and (s.get("memory") or {}).get("free_pct") is not None]
         n = len(valid)
         low = sum(min(s["cpu"]["free_pct"], s["memory"]["free_pct"]) < threshold_pct
                   for s in valid)
@@ -244,7 +244,7 @@ class PerformanceManager:
             "disk": disk,
         }
 
-    def hardware_signature(self, digiflot, config_overrides=None):
+    def hardware_signature(self, digiflot, config_overrides=None, virtual_sensor=None):
         config_overrides = config_overrides or {}
         cameras = []
         for camera in sorted(digiflot.cameras.values(), key=lambda item: item.id):
@@ -272,7 +272,16 @@ class PerformanceManager:
                     camera.recording_output_type,
                 ),
             })
-        return {"cameras": cameras}
+        return {"cameras": cameras, "virtual_sensor": virtual_sensor}
+
+    @staticmethod
+    def _virtual_summary(workload):
+        if not workload:
+            return None
+        return {"camera_id": int(workload["camera_id"]), "cell_id": str(workload["cell_id"]),
+                "signature": workload["signature"], "method": workload["config"]["method"],
+                "sampling_interval_s": float(workload["config"]["sampling_interval_s"]),
+                "lores_size": list(workload["lores_size"])}
 
     def current_camera_rates(self, digiflot, overrides=None):
         overrides = overrides or {}
@@ -283,9 +292,11 @@ class PerformanceManager:
 
     def evaluate(self, digiflot, overrides=None, config_overrides=None):
         try:
+            workload = digiflot.vision.performance_workload() if digiflot.vision else None
+            virtual_info = self._virtual_summary(workload) if workload else None
             signature = self.hardware_signature(
                 digiflot,
-                config_overrides=config_overrides,
+                config_overrides=config_overrides, virtual_sensor=virtual_info,
             )
             rates = self.current_camera_rates(digiflot, overrides)
             profile = self.profile
