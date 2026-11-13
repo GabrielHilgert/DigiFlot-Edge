@@ -4,8 +4,8 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261109b">
-  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261110b"></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261113v3">
+  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261113v3"></script>
 </head>
 <body>
 {% include "_navbar.html" %}
@@ -27,7 +27,7 @@
       <div class="cv-three"><label>Marker 0 ID <input id="marker_0" type="number" min="0" step="1" value="0"></label><label>Marker 1 ID <input id="marker_1" type="number" min="0" step="1" value="1"></label><label>Marker 2 ID <input id="marker_2" type="number" min="0" step="1" value="2"></label></div>
       <div class="cv-two"><label>Marker size (cm) <input id="marker_size" type="number" min="0.01" step="any" value="2"></label>
       <label>Ruler span (cm) <input id="marker_span" type="number" min="0.01" step="any" value="14"></label></div></div>
-      <div class="cv-field-group"><div class="cv-group-heading"><strong>Vertical height reference</strong><span>Physical datum, independent of ArUco recalibration</span></div>
+      <div class="cv-field-group cv-legacy-reference"><div class="cv-group-heading"><strong>Vertical height reference (legacy)</strong><span>Physical datum, independent of ArUco recalibration</span></div>
       <p class="cv-description">Image-plane Y increases downward. The reference can be outside the camera view. Set a physical Y coordinate for the cell top or bottom, or use the lowest ArUco marker corner. Cell height can derive the opposite boundary.</p>
       <div class="cv-two"><label>Default reference <select id="cell_reference_mode">
         <option value="aruco_bottom">ArUco reference (lowest marker)</option>
@@ -57,13 +57,24 @@
   </div>
   <section class="card vision-calibration-card"><div class="cv-card-head"><div><p class="eyebrow">03 / Camera–cell association</p><h2>ArUco calibration</h2><p class="cv-description">Load the last confirmed grid, detect the present marker positions, then confirm a new calibration if needed.</p></div>
     <div class="cv-inline-row"><button class="button button-secondary" type="button" id="start_preview">Start preview</button><button class="button button-secondary" type="button" id="stop_preview">Stop preview</button></div></div>
-    <div class="cv-stage"><div class="cv-image-panel"><div class="cv-image-surface" id="image_surface"><img id="camera_image" alt="Camera or rectified planar image" draggable="false"><div id="roi_selection" hidden></div><div id="roi_drag" hidden></div></div>
+    <div class="cv-stage"><div class="cv-image-panel"><div class="cv-image-surface" id="image_surface"><img id="camera_image" alt="Camera or rectified planar image" draggable="false"><div id="roi_selection" hidden></div><div id="roi_drag" hidden></div><div id="reference_overlays" aria-hidden="true"></div></div>
       <div class="cv-image-help" id="image_help">Raw camera: drag to adjust the sensor ROI. Switch to Rectified plane to define the physical analysis ROI.</div></div>
       <div class="cv-tools"><h3>Calibration</h3><p id="association_status">Select a cell and camera.</p>
         <button class="button button-secondary" id="refresh_snapshot" type="button">Raw camera + saved grid</button>
         <button class="button button-primary" id="detect_aruco" type="button">Detect ArUco / preview new grid</button>
         <button class="button button-primary" id="confirm_aruco" type="button" disabled>Confirm new calibration</button>
         <button class="button button-secondary" id="test_rectification" type="button">Rectified plane (full view)</button>
+        <section class="cv-reference-editor">
+          <div class="cv-group-heading"><strong>Named physical references</strong><span>Cell-level · stable ArUco coordinates</span></div>
+          <p class="cv-description">Outlet level is the initial default. Add as many named points as needed. Select one, open the rectified plane, and click the physical point. When the camera moves but the marker ruler stays fixed, previously saved ArUco coordinates remain valid.</p>
+          <div id="named_reference_list" class="cv-reference-list"></div>
+          <div class="cv-reference-new"><input id="reference_new_name" placeholder="Reference name (e.g. Overflow weir)" maxlength="80">
+            <select id="reference_new_type"><option value="custom">Custom</option><option value="top">Cell top</option><option value="bottom">Cell bottom</option></select>
+            <button id="reference_add" class="button button-secondary" type="button">Add point</button></div>
+          <div class="cv-inline-row"><button id="reference_save" class="button button-primary" type="button">Save references</button>
+            <button id="reference_reuse" class="button button-secondary" type="button">Reproject saved points</button></div>
+          <p id="reference_status" class="cv-description">Select a cell to configure reference points.</p>
+        </section>
         <div class="cv-physical-roi"><h4>Analysis ROI · physical plane</h4>
           <p class="cv-description">Open the rectified plane and drag to select the area processed during recording. This selection is independent of the sensor ROI and the marker locations.</p>
           <div class="cv-inline-row"><button class="button button-primary" id="save_analysis_roi" type="button" disabled>Save analysis ROI</button>

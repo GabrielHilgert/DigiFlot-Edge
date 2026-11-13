@@ -19,6 +19,7 @@ DEFAULTS = {
     "schema_version": 1, "method": "mean_derivative", "resolution_px": 320,
     "detection_roi_cm": None, "height_reference_offset_cm": 10.0,
     "vertical_reference_mode": "cell_default", "vertical_reference_y_cm": None,
+    "reference_id": None,
     "vertical_reference_confirmed": False,
     "sampling_interval_s": 1.0, "entropy_radius": 20, "entropy_bins": 32,
     "sigma": 1.0, "threshold_froth": 0.0, "threshold_pulp": 1.0,
@@ -94,6 +95,11 @@ def normalized_config(values=None):
     else:
         value = None
     config["vertical_reference_y_cm"] = value
+    ident = config.get("reference_id")
+    if ident in (None, ""):
+        config["reference_id"] = None
+    elif not isinstance(ident, str) or len(ident) > 64 or not __import__("re").fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", ident):
+        raise ValueError("Invalid named reference ID")
     if not isinstance(config["vertical_reference_confirmed"], bool):
         raise ValueError("Reference confirmation must be true or false")
     if config["x1_frac"] <= config["x0_frac"] or config["lower_search_end"] <= config["lower_search_start"]:
@@ -130,6 +136,7 @@ def config_signature(config, association, camera_geometry=None):
                "camera_revision": association.get("camera_revision"),
                "cell_revision": association.get("cell_revision"),
                "vertical_reference": association.get("cell_vertical_reference"),
+               "reference_points": association.get("reference_points"),
                "geometry": camera_geometry}
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 

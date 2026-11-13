@@ -381,3 +381,34 @@ a { color: inherit; text-decoration: none; }
 
 /* Two live interface positions in the run-stage sensor card. */
 .live-sensor-reading.virtual-live-reading { font-size:.89rem; line-height:1.5; font-weight:720; white-space:normal; overflow-wrap:anywhere; }
+
+/* Wide camera-derived virtual sensor: keep image centered, values and sparkline beside it. */
+.live-sensor-card-wide { grid-column:span 2; }
+.run-virtual-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:center; gap:17px; margin-top:12px; }
+.run-virtual-image-frame { min-height:215px; width:100%; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:6px; }
+.run-virtual-image-surface { position:relative; max-width:100%; max-height:215px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; }
+.run-virtual-image-surface img, .run-virtual-image-surface canvas { position:absolute; inset:0; width:100%; height:100%; display:block; object-fit:fill; }
+.run-virtual-image-surface canvas { pointer-events:none; }
+.run-virtual-frame-age { text-align:center; min-height:17px; font-size:.71rem; color:var(--text-faint); }
+.run-virtual-side { display:flex; flex-direction:column; justify-content:center; min-width:0; }
+.run-virtual-side .live-sensor-reading { margin:2px 0 8px; font-size:1.65rem; }
+.run-virtual-value-label { font-size:.73rem; color:var(--text-soft); font-weight:750; }
+.run-virtual-boundaries { display:grid; gap:6px; font-size:.75rem; color:var(--text-soft); }
+.run-virtual-boundaries > span { display:flex; justify-content:space-between; flex-wrap:wrap; gap:5px; }
+.run-virtual-boundaries strong { color:var(--text); font-variant-numeric:tabular-nums; }
+.run-virtual-side .sensor-sparkline-wrap { margin-top:11px; }
+@media(max-width:720px) { .live-sensor-card-wide { grid-column:1/-1; } .run-virtual-layout { grid-template-columns:1fr; } .run-virtual-image-frame { min-height:0; } }
+
+/* Seven visual substeps reuse the existing runtime stages. */
+.workflow-card { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:9px; overflow-x:auto; }
+.workflow-card .workflow-step { min-width:0; justify-content:center; text-align:center; flex-direction:column; padding:6px 2px; font-size:.74rem; gap:4px; }
+.workflow-card .workflow-step span { flex:0 0 25px; width:25px; height:25px; font-size:.65rem; }
+.workflow-card .workflow-step strong { white-space:normal; line-height:1.15; }
+.run-cell-references { display:flex; align-items:center; justify-content:space-between; gap:16px; border:1px solid var(--border); border-radius:var(--radius-sm); padding:14px; margin-bottom:16px; background:var(--surface-soft); }
+.run-cell-references p, .cell-volume-hint { font-size:.78rem; color:var(--text-soft); margin:6px 0 0; line-height:1.45; }
+@media(max-width:920px) { .workflow-card { display:flex; gap:10px; } .workflow-card .workflow-step { min-width:110px; flex:0 0 110px; } .run-cell-references { flex-wrap:wrap; } }
+
+.run-virtual-frame-age.stale { color:var(--warning); font-weight:750; }
+
+.cell-volume-selection { display:flex; flex-direction:column; gap:6px; min-width:180px; }
+.cell-volume-selection input { min-height:38px; }

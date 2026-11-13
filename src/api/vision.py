@@ -49,6 +49,13 @@ def benchmark_froth_interface(request: Request, payload: dict | None = None):
     return _invoke(service(request).benchmark_virtual_sensor, (payload or {}).get("samples", 20))
 
 
+@router.post("/virtual-sensors/froth-interface/monitor")
+def froth_interface_monitor(request: Request, payload: dict | None = None):
+    options = payload or {}
+    return _invoke(service(request).monitor_preview, int(options.get("width") or 320),
+                   int(options.get("last_revision") or 0))
+
+
 @router.post("/virtual-sensors/froth-interface/diagnostics")
 def froth_interface_diagnostics(request: Request, payload: dict | None = None):
     options = payload or {}
@@ -83,6 +90,16 @@ def update_cell(cell_id: str, request: Request, payload: dict):
     if request.app.state.digiflot.execution_locked:
         raise HTTPException(status_code=409, detail="Cell definitions cannot change during an experiment")
     return _invoke(service(request).registry.save_cell, {**payload, "id": cell_id})
+
+
+@router.get("/cells/{cell_id}/reference-points")
+def list_reference_points(cell_id: str, request: Request):
+    return _invoke(service(request).registry.reference_points, cell_id)
+
+
+@router.put("/cells/{cell_id}/reference-points")
+def save_reference_points(cell_id: str, request: Request, payload: dict):
+    return _invoke(service(request).save_reference_points, cell_id, payload)
 
 
 @router.put("/cells/{cell_id}/vertical-reference")
