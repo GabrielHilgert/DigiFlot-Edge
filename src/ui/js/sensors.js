@@ -476,11 +476,13 @@ function drawVirtualRoiOverlay() {
         return '<span class="virtual-reference-level'+(line.id===selected?' selected':'')+'">'+
             '<i></i>'+escapeHtml(line.name)+': '+escapeHtml(status)+'</span>';
     }).join(""):"No cell reference points are saved.";
+    // Place labels in image Y order, not in reference creation order.
+    // Otherwise a point above the previous one can inherit its lower label position.
+    const visibleLines=lines.filter(line=>Number.isFinite(line.y_cm)&&line.y_cm>=minY&&line.y_cm<=maxY)
+        .sort((a,b)=>a.y_cm-b.y_cm);
     let previousLabel=-24;
-    for(const line of lines){
-        if(!Number.isFinite(line.y_cm))continue;
+    for(const line of visibleLines){
         const y=(line.y_cm-minY)/(maxY-minY)*h;
-        if(y<0||y>h)continue;
         const active=line.id===selected,ink=active?"#38bdf8":"#fbbf24";
         ctx.save();ctx.strokeStyle=ink;ctx.lineWidth=active?Math.max(2,w/320):Math.max(1,w/600);
         if(!active)ctx.setLineDash([7,5]);
