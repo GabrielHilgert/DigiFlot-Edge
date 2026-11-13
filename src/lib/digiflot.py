@@ -1956,11 +1956,14 @@ class DigiFlot:
                 raise RuntimeError("Sensor calibration is not active.")
 
             incomplete = []
+            auto_skipped = False
             for sensor_id, item in self.sensor_calibration.items():
                 if item.get("mode") == "virtual_interface" and item.get("status") == "passed":
                     if self.vision is None or not self.vision.virtual_test_passed():
                         item["status"] = "pending"
                         item["confirmed_at"] = None
+                        item.pop("benchmark", None)
+                        self._touch_unlocked("VIRTUAL_SENSOR_BENCHMARK_EXPIRED", {"sensor_id": sensor_id})
                         raise RuntimeError("The virtual sensor configuration changed after its benchmark; repeat the test")
                 snapshot = self._sensor_status_unlocked(sensor_id)
                 if snapshot.get("status") == "connected":
@@ -1970,6 +1973,7 @@ class DigiFlot:
                     item["status"] = "skipped"
                     item["confirmed_at"] = _utc_now()
                     item["skip_reason"] = snapshot.get("error") or snapshot.get("status") or "offline"
+                    auto_skipped = True
                     self._append_event_unlocked(
                         "SENSOR_CALIBRATION_SKIPPED",
                         {
@@ -1978,6 +1982,8 @@ class DigiFlot:
                         },
                     )
 
+            if auto_skipped:
+                self._touch_unlocked("OFFLINE_SENSOR_CALIBRATIONS_RESOLVED")
             if incomplete:
                 raise RuntimeError(
                     "Calibration is still required for: " + ", ".join(incomplete)
