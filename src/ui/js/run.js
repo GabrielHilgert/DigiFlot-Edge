@@ -67,7 +67,10 @@ function applyRunLayout(value, persist = true) {
         try { window.localStorage?.setItem("digiflot-run-layout", runLayout); } catch (_) {}
     }
     // Refit the existing plot canvases after their parent grid changes width.
-    if (latestState) window.requestAnimationFrame?.(() => renderLiveSensors(latestState));
+    if (latestState) {
+        renderMeasurements(latestState);
+        window.requestAnimationFrame?.(() => renderLiveSensors(latestState));
+    }
 }
 
 async function requestJson(url, options = {}) {
@@ -932,6 +935,19 @@ function renderRequiredInputs(state, {force = false, savedField = null} = {}) {
 }
 
 function renderMeasurements(state) {
+    const description = ui.measurement_launcher.querySelector?.(".measurement-accordion-description");
+    if (description) {
+        const fallback = "Feed mass, water volume, sensor readings and notes";
+        const inputs = state.execution_inputs?.items || [];
+        const inputStatus = (id, label) => {
+            const item = inputs.find(entry => entry.id === id);
+            return item ? label + (item.value == null ? " not set" : " set") : null;
+        };
+        const points = Number(state.measurements?.count);
+        const segments = [inputStatus("feed_mass","Feed"), inputStatus("water_volume","Water")].filter(Boolean);
+        if (Number.isFinite(points) && points > 0) segments.push(points + (points === 1 ? " point" : " points"));
+        description.textContent = runLayout === "compact" && segments.length ? segments.join(" · ") : fallback;
+    }
     const available = ["Ready","Running","Paused","Completed","RecoveryRequired"].includes(state.state);
     ui.measurement_launcher.hidden = !available;
     ui.measurement_panel.hidden = !available || !measurementOpen;
