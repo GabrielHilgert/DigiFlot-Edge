@@ -15,6 +15,7 @@ let requiredInputsSignature = null;
 let stageTimelineSignature = null;
 let readyViewSignature = null;
 let runStorageEstimateFor = null;
+let monitorFrameRevision = 0, monitorFrame = null, monitorBusy = false;
 
 function cacheUi() {
     [
@@ -446,9 +447,25 @@ function ensureSensorCard(sensor) {
     let card = ui.live_sensor_grid.querySelector(`[data-live-sensor="${CSS.escape(key)}"]`);
     if (card) return card;
     card = document.createElement("article");
-    card.className = "live-sensor-card";
+    const virtual = sensor.type === "virtual_froth_interface";
+    card.className = "live-sensor-card" + (virtual ? " live-sensor-card-wide" : "");
     card.dataset.liveSensor = key;
-    card.innerHTML = `
+    card.innerHTML = virtual ? `
+        <div class="live-sensor-head"><div><h3></h3><span class="live-sensor-status"></span></div>
+            <button class="plot-toggle" type="button" data-plot-toggle="${escapeHtml(key)}">Hide plot</button></div>
+        <div class="run-virtual-layout">
+            <div class="run-virtual-image-frame"><div class="run-virtual-image-surface">
+                <img class="run-virtual-image" alt="Last detected rectified froth ROI" draggable="false">
+                <canvas class="run-virtual-overlay" aria-hidden="true"></canvas></div>
+                <span class="run-virtual-frame-age">Waiting for image…</span></div>
+            <div class="run-virtual-side">
+                <span class="run-virtual-value-label">Froth thickness</span>
+                <div class="live-sensor-reading">—</div>
+                <div class="run-virtual-boundaries"><span>Froth surface <strong class="run-virtual-froth">—</strong></span>
+                    <span>Pulp–froth interface <strong class="run-virtual-pulp">—</strong></span></div>
+                <div class="live-sensor-age">—</div>
+                <div class="sensor-sparkline-wrap"><canvas class="sensor-sparkline" aria-label="Recent interface positions"></canvas></div>
+            </div></div>` : `
         <div class="live-sensor-head">
             <div>
                 <h3></h3>
@@ -485,8 +502,9 @@ function renderLiveSensors(state) {
         status.className = `live-sensor-status ${sensorIsOnline(sensor) ? "online" : "offline"}`;
         if (sensor.type === "virtual_froth_interface") {
             const display = key => sensor.channels?.[key] == null ? "—" : `${Number(sensor.channels[key]).toFixed(2)} cm`;
-            card.querySelector(".live-sensor-reading").textContent =
-                `Froth surface ${display("froth_surface_cm")} · Pulp interface ${display("pulp_froth_interface_cm")}`;
+            card.querySelector(".live-sensor-reading").textContent = display("froth_thickness_cm").replace("—",sensor.value==null?"—":Number(sensor.value).toFixed(2)+" cm");
+            card.querySelector(".run-virtual-froth").textContent=display("froth_surface_cm");
+            card.querySelector(".run-virtual-pulp").textContent=display("pulp_froth_interface_cm");
             card.querySelector(".live-sensor-reading").classList.add("virtual-live-reading");
             status.textContent = sensor.measurement_mode === "experiment" ? "Live · experiment" :
                 sensor.measurement_mode === "preview" ? "Live · preview" : "Waiting for lores";
@@ -498,12 +516,69 @@ function renderLiveSensors(state) {
         const toggle = card.querySelector(".plot-toggle");
         wrap.hidden = hidden;
         toggle.textContent = hidden ? "Show plot" : "Hide plot";
-        if (!hidden) drawSensorPlot(card.querySelector("canvas"), sensor.id);
+        if (!hidden) drawSensorPlot(card.querySelector(".sensor-sparkline"), sensor.id);
+        if (sensor.type === "virtual_froth_interface" && monitorFrame) updateRunMonitorFrame(card, monitorFrame);
     });
 
     if (sensors.length === 0) {
         ui.live_sensor_grid.innerHTML = '<p class="empty-note">No sensors configured.</p>';
     }
+}
+
+
+function drawRunMonitorOverlay(card, frame) {
+    const canvas=card.querySelector(".run-virtual-overlay"), ctx=canvas.getContext("2d");
+    const [w,h]=frame.source_size;
+    canvas.width=w;canvas.height=h;ctx.clearRect(0,0,w,h);
+    for(const [key,color] of [["froth_row_px","#38bdf8"],["pulp_row_px","#fbbf24"]]){
+        const y=frame[key];
+        if(y==null||!Number.isFinite(Number(y)))continue;
+        ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.lineWidth=Math.max(1.5,w/170);
+        ctx.strokeStyle=color;ctx.stroke();
+    }
+}
+
+function updateRunMonitorFrame(card, frame) {
+    if(!frame||!card)return;
+    const image=card.querySelector(".run-virtual-image");
+    if(!image||image.dataset.revision===String(frame.revision))return;
+    const surface=card.querySelector(".run-virtual-image-surface"),[w,h]=frame.source_size;
+    surface.style.aspectRatio=w+" / "+h;
+    const available=card.querySelector(".run-virtual-image-frame").clientWidth||280;
+    const viewWidth=Math.min(available,Math.round(215*w/h));
+    surface.style.width=viewWidth+"px";
+    surface.style.height=Math.round(viewWidth*h/w)+"px";
+    image.src="data:image/jpeg;base64,"+frame.jpeg_base64;
+    image.dataset.revision=String(frame.revision);
+    image.onload=()=>drawRunMonitorOverlay(card,frame);
+    const time=new Date(frame.timestamp_ns/1e6).toLocaleTimeString();
+    card.querySelector(".run-virtual-frame-age").textContent=
+        (frame.valid?"Detection image":"Detection invalid")+" · "+time+" (last processed frame)";
+}
+
+async function pollRunMonitor() {
+    if(monitorBusy||document.hidden||ui.live_sensor_panel.hidden||!latestState||
+        !["Ready","Running","Paused","Completed"].includes(latestState.state))return;
+    const card=ui.live_sensor_grid.querySelector(".live-sensor-card-wide");
+    if(!card)return;
+    monitorBusy=true;
+    try {
+        const width=Math.max(96,Math.min(512,Math.ceil(card.querySelector(".run-virtual-image-frame").clientWidth*
+            Math.min(window.devicePixelRatio||1,1.5))));
+        const payload=await requestJson("/api/vision/virtual-sensors/froth-interface/monitor",
+            {method:"POST",headers:{"Content-Type":"application/json"},
+             body:JSON.stringify({width,last_revision:monitorFrameRevision})});
+        if(!payload?.enabled)return;
+        if(payload.frame){
+            monitorFrameRevision=payload.revision;monitorFrame=payload.frame;
+            monitorFrame.revision=payload.revision;
+            updateRunMonitorFrame(card,monitorFrame);
+        } else if(payload.error)card.querySelector(".run-virtual-frame-age").textContent=
+            "Image unavailable (measurements continue): "+payload.error;
+    } catch(error){
+        card.querySelector(".run-virtual-frame-age").textContent=
+            "Preview unavailable; measurements continue";
+    } finally {monitorBusy=false;}
 }
 
 function measurementValueText(record) {
@@ -797,6 +872,8 @@ function renderMeasurements(state) {
     const remoteRevision = Number(state.measurements?.revision || 0);
     if (remoteRevision !== Number(measurementData.revision || 0)) loadMeasurements();
 }
+
+window.setInterval(pollRunMonitor, 2500);
 
 function renderReady(state) {
     ui.ready_panel.hidden = false;
