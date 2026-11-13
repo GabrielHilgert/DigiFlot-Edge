@@ -465,6 +465,34 @@ function drawVirtualRoiOverlay() {
         ctx.strokeRect(Math.min(a[0],b[0]),Math.min(a[1],b[1]),Math.abs(a[0]-b[0]),Math.abs(a[1]-b[1]));
         ctx.setLineDash([]);
     }
+    const lines=virtualProfileData?.reference_lines||[];
+    const [minY,maxY]=[plane.min_xy_cm[1],plane.max_xy_cm[1]];
+    const selected=virtualDraft?.reference_id||virtualProfileData?.named_references?.default_reference_id;
+    const legend=document.getElementById("virtual_roi_reference_levels");
+    legend.innerHTML=lines.length?lines.map(line=>{
+        const visible=Number.isFinite(line.y_cm)&&line.y_cm>=minY&&line.y_cm<=maxY;
+        const status=line.y_cm==null?"Not calibrated":visible?Number(line.y_cm).toFixed(2)+" cm":
+            Number(line.y_cm).toFixed(2)+" cm · outside image";
+        return '<span class="virtual-reference-level'+(line.id===selected?' selected':'')+'">'+
+            '<i></i>'+escapeHtml(line.name)+': '+escapeHtml(status)+'</span>';
+    }).join(""):"No cell reference points are saved.";
+    let previousLabel=-24;
+    for(const line of lines){
+        if(!Number.isFinite(line.y_cm))continue;
+        const y=(line.y_cm-minY)/(maxY-minY)*h;
+        if(y<0||y>h)continue;
+        const active=line.id===selected,ink=active?"#38bdf8":"#fbbf24";
+        ctx.save();ctx.strokeStyle=ink;ctx.lineWidth=active?Math.max(2,w/320):Math.max(1,w/600);
+        if(!active)ctx.setLineDash([7,5]);
+        ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();
+        ctx.setLineDash([]);ctx.font=Math.max(10,Math.min(16,w/48))+"px system-ui";
+        const label=line.name+" · "+Number(line.y_cm).toFixed(1)+" cm";
+        const labelY=Math.max(15,Math.min(h-5,Math.max(y-5,previousLabel+17)));
+        previousLabel=labelY;
+        const labelWidth=Math.min(w-10,ctx.measureText(label).width+10);
+        ctx.fillStyle="rgba(12,25,35,.87)";ctx.fillRect(4,labelY-13,labelWidth,17);
+        ctx.fillStyle=ink;ctx.fillText(label,9,labelY,Math.max(20,w-16));ctx.restore();
+    }
 }
 
 async function loadVirtualRoiPlane() {
@@ -1230,6 +1258,7 @@ document.getElementById("virtual_named_reference").addEventListener("change",()=
     virtualDraft.vertical_reference_confirmed=false;
     document.getElementById("virtual_reference_confirm").checked=false;
     virtualBenchmarkMarkup(null);renderVirtualTestTimeline([]);renderVerticalReference();
+    drawVirtualRoiOverlay();
 });
 document.getElementById("virtual_reference_mode").addEventListener("change",()=>{
     if(!virtualDraft)return;
