@@ -1462,6 +1462,12 @@ class DigiFlot:
                 self._advance_from_camera_calibration_unlocked()
             if self.state in {self.SENSOR_CALIBRATION, self.READY} and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and (self.vision is None or not self.vision.virtual_test_passed()):
                 self._invalidate_virtual_calibration_unlocked("Restart requires a fresh Froth Interface benchmark")
+            edit = self.calibration_edit
+            if (edit and edit.get("kind") == "sensor" and edit.get("id") == "froth_interface"
+                    and edit.get("previous", {}).get("status") == "passed"
+                    and (self.vision is None or not self.vision.virtual_test_passed())):
+                edit["dirty"] = True
+                self._touch_unlocked("VIRTUAL_CALIBRATION_RETEST_REQUIRED_AFTER_RESTART")
             return
         else:
             self.state = self.RECOVERY_REQUIRED
