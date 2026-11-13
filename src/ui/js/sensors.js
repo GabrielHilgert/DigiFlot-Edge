@@ -606,6 +606,7 @@ async function virtualSaveConfiguration() {
     document.getElementById("virtual_diagnostic_positions").hidden=true;
     document.getElementById("virtual_diagnostics_status").textContent=
         "Settings updated. Waiting for a diagnostic frame with the new parameters.";
+    await refreshDigiFlotState();
 }
 
 async function virtualRunTest() {
@@ -1365,6 +1366,16 @@ async function initialise() {
     try {
         await refreshDigiFlotState();
         await loadSensors();
+        const requested = new URLSearchParams(window.location.search).get("review");
+        if (requested && state.digiflot.state === "Ready") {
+            const card = cardFor(requested);
+            card?.scrollIntoView({behavior:"smooth",block:"center"});
+            const sensor = state.sensors.get(String(requested));
+            if (sensor && String(sensor.type || "").toLowerCase() === "ph") {
+                state.activeCalibrationSensorId = String(requested);
+                renderCalibrationDrawer();
+            }
+        }
     } catch (error) {
         showToast(error.message);
         el.emptyState.hidden = false;
