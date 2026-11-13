@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026b">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261113state1">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261113state1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261114layout1">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261114layout1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -17,12 +17,18 @@
                 <h1 id="experiment_name">Experiment run</h1>
                 <p class="page-description" id="experiment_meta">Loading execution state…</p>
             </div>
-            <div class="header-state">
-                <span class="status-label">System state</span>
-                <span id="state_badge" class="state-badge state-muted">
-                    <span class="state-dot"></span>
-                    <span id="state_text">{{ digiflot_state }}</span>
-                </span>
+            <div class="run-header-tools">
+                <div class="header-state">
+                    <span class="status-label">System state</span>
+                    <span id="state_badge" class="state-badge state-muted">
+                        <span class="state-dot"></span>
+                        <span id="state_text">{{ digiflot_state }}</span>
+                    </span>
+                </div>
+                <div class="run-layout-switch" role="group" aria-label="Run page layout">
+                    <button type="button" data-run-layout="standard" aria-pressed="true">Standard</button>
+                    <button type="button" data-run-layout="compact" aria-pressed="false">Compact</button>
+                </div>
             </div>
         </header>
 
@@ -44,6 +50,7 @@
             <div id="calibration_review_list" class="calibration-review-list"></div>
         </section>
 
+        <div class="run-health-row">
         <section id="operations_panel" class="operations-strip card">
             <div>
                 <span class="status-label">Devices</span>
@@ -64,6 +71,7 @@
             <div><span class="status-label">Estimated experiment size</span><strong id="run_storage_estimate">—</strong></div>
             <div><span class="status-label">Storage health</span><strong id="run_storage_status">Checking…</strong></div>
         </section>
+        </div>
 
         <section id="warning_panel" class="warning-panel card" hidden>
             <strong>Warnings</strong>
@@ -124,6 +132,7 @@
             </div>
         </section>
 
+        <div id="run_workspace" class="run-workspace">
         <section id="live_sensor_panel" class="card panel live-sensor-panel" hidden>
             <div class="card-header compact-card-header">
                 <div>
@@ -332,6 +341,7 @@
         <div id="abort_bar" class="abort-bar" hidden>
             <span>Execution data are saved continuously.</span>
             <button id="abort_button" class="button button-danger" type="button">Abort experiment</button>
+        </div>
         </div>
     </main>
 
