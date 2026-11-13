@@ -419,8 +419,20 @@ class VisionService:
             error = None
         except ValueError as exc:
             resolved, error = None, str(exc)
+        named = self.registry.reference_points(cell_id)
+        ref_selected = profile["config"].get("reference_id") or named.get("default_reference_id")
+        lines = []
+        for point in named.get("points", []):
+            try:
+                datum = resolve_vertical_reference({"reference_id": point["id"]}, assoc)
+                physical_y, warning = datum["y_cm"], None
+            except (ValueError, KeyError, TypeError) as exc:
+                physical_y, warning = None, str(exc)
+            lines.append({"id": point["id"], "name": point["name"], "type": point["type"],
+                          "y_cm": physical_y, "selected": point["id"] == ref_selected,
+                          "error": warning})
         return {**profile, "cell_vertical_reference": self.registry.cell_vertical_reference(cell_id),
-                "named_references": self.registry.reference_points(cell_id),
+                "named_references": named, "reference_lines": lines,
                 "reference_resolved": resolved, "reference_error": error,
                 "geometry": {"calibration_id": assoc["calibration_id"],
                                         "analysis_roi_cm": assoc.get("analysis_roi_cm"),
