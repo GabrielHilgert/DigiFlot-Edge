@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -73,6 +74,7 @@ class PerformanceManager:
         self.elapsed_s = 0.0
         self.last_error = None
         self.results = []
+        self.virtual_sensor = None
         self.abort_event = threading.Event()
         self.benchmark_thread = None
 
@@ -83,6 +85,8 @@ class PerformanceManager:
         self.telemetry_path = None
         self.telemetry_event_callback = None
         self.monitor_error = None
+        self._cpu_sample_lock = threading.Lock()
+        self._previous_cpu_times = None
         self.last_sample = self.sample_system()
         self.profile = self._load_profile()
 
@@ -147,6 +151,69 @@ class PerformanceManager:
             pass
         return {"raw": None, "value": None, "current": False, "thermal_current": False, "historical": False}
 
+    def _read_cpu_headroom(self):
+        """Real interval CPU busy/idle based on Linux /proc/stat, not load average."""
+        try:
+            values = [int(x) for x in Path("/proc/stat").read_text().splitlines()[0].split()[1:]]
+            if len(values) < 5:
+                return None
+            total, idle = sum(values[:8]), values[3] + values[4]
+            with self._cpu_sample_lock:
+                previous = self._previous_cpu_times
+                self._previous_cpu_times = (total, idle)
+            if not previous or total <= previous[0]:
+                return None
+            idle_pct = max(0., min(100., 100.*(idle-previous[1])/(total-previous[0])))
+            return {"used_pct": round(100.-idle_pct, 2), "free_pct": round(idle_pct, 2)}
+        except (OSError, ValueError, IndexError):
+            return None
+
+    @staticmethod
+    def _read_memory_headroom():
+        try:
+            values = {}
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                key, value = line.split(":", 1)
+                if key in ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree"):
+                    values[key] = int(value.strip().split()[0])
+            total, free = values["MemTotal"], values["MemAvailable"]
+            if total <= 0:
+                return None
+            result = {"total_gb": round(total/1024**2, 3),
+                      "available_gb": round(free/1024**2, 3),
+                      "free_pct": round(100*free/total, 2),
+                      "used_pct": round(100*(1-free/total), 2)}
+            if values.get("SwapTotal"):
+                result["swap_used_pct"] = round(
+                    100*(1-values.get("SwapFree", 0)/values["SwapTotal"]), 2)
+            return result
+        except (OSError, ValueError, IndexError, KeyError):
+            return None
+
+    @staticmethod
+    def headroom_risk(samples, threshold_pct=10.):
+        """Descriptive short-run low-headroom exposure, NOT a future failure probability.
+
+        One-sided Wilson upper bound assumes independent observations; nearby samples
+        share load and are correlated, so we avoid describing the bound as predictive.
+        """
+        valid = [s for s in samples if (s.get("cpu") or {}).get("free_pct") is not None
+                 and (s.get("memory") or {}).get("free_pct") is not None]
+        n = len(valid)
+        low = sum(min(s["cpu"]["free_pct"], s["memory"]["free_pct"]) < threshold_pct
+                  for s in valid)
+        if not n:
+            return {"threshold_pct": threshold_pct, "samples": 0, "low_samples": 0,
+                    "observed_pct": None, "upper_bound_95_pct": None,
+                    "interpretation": "Insufficient system headroom measurements"}
+        p, z = low/n, 1.645
+        upper = (p+z*z/(2*n)+z*math.sqrt(p*(1-p)/n+z*z/(4*n*n)))/(1+z*z/n)
+        return {"threshold_pct": threshold_pct, "samples": n, "low_samples": low,
+                "observed_pct": round(p*100, 2),
+                "upper_bound_95_pct": round(min(100., upper*100), 2),
+                "interpretation": "Descriptive only: independent-sample upper bound; "
+                    "autocorrelation and future load are not captured"}
+
     def sample_system(self):
         try:
             load1, load5, load15 = os.getloadavg()
@@ -163,8 +230,12 @@ class PerformanceManager:
         except Exception:
             disk = {"total_gb": None, "free_gb": None, "used_gb": None}
 
+        cpu = self._read_cpu_headroom()
+        memory = self._read_memory_headroom()
         return {
             "timestamp": _utc_now(),
+            "cpu": cpu,
+            "memory": memory,
             "temperature_c": self._read_temperature(),
             "throttled": self._read_throttled(),
             "load1": load1,
@@ -174,7 +245,7 @@ class PerformanceManager:
             "disk": disk,
         }
 
-    def hardware_signature(self, digiflot, config_overrides=None):
+    def hardware_signature(self, digiflot, config_overrides=None, virtual_sensor=None):
         config_overrides = config_overrides or {}
         cameras = []
         for camera in sorted(digiflot.cameras.values(), key=lambda item: item.id):
@@ -202,7 +273,16 @@ class PerformanceManager:
                     camera.recording_output_type,
                 ),
             })
-        return {"cameras": cameras}
+        return {"cameras": cameras, "virtual_sensor": virtual_sensor}
+
+    @staticmethod
+    def _virtual_summary(workload):
+        if not workload:
+            return None
+        return {"camera_id": int(workload["camera_id"]), "cell_id": str(workload["cell_id"]),
+                "signature": workload["signature"], "method": workload["config"]["method"],
+                "sampling_interval_s": float(workload["config"]["sampling_interval_s"]),
+                "lores_size": list(workload["lores_size"])}
 
     def current_camera_rates(self, digiflot, overrides=None):
         overrides = overrides or {}
@@ -213,9 +293,11 @@ class PerformanceManager:
 
     def evaluate(self, digiflot, overrides=None, config_overrides=None):
         try:
+            workload = digiflot.vision.performance_workload() if digiflot.vision else None
+            virtual_info = self._virtual_summary(workload) if workload else None
             signature = self.hardware_signature(
                 digiflot,
-                config_overrides=config_overrides,
+                config_overrides=config_overrides, virtual_sensor=virtual_info,
             )
             rates = self.current_camera_rates(digiflot, overrides)
             profile = self.profile
@@ -337,6 +419,7 @@ class PerformanceManager:
                 "elapsed_s": self.elapsed_s,
                 "last_error": self.last_error,
                 "results": deepcopy(self.results),
+                "virtual_sensor": deepcopy(self.virtual_sensor),
                 "profile": deepcopy(self.profile),
                 "system": deepcopy(self.last_sample),
             }
@@ -350,7 +433,7 @@ class PerformanceManager:
         self.revision += 1
         self.condition.notify_all()
 
-    def start_benchmark(self, digiflot, rates=None, duration_s=None):
+    def start_benchmark(self, digiflot, rates=None, duration_s=None, include_virtual=True):
         with self.lock:
             if self.state == self.RUNNING:
                 raise RuntimeError("A performance benchmark is already running.")
@@ -371,6 +454,14 @@ class PerformanceManager:
                     "At least one positive frame rate is required."
                 )
 
+            if type(include_virtual) is not bool:
+                raise ValueError("include_virtual must be a boolean")
+            workload = (digiflot.vision.performance_workload()
+                        if include_virtual and digiflot.vision is not None else None)
+            if include_virtual and workload is None:
+                raise ValueError("No saved, calibrated Froth Interface source was found. "
+                                 "Configure a camera/cell sensor profile or explicitly uncheck "
+                                 "'Include Froth Interface' for a camera-only benchmark.")
             self.state = self.RUNNING
             self.current_rate = None
             self.current_result = None
@@ -378,12 +469,13 @@ class PerformanceManager:
             self.elapsed_s = 0.0
             self.last_error = None
             self.results = []
+            self.virtual_sensor = self._virtual_summary(workload)
             self.abort_event.clear()
             self._touch()
 
             self.benchmark_thread = threading.Thread(
                 target=self._benchmark_loop,
-                args=(digiflot, test_rates, float(duration_s or self.quick_duration_s)),
+                args=(digiflot, test_rates, float(duration_s or self.quick_duration_s), workload),
                 daemon=True,
                 name="digiflot-performance-benchmark",
             )
@@ -403,9 +495,9 @@ class PerformanceManager:
             self._touch()
             return self.status
 
-    def _benchmark_loop(self, digiflot, rates, duration_s):
+    def _benchmark_loop(self, digiflot, rates, duration_s, workload=None):
         original_rates = {camera.id: camera.frame_rate for camera in digiflot.cameras.values()}
-        signature = self.hardware_signature(digiflot)
+        signature = self.hardware_signature(digiflot, virtual_sensor=self._virtual_summary(workload))
         benchmark_started = _utc_now()
         all_results = []
 
@@ -422,6 +514,7 @@ class PerformanceManager:
                         rate,
                         duration_s,
                         temporary,
+                        virtual_workload=workload,
                     )
                     all_results.append(result)
 
@@ -464,6 +557,7 @@ class PerformanceManager:
                     "tested_at": benchmark_started,
                     "completed_at": _utc_now(),
                     "hardware_signature": signature,
+                    "virtual_sensor": self._virtual_summary(workload),
                     "results": all_results,
                 }
                 self._save_history_record(record)
@@ -491,6 +585,7 @@ class PerformanceManager:
                 "tested_at": benchmark_started,
                 "completed_at": _utc_now(),
                 "hardware_signature": signature,
+                "virtual_sensor": self._virtual_summary(workload),
                 "results": all_results,
                 "recommended_camera_rates": recommended,
                 "max_stable_camera_rates": max_stable.get("camera_rates") if max_stable else None,
@@ -526,168 +621,195 @@ class PerformanceManager:
                 self.current_rate = None
                 self._touch()
 
-    def _run_rate_test(self, digiflot, rate, duration_s, temporary: Path):
-        started = []
-        samples = []
-        errors = []
-        start_time = time.monotonic()
-        camera_rates = {}
-        safety_abort = False
-        last_camera_metrics = {}
-
+    def _run_rate_test(self, digiflot, rate, duration_s, temporary: Path, virtual_workload=None):
+        """Run all physical cameras and the real virtual detector at the same time."""
+        started, samples, errors, virtual_samples = [], [], [], []
+        camera_rates = {str(camera.id): float(rate) for camera in digiflot.cameras.values()}
+        last_camera_metrics, safety_abort = {}, False
+        source = virtual_workload["camera"] if virtual_workload else None
+        vision = digiflot.vision if virtual_workload else None
+        original_analysis = (source.analysis_enabled, source.analysis_target_size) if source else None
+        virtual_info = self._virtual_summary(virtual_workload)
+        duration = 0.0
         for camera in digiflot.cameras.values():
-            camera_rates[str(camera.id)] = float(rate)
             try:
                 camera.config["frame_rate"] = float(rate)
                 camera.refresh_from_config()
                 camera.validate_config(camera.config)
             except Exception as error:
                 errors.append(f"{camera.name}: {error}")
-
         if errors:
-            return {
-                "rate": rate,
-                "camera_rates": camera_rates,
-                "classification": "FAIL",
-                "reason": "; ".join(errors),
-                "duration_s": 0.0,
-                "samples": [],
-                "safety_abort": False,
-            }
-
+            return {"rate": rate, "camera_rates": camera_rates, "classification": "FAIL",
+                    "reason": "; ".join(errors), "duration_s": 0.0, "samples": [],
+                    "virtual_sensor": {"included": bool(source), "configuration": virtual_info},
+                    "headroom_risk": self.headroom_risk([]), "safety_abort": False}
         try:
+            if source:
+                # Disable the independent Vision worker, then configure the same lores
+                # resolution that the live virtual sensor requires while the encoders run.
+                vision._benchmarking = True
+                source.analysis_enabled = True
+                source.analysis_target_size = tuple(virtual_workload["lores_size"])
+                vision._map_key, vision._roi_map = None, None
+
             for camera in digiflot.cameras.values():
                 rate_label = f"{rate:g}".replace(".", "p")
-                output = temporary / (
-                    f"{rate_label}fps_{camera.id}_"
-                    f"{str(camera.name).replace('/', '_')}"
-                )
+                output = temporary / f"{rate_label}fps_{camera.id}_{str(camera.name).replace('/', '_')}"
                 camera.start_recording(output)
                 started.append(camera)
 
             with self.lock:
                 self.current_rate = rate
-                self.current_result = {"classification": "RUNNING", "camera_rates": camera_rates}
+                self.current_result = {"classification": "RUNNING", "camera_rates": camera_rates,
+                                       "virtual_sensor": virtual_info}
                 self._touch()
 
-            next_sample = start_time
+            start_time = time.monotonic()
+            sample_due = start_time
+            virtual_interval = max(.2, float(virtual_workload["config"]["sampling_interval_s"])) if source else None
+            virtual_due = start_time + min(.10, virtual_interval/3) if source else None
+            missed_intervals = 0
+
             while not self.abort_event.is_set():
                 now = time.monotonic()
-                elapsed = now - start_time
+                elapsed = now-start_time
                 if elapsed >= duration_s:
                     break
-                if now < next_sample:
-                    time.sleep(min(0.1, next_sample - now))
-                    continue
+                if source and now >= virtual_due:
+                    if now > virtual_due + virtual_interval:
+                        missed = int((now-virtual_due)//virtual_interval)
+                        missed_intervals += missed
+                        virtual_due += missed*virtual_interval
+                    try:
+                        reading = vision.performance_detection(virtual_workload)
+                        virtual_samples.append(reading)
+                    except Exception as error:
+                        virtual_samples.append({"valid": False, "latency_ms": None, "error": str(error)})
+                    virtual_due += virtual_interval
 
-                sample = self.sample_system()
-                samples.append(sample)
-                with self.lock:
-                    self.elapsed_s = elapsed
-                    self.last_sample = sample
-                    self._touch()
+                if now >= sample_due:
+                    sample = self.sample_system()
+                    camera_metrics = {str(camera.id): camera.recording_metrics() for camera in started}
+                    sample["cameras"] = camera_metrics
+                    samples.append(sample)
+                    last_camera_metrics = deepcopy(camera_metrics)
+                    with self.lock:
+                        self.elapsed_s = elapsed
+                        self.last_sample = sample
+                        self._touch()
 
-                temperature = sample.get("temperature_c")
-                throttled = (sample.get("throttled") or {}).get("current")
-                free_gb = (sample.get("disk") or {}).get("free_gb")
-                dead_ffmpeg = [
-                    camera.name for camera in started
-                    if camera.ffmpeg is not None and camera.ffmpeg.poll() is not None
-                ]
-                camera_metrics = {
-                    str(camera.id): camera.recording_metrics()
-                    for camera in started
-                }
-                last_camera_metrics = deepcopy(camera_metrics)
-                sample["cameras"] = camera_metrics
-                if throttled:
-                    errors.append("System throttling was detected.")
-                    safety_abort = True
-                    break
-                if temperature is not None and temperature >= self.max_temperature_c:
-                    errors.append(f"Temperature reached {temperature:.1f} °C.")
-                    safety_abort = True
-                    break
-                if free_gb is not None and free_gb < self.min_disk_free_gb:
-                    errors.append("Disk free space dropped below the configured safety threshold.")
-                    safety_abort = True
-                    break
-                if dead_ffmpeg:
-                    errors.append("FFmpeg stopped unexpectedly: " + ", ".join(dead_ffmpeg))
-                    break
-                if elapsed >= 5.0:
-                    stalled = [
-                        camera.name for camera in started
-                        if (camera_metrics[str(camera.id)].get("last_frame_age_s") or 0) > 3.0
-                    ]
-                    if stalled:
-                        errors.append("Camera output stalled: " + ", ".join(stalled))
+                    temperature = sample.get("temperature_c")
+                    throttled = (sample.get("throttled") or {}).get("current")
+                    free_gb = (sample.get("disk") or {}).get("free_gb")
+                    memfree = (sample.get("memory") or {}).get("free_pct")
+                    dead_ffmpeg = [camera.name for camera in started
+                                   if camera.ffmpeg is not None and camera.ffmpeg.poll() is not None]
+                    if throttled:
+                        errors.append("System throttling was detected.")
+                        safety_abort = True
                         break
-
-                next_sample += self.sample_interval_s
+                    if temperature is not None and temperature >= self.max_temperature_c:
+                        errors.append(f"Temperature reached {temperature:.1f} °C.")
+                        safety_abort = True
+                        break
+                    if free_gb is not None and free_gb < self.min_disk_free_gb:
+                        errors.append("Disk free space dropped below the safety threshold.")
+                        safety_abort = True
+                        break
+                    if memfree is not None and memfree < 2.:
+                        errors.append("Less than 2% of system RAM remains available.")
+                        safety_abort = True
+                        break
+                    if dead_ffmpeg:
+                        errors.append("FFmpeg stopped unexpectedly: "+", ".join(dead_ffmpeg))
+                        break
+                    if elapsed >= 5.:
+                        stalled = [camera.name for camera in started
+                                   if (camera_metrics[str(camera.id)].get("last_frame_age_s") or 0) > 3.]
+                        if stalled:
+                            errors.append("Camera output stalled: "+", ".join(stalled))
+                            break
+                    sample_due += self.sample_interval_s
+                next_due = min(sample_due, virtual_due) if source else sample_due
+                wait = next_due-time.monotonic()
+                if wait > 0:
+                    time.sleep(min(.05, wait))
         except Exception as error:
             errors.append(str(error))
         finally:
             if started:
-                last_camera_metrics = {
-                    str(camera.id): camera.recording_metrics()
-                    for camera in started
-                }
-            stop_errors = []
+                last_camera_metrics = {str(camera.id): camera.recording_metrics()
+                                       for camera in started}
             for camera in started:
                 try:
                     camera.stop_recording()
                 except Exception as error:
-                    stop_errors.append(f"{camera.name}: {error}")
-            errors.extend(stop_errors)
+                    errors.append(f"{camera.name}: {error}")
+            if source:
+                source.analysis_enabled, source.analysis_target_size = original_analysis
+                vision._benchmarking = False
+                vision._map_key, vision._roi_map = None, None
+            if 'start_time' in locals():
+                duration = time.monotonic()-start_time
 
-        duration = time.monotonic() - start_time
-        max_temp = max((s.get("temperature_c") for s in samples if s.get("temperature_c") is not None), default=None)
+        max_temp = max((s.get("temperature_c") for s in samples
+                        if s.get("temperature_c") is not None), default=None)
         max_load1 = max((s.get("load1") for s in samples if s.get("load1") is not None), default=None)
         throttled_seen = any((s.get("throttled") or {}).get("current") for s in samples)
-        final_camera_metrics = last_camera_metrics
-        total_write_rate = sum(
-            float(item.get("write_rate_mbps") or 0.0)
-            for item in final_camera_metrics.values()
-        )
-
-        low_fps = [
-            camera_id for camera_id, metrics in final_camera_metrics.items()
-            if duration >= 5.0 and float(metrics.get("actual_fps") or 0.0) < float(rate) * 0.70
-        ]
+        total_write_rate = sum(float(item.get("write_rate_mbps") or 0.)
+                               for item in last_camera_metrics.values())
+        low_fps = [cid for cid, metrics in last_camera_metrics.items()
+                   if duration >= 5. and float(metrics.get("actual_fps") or 0) < rate*.70]
         if low_fps and not errors:
-            errors.append(
-                "Sustained encoded frame rate fell below 70% of target for camera(s): "
-                + ", ".join(low_fps)
-            )
+            errors.append("Sustained encoded FPS fell below 70% for camera(s): "+", ".join(low_fps))
+
+        headroom = self.headroom_risk(samples)
+        cpu_free = [float(s["cpu"]["free_pct"]) for s in samples if (s.get("cpu") or {}).get("free_pct") is not None]
+        mem_free = [float(s["memory"]["free_pct"]) for s in samples if (s.get("memory") or {}).get("free_pct") is not None]
+        virtual_result = {"included": bool(source), "configuration": virtual_info, "samples": len(virtual_samples),
+                          "valid_detections": sum(bool(x.get("valid")) for x in virtual_samples),
+                          "missed_intervals": missed_intervals}
+        if source:
+            latencies = sorted(float(s["latency_ms"]) for s in virtual_samples if s.get("latency_ms") is not None)
+            timestamps = [s["sensor_timestamp_ns"] for s in virtual_samples
+                          if s.get("sensor_timestamp_ns") is not None]
+            duplicate_timestamps = len(timestamps)-len(set(timestamps))
+            virtual_result.update({"sampling_interval_s": virtual_interval,
+                "p95_latency_ms": latencies[min(len(latencies)-1, math.ceil(.95*len(latencies))-1)] if latencies else None,
+                "p99_latency_ms": latencies[min(len(latencies)-1, math.ceil(.99*len(latencies))-1)] if latencies else None,
+                "errors": [s["error"] for s in virtual_samples if s.get("error")][:5],
+                "duplicate_sensor_timestamps": duplicate_timestamps})
+            if not virtual_samples:
+                errors.append("Froth Interface did not acquire any frames.")
+            elif len(latencies) < len(virtual_samples)*.7:
+                errors.append("More than 30% of Froth Interface acquisitions failed.")
+            elif virtual_result["p99_latency_ms"] >= virtual_interval*1000:
+                errors.append("Froth Interface P99 processing latency exceeded its sampling interval.")
+            elif duplicate_timestamps:
+                errors.append("Froth Interface captured duplicate camera timestamps.")
+            elif missed_intervals > max(1, len(virtual_samples)//10):
+                errors.append("Froth Interface missed more than 10% of scheduled acquisitions.")
 
         if self.abort_event.is_set() and not errors:
-            classification = "ABORTED"
-            reason = "Benchmark aborted by operator."
+            classification, reason = "ABORTED", "Benchmark aborted by operator."
         elif errors:
-            classification = "FAIL"
-            reason = "; ".join(errors)
+            classification, reason = "FAIL", "; ".join(errors)
         else:
-            classification = "PASS"
-            reason = "Completed without throttling or acquisition errors."
-            if max_temp is not None and max_temp >= self.max_temperature_c - 5.0:
-                classification = "MARGINAL"
-                reason = "Completed, but temperature approached the configured safety limit."
+            classification, reason = "PASS", "Both camera encoders and selected vision workload completed."
+            if (max_temp is not None and max_temp >= self.max_temperature_c-5 or
+                    headroom["low_samples"] > 0 or
+                    (source and virtual_result["p95_latency_ms"] is not None and
+                     virtual_result["p95_latency_ms"] > virtual_interval*700)):
+                classification, reason = "MARGINAL", "Completed, but system headroom, latency or temperature was marginal."
 
-        return {
-            "rate": rate,
-            "camera_rates": camera_rates,
-            "classification": classification,
-            "reason": reason,
-            "duration_s": duration,
-            "max_temperature_c": max_temp,
-            "max_load1": max_load1,
-            "throttling": throttled_seen,
-            "camera_metrics": final_camera_metrics,
-            "write_rate_mbps": total_write_rate,
-            "samples": samples,
-            "safety_abort": safety_abort,
-        }
+        return {"rate": rate, "camera_rates": camera_rates, "classification": classification,
+                "reason": reason, "duration_s": duration, "max_temperature_c": max_temp,
+                "max_load1": max_load1, "throttling": throttled_seen,
+                "camera_metrics": last_camera_metrics, "write_rate_mbps": total_write_rate,
+                "cpu_free_min_pct": min(cpu_free) if cpu_free else None,
+                "memory_free_min_pct": min(mem_free) if mem_free else None,
+                "headroom_risk": headroom, "virtual_sensor": virtual_result,
+                "samples": samples, "safety_abort": safety_abort}
 
     def mark_degraded(self, reason: str, sample=None):
         with self.lock:

@@ -132,6 +132,8 @@ class DigiFlot:
         self.scraping_method = str(
             orchestration.get("scraping_method", "audio")
         ).lower()
+        # Operator notification is independent of the scheduled scraping signal.
+        self.scraping_alerts_enabled = bool(orchestration.get("scraping_alerts_enabled", True))
 
         self.lock = RLock()
         self.condition = Condition(self.lock)
@@ -505,6 +507,7 @@ class DigiFlot:
                 "transition_timeout_s": self.transition_timeout_s,
                 "scraping_interval": self.scraping_interval_s,
                 "scraping_method": self.scraping_method,
+                "scraping_alerts_enabled": self.scraping_alerts_enabled,
             },
             "storage_id": self.storage_id,
             "run_directory": str(self.run_directory) if self.run_directory else None,
@@ -546,6 +549,7 @@ class DigiFlot:
                 "enabled": self._scraping_required(self.current_stage),
                 "interval_s": self._scraping_interval(self.current_stage),
                 "method": self.scraping_method,
+                "alerts_enabled": self.scraping_alerts_enabled,
                 "sequence": self.scraping_sequence,
                 "last_at": self.last_scraping_at,
                 "next_in_s": next_scraping_in,
@@ -1379,6 +1383,8 @@ class DigiFlot:
             (runtime.get("scraping") or {}).get("sequence", 0) or 0
         )
         self.last_scraping_at = (runtime.get("scraping") or {}).get("last_at")
+        self.scraping_alerts_enabled = bool((runtime.get("scraping") or {}).get(
+            "alerts_enabled", self.scraping_alerts_enabled))
         self.last_error = runtime.get("last_error")
         self.stage_attempt = int(runtime.get("stage_attempt", 0) or 0)
         self._initialise_calibration_state_unlocked()
@@ -2680,6 +2686,19 @@ class DigiFlot:
             "rotor_speed": stage.get("rotor_speed"),
             "pH": stage.get("ph", stage.get("pH")),
         }
+
+    def set_scraping_alerts(self, enabled: bool):
+        """Suppress only the operator overlay/audio; preserve scheduling and logs."""
+        if type(enabled) is not bool:
+            raise ValueError("Scraping alerts setting must be a boolean.")
+        with self.lock:
+            if self.scraping_alerts_enabled == enabled:
+                return self._status_unlocked()
+            self.scraping_alerts_enabled = enabled
+            self.config.setdefault("orchestration", {})["scraping_alerts_enabled"] = enabled
+            self.save_config()  # This preference is device-wide across experiments.
+            self._touch_unlocked("SCRAPING_ALERTS_CHANGED", {"enabled": enabled})
+            return self._status_unlocked()
 
     def _trigger_scraping_unlocked(self):
         if not self._scraping_required(self.current_stage):

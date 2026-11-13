@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026b">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261113v3">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261113v3"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261113scrape1">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261113scrape1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -271,7 +271,9 @@
                 <div id="scraping_box" class="scraping-box" hidden>
                     <span class="scraping-label">Next scraping</span>
                     <strong id="scraping_timer">—</strong>
-                    <span>Manual scraping signal every 5 s</span>
+                    <span class="scraping-description">Scraping signal every 5 s</span>
+                    <label class="scraping-alert-toggle"><input id="scraping_alerts_enabled" type="checkbox" checked>
+                        Show operator alert and sound</label>
                 </div>
 
                 <div id="stage_parameters" class="parameter-grid"></div>
