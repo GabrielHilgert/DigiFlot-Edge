@@ -174,7 +174,15 @@ class VirtualBenchmarkTests(unittest.TestCase):
 
 
     def test_exact_passed_conditions_are_reusable_after_restart_without_benchmark(self):
-        from lib.digiflot import DigiFlot
+        # Compile only the controller method: CI does not have Raspberry Pi Picamera2.
+        import ast
+        from copy import deepcopy
+        source = Path(__file__).resolve().parents[1] / "src/lib/digiflot.py"
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        method = next(node for node in ast.walk(tree)
+                      if isinstance(node, ast.FunctionDef) and node.name == "confirm_sensor_calibration")
+        namespace = {"deepcopy": deepcopy, "_utc_now": lambda: "test-time"}
+        exec(compile(ast.Module(body=[method], type_ignores=[]), str(source), "exec"), namespace)
         with tempfile.TemporaryDirectory() as root:
             run = FakeRun()
             vision = VisionService(run, root)
@@ -212,7 +220,7 @@ class VirtualBenchmarkTests(unittest.TestCase):
             self.assertFalse(restarted.cameras[1].started, "Reusing evidence must not start a benchmark")
 
             # The normal controller approval path must accept the same evidence.
-            status = DigiFlot.confirm_sensor_calibration(restarted, "froth_interface")
+            status = namespace["confirm_sensor_calibration"](restarted, "froth_interface")
             self.assertEqual(restarted.sensor_calibration["froth_interface"]["status"], "passed")
             self.assertTrue(restarted.sensor_calibration["froth_interface"]["benchmark"]["reused"])
             self.assertEqual(restarted.cameras[1].state, restarted.cameras[1].PREVIEW)
