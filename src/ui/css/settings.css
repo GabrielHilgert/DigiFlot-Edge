@@ -154,3 +154,7 @@ input, select {
     .device-row { grid-template-columns: auto minmax(0, 1fr); }
     .device-status { grid-column: 2; width: fit-content; }
 }
+
+/* Keep the GPIO choices hidden unless the physical output is selected. */
+#scraping_gpio_pin_field[hidden], #scraping_gpio_warning[hidden] { display:none !important; }
+#scraping_gpio_warning { margin-top:12px; padding:10px 12px; border-left:3px solid var(--warning); background:var(--warning-soft); }
