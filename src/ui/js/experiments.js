@@ -45,6 +45,8 @@ const elements = {
     catalogLocalCount: document.getElementById("catalog_local_count"),
     catalogSyncText: document.getElementById("catalog_sync_text"),
     start: document.getElementById("start_experiment_button"),
+    detailDialog: document.getElementById("experiment_details_dialog"),
+    closeDialog: document.getElementById("close_detail_dialog"),
     activeBanner: document.getElementById("active_run_banner"),
     activeRunName: document.getElementById("active_run_name"),
     badge: document.getElementById("experiment_badge"),
@@ -918,6 +920,7 @@ async function openExperiment(
 
     renderExperiments();
 
+    if (elements.detailDialog && !elements.detailDialog.open) elements.detailDialog.showModal();
     showDetailLoading(
         row
     );
@@ -2265,10 +2268,16 @@ function cloneObject(
 /* Events                                                                     */
 /* -------------------------------------------------------------------------- */
 
-elements.refresh.addEventListener(
-    "click",
-    loadExperiments,
-);
+elements.refresh.addEventListener("click", () => {
+    if (elements.detailDialog?.open) elements.detailDialog.close();
+    loadExperiments();
+});
+if (elements.detailDialog) {
+    elements.closeDialog?.addEventListener("click", () => elements.detailDialog.close());
+    elements.detailDialog.addEventListener("click", event => {
+        if (event.target === elements.detailDialog) elements.detailDialog.close();
+    });
+}
 
 
 if (elements.sync) {
