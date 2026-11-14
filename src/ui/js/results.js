@@ -1309,6 +1309,7 @@ function renderFiles() {
             view.type = "button";
             view.className = "button button-secondary button-small";
             view.textContent = "View";
+            window.DigiFlotIcons?.set(view,"eye","View file",true);
             view.addEventListener("click", () => previewFile(file));
             actions.appendChild(view);
         }
@@ -1317,6 +1318,7 @@ function renderFiles() {
             view.type = "button";
             view.className = "button button-secondary button-small";
             view.textContent = "Play";
+            window.DigiFlotIcons?.set(view,"play","Play recording",true);
             view.addEventListener("click", async () => {
                 activateTab("analysis");
                 await loadAnalysisData();
@@ -1332,6 +1334,7 @@ function renderFiles() {
         const download = document.createElement("a");
         download.className = "button button-secondary button-small";
         download.textContent = "Download";
+        window.DigiFlotIcons?.set(download,"download","Download file",true);
         download.href = `/api/results/${encodeURIComponent(storageId)}/file?path=${encodeURIComponent(file.path)}&download=true`;
         actions.appendChild(download);
         elements.fileList.appendChild(row);
