@@ -421,12 +421,15 @@ class VisionService:
         if enabled and self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
             raise RuntimeError("Diagnostic preview is only available while calibrating sensors")
         if enabled:
-            camera, *_ = self._virtual_context()
+            camera, _, association, profile = self._virtual_context()
             if self._benchmarking:
                 raise RuntimeError("Calibration test is using the camera; diagnostics will resume when it finishes")
-            # Claim the same per-tab lease used by the ROI editor. The main
-            # encoder cannot start while an unrelated preview owns the camera.
-            self.digiflot.start_preview(camera.id, owner_id=owner_id)
+            # Configure lores before opening Picamera2, regardless of whether
+            # Diagnostics or ROI was the first client to request this camera.
+            with self.digiflot.lock:
+                if camera.state == camera.IDLE:
+                    camera.analysis_target_size = self._desired_lores_size(camera, association, profile["config"])
+                self.digiflot.start_preview(camera.id, owner_id=owner_id)
         with self._lock:
             self._diagnostic_until = time.monotonic() + 12.0 if enabled else 0.0
             self._diagnostic_owner_id = str(owner_id) if enabled and owner_id else None
@@ -1109,13 +1112,15 @@ class VisionService:
             with self.digiflot.lock:
                 if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
                     raise RuntimeError("Select the Detection ROI during sensor calibration")
-                camera, cell_id, association, _ = self._virtual_context()
+                camera, cell_id, association, profile = self._virtual_context()
                 if self._benchmarking or camera.state == camera.RECORDING:
                     raise RuntimeError("Camera is recording a benchmark; retry when the test has finished")
                 if self.digiflot.preview_camera_id not in (None, camera.id):
                     raise RuntimeError("Close the other camera preview before selecting the Detection ROI")
                 if camera.state not in (camera.IDLE, camera.PREVIEW):
                     raise RuntimeError("Camera is unavailable for the planar preview")
+                if camera.state == camera.IDLE:
+                    camera.analysis_target_size = self._desired_lores_size(camera, association, profile["config"])
                 self.digiflot.start_preview(camera.id, owner_id=owner_id)
                 image, frame = self._capture(camera.id)
                 optics = self.registry.camera_profile(camera.id)
