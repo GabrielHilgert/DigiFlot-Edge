@@ -158,3 +158,24 @@ input, select {
 /* Keep the GPIO choices hidden unless the physical output is selected. */
 #scraping_gpio_pin_field[hidden], #scraping_gpio_warning[hidden] { display:none !important; }
 #scraping_gpio_warning { margin-top:12px; padding:10px 12px; border-left:3px solid var(--warning); background:var(--warning-soft); }
+
+/* Stable, responsive orchestration form; GPIO field spans the second row only when enabled. */
+.orchestration-grid { display:grid; grid-template-columns:minmax(215px,2fr) repeat(3,minmax(140px,1fr));
+    grid-template-areas:"advance delay interval output" "alert display gpio gpio"; gap:12px; align-items:stretch; }
+.orchestration-grid > label { min-width:0; margin:0; }
+.orchestration-grid .orchestration-advance { grid-area:advance; }
+.orchestration-grid .orchestration-delay { grid-area:delay; }
+.orchestration-grid .orchestration-interval { grid-area:interval; }
+.orchestration-grid .orchestration-output { grid-area:output; }
+.orchestration-grid .orchestration-alert { grid-area:alert; }
+.orchestration-grid .orchestration-alert-style { grid-area:display; }
+.orchestration-grid .orchestration-gpio { grid-area:gpio; max-width:400px; }
+.orchestration-grid label > input, .orchestration-grid label > select { min-width:0; }
+@media(max-width:1050px) {
+  .orchestration-grid { grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-areas:"advance delay" "interval output" "alert display" "gpio gpio"; }
+}
+@media(max-width:650px) {
+  .orchestration-grid { grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"advance" "delay" "interval" "output" "alert" "display" "gpio"; }
+}
