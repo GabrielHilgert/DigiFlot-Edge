@@ -52,6 +52,15 @@ const elements = {
     analysisFit: document.getElementById("analysis_fit"),
     videoViewer: document.getElementById("analysis_video_viewer"),
     videoPlayer: document.getElementById("video_player"),
+    mjpegCanvas: document.getElementById("mjpeg_canvas"),
+    mjpegControls: document.getElementById("mjpeg_controls"),
+    mjpegPlay: document.getElementById("mjpeg_play"),
+    mjpegPrev: document.getElementById("mjpeg_prev"),
+    mjpegNext: document.getElementById("mjpeg_next"),
+    mjpegSeek: document.getElementById("mjpeg_seek"),
+    mjpegTime: document.getElementById("mjpeg_time"),
+    mjpegRate: document.getElementById("mjpeg_rate"),
+    mjpegFullscreen: document.getElementById("mjpeg_fullscreen"),
     videoCamera: document.getElementById("video_camera"),
     videoTitle: document.getElementById("video_title"),
     videoMeta: document.getElementById("video_meta"),
@@ -1079,6 +1088,7 @@ function syncVideoToTime(time, sourceTrack = null) {
         return;
     }
     const desired = Math.max(0, time - Number(video.start_elapsed_s || 0));
+    if (isMjpegVideo(video)) { seekMjpeg(desired, mjpegState.playing); return; }
     if (Number.isFinite(desired) && elements.videoPlayer.readyState >= 1) {
         try { elements.videoPlayer.currentTime = desired; } catch (_) {}
     }
@@ -1094,7 +1104,165 @@ function videoTechnicalSummary(video) {
     return parts.join(" · ") || "Video metadata unavailable";
 }
 
+
+const mjpegState = { socket:null, token:0, ready:false, playing:false, position:0, fps:30,
+    duration:0, rate:1, pendingFrames:0, lastDrawAt:0, awaitingSeek:null, seekTimer:null };
+
+function isMjpegVideo(video) {
+    return String(video?.codec || "").toLowerCase() === "mjpeg";
+}
+
+function updateMjpegControls() {
+    const current = Math.max(0, mjpegState.position);
+    elements.mjpegSeek.max = String(Math.max(0.01, mjpegState.duration || current + 1));
+    elements.mjpegSeek.value = String(Math.min(current, Number(elements.mjpegSeek.max)));
+    elements.mjpegTime.textContent = formatSeconds(current) + " / " + formatSeconds(mjpegState.duration);
+    elements.mjpegPlay.disabled = !mjpegState.ready;
+    window.DigiFlotIcons?.set(elements.mjpegPlay, mjpegState.playing ? "pause" : "play",
+        mjpegState.playing ? "Pause" : "Play", true);
+}
+
+function stopMjpegSession() {
+    ++mjpegState.token;
+    window.clearTimeout(mjpegState.seekTimer);
+    mjpegState.seekTimer = null;
+    const socket = mjpegState.socket;
+    mjpegState.socket = null;
+    mjpegState.ready = false;
+    mjpegState.playing = false;
+    mjpegState.pendingFrames = 0;
+    mjpegState.awaitingSeek = null;
+    if (socket) {
+        socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+        if (socket.readyState < WebSocket.CLOSING) socket.close(1000, "Player closed");
+    }
+    updateMjpegControls();
+}
+
+function sendMjpeg(command) {
+    const socket = mjpegState.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !mjpegState.ready) return false;
+    socket.send(JSON.stringify(command));
+    return true;
+}
+
+function seekMjpeg(position, resume = mjpegState.playing) {
+    if (!isMjpegVideo(state.selectedVideo)) return;
+    const duration = mjpegState.duration || Number(state.selectedVideo.duration_s) || 0;
+    const time = Math.max(0, Math.min(Number(position) || 0, duration > 0 ? Math.max(0, duration - .001) : Number(position) || 0));
+    mjpegState.position = time;
+    mjpegState.playing = Boolean(resume);
+    mjpegState.awaitingSeek = time;
+    updateMjpegControls();
+    sendMjpeg({type:resume ? "play" : "seek", time, rate:mjpegState.rate});
+}
+
+async function drawMjpegFrame(data, token) {
+    if (data.byteLength < 12 || mjpegState.pendingFrames >= 2) return;
+    const time = new DataView(data).getFloat64(0, false);
+    if (!Number.isFinite(time)) return;
+    if (mjpegState.awaitingSeek != null && Math.abs(time - mjpegState.awaitingSeek) > 0.4) return;
+    mjpegState.pendingFrames++;
+    let bitmap = null;
+    try {
+        bitmap = await createImageBitmap(new Blob([data.slice(8)], {type:"image/jpeg"}));
+        if (token !== mjpegState.token || !isMjpegVideo(state.selectedVideo)) return;
+        const canvas = elements.mjpegCanvas, width = Math.min(960, bitmap.width);
+        const height = Math.max(1, Math.round(width * bitmap.height / bitmap.width));
+        if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+        canvas.getContext("2d", {alpha:false}).drawImage(bitmap, 0, 0, width, height);
+        mjpegState.position = time;
+        mjpegState.awaitingSeek = null;
+        updateMjpegControls();
+        elements.videoLoading.hidden = true;
+        elements.videoError.hidden = true;
+        const runStart = Number(state.selectedVideo.start_elapsed_s);
+        if (state.selectedVideo.start_elapsed_s != null && Number.isFinite(runStart)) {
+            const runTime = runStart + time;
+            state.cursorTime = runTime;
+            const runtime = elements.videoContext.querySelector("[data-video-runtime]");
+            if (runtime) runtime.textContent = formatSeconds(runTime);
+            if (performance.now() - mjpegState.lastDrawAt > 180) {
+                mjpegState.lastDrawAt = performance.now();
+                drawAllTracksOnly();
+                renderCursorInfo();
+            }
+        }
+    } catch (error) {
+        if (token === mjpegState.token) {
+            elements.videoLoading.hidden = true;
+            elements.videoError.hidden = false;
+            elements.videoError.textContent = "JPEG frame could not be decoded: " + error.message;
+        }
+    } finally {
+        bitmap?.close();
+        mjpegState.pendingFrames = Math.max(0, mjpegState.pendingFrames - 1);
+    }
+}
+
+function openMjpegPlayer(video, runTime) {
+    mjpegState.position = Number.isFinite(Number(runTime)) && video.start_elapsed_s != null
+        ? Math.max(0, Number(runTime) - Number(video.start_elapsed_s)) : 0;
+    mjpegState.duration = Number(video.duration_s) || 0;
+    mjpegState.fps = Number(video.fps) || 30;
+    mjpegState.rate = 1;
+    mjpegState.lastDrawAt = 0;
+    elements.mjpegRate.value = "1";
+    updateMjpegControls();
+    elements.videoLoading.hidden = false;
+    elements.videoLoadingText.textContent = "Opening MJPEG recording…";
+    if (typeof WebSocket === "undefined" || typeof createImageBitmap !== "function") {
+        elements.videoLoading.hidden = true;
+        elements.videoError.hidden = false;
+        elements.videoError.textContent = "This browser does not support the direct JPEG player.";
+        return;
+    }
+    const protocol = location.protocol === "https:" ? "wss://" : "ws://";
+    const url = protocol + location.host + "/api/results/" + encodeURIComponent(storageId) +
+        "/mjpeg?path=" + encodeURIComponent(video.path);
+    const token = mjpegState.token;
+    const socket = new WebSocket(url);
+    mjpegState.socket = socket;
+    socket.binaryType = "arraybuffer";
+    socket.onmessage = event => {
+        if (token !== mjpegState.token) return;
+        if (event.data instanceof ArrayBuffer) { void drawMjpegFrame(event.data, token); return; }
+        let message;
+        try { message = JSON.parse(event.data); } catch (_) { return; }
+        if (message.type === "ready") {
+            mjpegState.ready = true;
+            mjpegState.fps = Number(message.fps) || mjpegState.fps;
+            mjpegState.duration = Number(message.duration_s) || mjpegState.duration;
+            seekMjpeg(mjpegState.position, false);
+        } else if (message.type === "ended") {
+            mjpegState.playing = false;
+            updateMjpegControls();
+            elements.videoLoading.hidden = true;
+        } else if (message.type === "error") {
+            elements.videoLoading.hidden = true;
+            elements.videoError.hidden = false;
+            elements.videoError.textContent = message.message || "MJPEG playback failed.";
+        }
+    };
+    socket.onclose = () => {
+        if (token !== mjpegState.token) return;
+        mjpegState.ready = false;
+        mjpegState.playing = false;
+        updateMjpegControls();
+        elements.videoLoading.hidden = true;
+        elements.videoError.hidden = false;
+        elements.videoError.textContent = "MJPEG playback ended. Playback requires DigiFlot to remain Idle.";
+    };
+    socket.onerror = () => {
+        if (token !== mjpegState.token) return;
+        elements.videoLoading.hidden = true;
+        elements.videoError.hidden = false;
+        elements.videoError.textContent = "Could not connect to the MJPEG playback service.";
+    };
+}
+
 function selectVideo(video, runTime = null, trackKey = null) {
+    stopMjpegSession();
     state.selectedVideo = video;
     if (trackKey) state.activeVideoTrackKey = trackKey;
     elements.videoViewer.hidden = false;
@@ -1118,6 +1286,15 @@ function selectVideo(video, runTime = null, trackKey = null) {
     elements.videoPlayer.pause();
     elements.videoPlayer.removeAttribute("src");
     while (elements.videoPlayer.firstChild) elements.videoPlayer.removeChild(elements.videoPlayer.firstChild);
+    const mjpeg = isMjpegVideo(video);
+    elements.videoPlayer.hidden = mjpeg;
+    elements.mjpegCanvas.hidden = !mjpeg;
+    elements.mjpegControls.hidden = !mjpeg;
+    if (mjpeg) {
+        openMjpegPlayer(video, runTime);
+        elements.videoViewer.scrollIntoView({block:"nearest",behavior:"smooth"});
+        return;
+    }
     const source = document.createElement("source");
     source.src = video.stream_url;
     source.type = video.playback_media_type || "video/mp4";
@@ -1128,6 +1305,10 @@ function selectVideo(video, runTime = null, trackKey = null) {
 }
 
 function closeVideoPlayer() {
+    stopMjpegSession();
+    elements.mjpegCanvas.hidden = true;
+    elements.mjpegControls.hidden = true;
+    elements.videoPlayer.hidden = false;
     elements.videoPlayer.pause();
     elements.videoPlayer.removeAttribute("src");
     while (elements.videoPlayer.firstChild) elements.videoPlayer.removeChild(elements.videoPlayer.firstChild);
@@ -1441,7 +1622,43 @@ function bindEvents() {
     });
     elements.videoClose.addEventListener("click", closeVideoPlayer);
 
+    elements.mjpegPlay.addEventListener("click", () => {
+        if (!mjpegState.ready) return;
+        mjpegState.playing = !mjpegState.playing;
+        if (mjpegState.playing) sendMjpeg({type:"play", time:mjpegState.position, rate:mjpegState.rate});
+        else sendMjpeg({type:"pause"});
+        updateMjpegControls();
+    });
+    for (const [button, direction] of [[elements.mjpegPrev,-1],[elements.mjpegNext,1]]) {
+        button.addEventListener("click", () => seekMjpeg(mjpegState.position + direction / mjpegState.fps, false));
+    }
+    elements.mjpegSeek.addEventListener("input", () => {
+        mjpegState.position = Number(elements.mjpegSeek.value);
+        updateMjpegControls();
+        window.clearTimeout(mjpegState.seekTimer);
+        mjpegState.seekTimer = window.setTimeout(() => seekMjpeg(mjpegState.position, false), 180);
+    });
+    elements.mjpegSeek.addEventListener("change", () => {
+        window.clearTimeout(mjpegState.seekTimer);
+        seekMjpeg(Number(elements.mjpegSeek.value), false);
+    });
+    elements.mjpegRate.addEventListener("change", () => {
+        mjpegState.rate = Number(elements.mjpegRate.value) || 1;
+        if (mjpegState.playing) seekMjpeg(mjpegState.position, true);
+    });
+    elements.mjpegFullscreen.addEventListener("click", () => elements.videoViewer.requestFullscreen?.());
+    document.addEventListener("visibilitychange", () => {
+        if (document.hidden && mjpegState.playing) {
+            mjpegState.playing = false;
+            sendMjpeg({type:"pause"});
+            updateMjpegControls();
+        }
+    });
+    window.addEventListener("pagehide", stopMjpegSession);
+
+
     elements.videoPlayer.addEventListener("loadstart", () => {
+        if (isMjpegVideo(state.selectedVideo)) return;
         if (!state.selectedVideo) return;
         elements.videoLoading.hidden = false;
         elements.videoLoadingText.textContent = state.selectedVideo.needs_proxy
@@ -1449,6 +1666,7 @@ function bindEvents() {
             : "Loading video…";
     });
     elements.videoPlayer.addEventListener("loadedmetadata", () => {
+        if (isMjpegVideo(state.selectedVideo)) return;
         const video = state.selectedVideo;
         if (!video) return;
         const pendingRunTime = Number(elements.videoPlayer.dataset.pendingRunTime);
@@ -1459,16 +1677,19 @@ function bindEvents() {
         elements.videoPlayer.dataset.pendingRunTime = "";
     });
     elements.videoPlayer.addEventListener("canplay", () => {
+        if (isMjpegVideo(state.selectedVideo)) return;
         elements.videoLoading.hidden = true;
         elements.videoError.hidden = true;
     });
     elements.videoPlayer.addEventListener("waiting", () => {
+        if (isMjpegVideo(state.selectedVideo)) return;
         if (!state.selectedVideo) return;
         elements.videoLoading.hidden = false;
         elements.videoLoadingText.textContent = "Buffering video…";
     });
-    elements.videoPlayer.addEventListener("playing", () => { elements.videoLoading.hidden = true; });
+    elements.videoPlayer.addEventListener("playing", () => { if (!isMjpegVideo(state.selectedVideo)) elements.videoLoading.hidden = true; });
     elements.videoPlayer.addEventListener("error", () => {
+        if (isMjpegVideo(state.selectedVideo)) return;
         const video = state.selectedVideo;
         elements.videoLoading.hidden = true;
         elements.videoError.hidden = false;
@@ -1476,6 +1697,7 @@ function bindEvents() {
         elements.videoError.textContent = `Could not play this recording. Original codec: ${video?.codec || "unknown"}; MIME: ${video?.media_type || "unknown"}.${probeError}`;
     });
     elements.videoPlayer.addEventListener("timeupdate", () => {
+        if (isMjpegVideo(state.selectedVideo)) return;
         const video = state.selectedVideo;
         if (!video || video.start_elapsed_s == null) return;
         const runTime = Number(video.start_elapsed_s) + Number(elements.videoPlayer.currentTime || 0);
@@ -1486,6 +1708,7 @@ function bindEvents() {
         renderCursorInfo();
     });
     elements.videoPlayer.addEventListener("seeking", () => {
+        if (isMjpegVideo(state.selectedVideo)) return;
         const video = state.selectedVideo;
         if (!video || video.start_elapsed_s == null) return;
         state.cursorTime = Number(video.start_elapsed_s) + Number(elements.videoPlayer.currentTime || 0);
