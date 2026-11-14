@@ -393,6 +393,7 @@ async function startVirtualDiagnostics() {
     if(!virtualEffectiveRoi())throw new Error("Select and save a Detection ROI before starting live diagnostics");
     virtualDiagnosticsActive=true;virtualDiagRevision=0;
     document.getElementById("virtual_diagnostics_toggle").textContent="Stop live diagnostics";
+    window.DigiFlotIcons?.enhance(document.getElementById("virtual_diagnostics_toggle"));
     await pollVirtualDiagnostics();
     virtualDiagnosticsTimer=window.setInterval(pollVirtualDiagnostics,2500);
 }
@@ -401,6 +402,7 @@ function stopVirtualDiagnostics() {
     virtualDiagnosticsActive=false;
     if(virtualDiagnosticsTimer){window.clearInterval(virtualDiagnosticsTimer);virtualDiagnosticsTimer=null;}
     document.getElementById("virtual_diagnostics_toggle").textContent="Start live diagnostics";
+    window.DigiFlotIcons?.enhance(document.getElementById("virtual_diagnostics_toggle"));
     requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
         method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false})
     }).catch(()=>{});
@@ -636,6 +638,7 @@ async function virtualRunTest() {
         showToast(error.message);
     } finally {
         button.disabled = false; button.textContent = "Run calibration test";
+        window.DigiFlotIcons?.enhance(button);
     }
 }
 
