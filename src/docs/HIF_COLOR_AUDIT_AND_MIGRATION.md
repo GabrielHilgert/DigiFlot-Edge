@@ -1,7 +1,7 @@
 # DigiFlot Edge — HIF-inspired color audit and replacement plan
 
 **Audit baseline:** `main` after Run workflow UI refinements (2026-11-14).  
-**Status:** proposal only; **no application color values have been changed**.  
+**Status:** historical before/after audit; the approved mapping was applied on 2026-11-14. The current semantic palette is documented in [COLOR_PALETTE.md](../../COLOR_PALETTE.md).  
 **Scope:** every tracked `.css` file (9 files, complete recursive Git tree).
 
 ## Brand evidence and design boundary
@@ -502,4 +502,4 @@ Color values are currently copied into `:root` of multiple pages. Their definiti
 5. Validate at 14-inch layout and at narrow breakpoints, light and dark; run WCAG contrast checks, regression CI and physical sensor visualization smoke tests.
 6. Audit CSS-adjacent JS canvas colors, image overlays and SVG attributes separately before declaring the entire UI palette standardized. This inventory only claims `.css` coverage.
 
-**No CSS colors were changed as part of this proposal.**
+**Historical note:** this document records the pre-migration palette and the original plan. The new palette is implemented in the CSS and is documented in [COLOR_PALETTE.md](../../COLOR_PALETTE.md).
