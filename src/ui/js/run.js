@@ -659,8 +659,8 @@ function drawRunMonitorOverlay(card, frame) {
     const [w,h]=frame.source_size;
     canvas.width=w;canvas.height=h;ctx.clearRect(0,0,w,h);
     const palette = getComputedStyle(document.documentElement);
-    for(const [key,color] of [["froth_row_px",palette.getPropertyValue("--plot-froth").trim() || "#55BAE7"],
-                              ["pulp_row_px",palette.getPropertyValue("--plot-pulp-secondary").trim() || "#E6AF11"]]){
+    for(const [key,color] of [["froth_row_px",palette.getPropertyValue("--plot-froth-upper").trim() || "#29AEE4"],
+                              ["pulp_row_px",palette.getPropertyValue("--plot-pulp").trim() || "#F47721"]]){
         const y=frame[key];
         if(y==null||!Number.isFinite(Number(y)))continue;
         ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.lineWidth=Math.max(1.5,w/170);
