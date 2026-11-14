@@ -826,9 +826,10 @@ function setCropSelectionMode(enabled) {
         enabled ? "false" : "true"
     );
 
-    elements.select_crop_button.textContent = enabled
-        ? "Cancel selection"
-        : "Select crop";
+    const cropLabel=enabled ? "Cancel selection" : "Select crop";
+    if (window.DigiFlotIcons) window.DigiFlotIcons.set(elements.select_crop_button,
+        enabled ? "x" : "crop",cropLabel,true);
+    else elements.select_crop_button.textContent=cropLabel;
 
     window.requestAnimationFrame(showExistingCropSelection);
 }
@@ -1198,6 +1199,7 @@ function renderPerformanceEvaluation(evaluation) {
     elements.use_recommended_fps.hidden = !hasRecommendation;
     if (hasRecommendation) {
         elements.use_recommended_fps.textContent = `Use ${Number(recommendedRate)} fps`;
+        window.DigiFlotIcons?.enhance(elements.use_recommended_fps);
         elements.use_recommended_fps.dataset.fps = String(recommendedRate);
     }
 }
