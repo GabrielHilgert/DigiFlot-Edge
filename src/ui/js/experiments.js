@@ -319,6 +319,7 @@ async function requestImmediateSync() {
     } finally {
         setTimeout(() => {
             elements.sync.textContent = previous;
+            window.DigiFlotIcons?.enhance(elements.sync);
             elements.sync.disabled = false;
         }, 1100);
     }
