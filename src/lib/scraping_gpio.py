@@ -106,7 +106,17 @@ class ScrapingGPIO:
             try: device.off()
             finally: device.close()
 
+    def cancel_pending(self):
+        """Discard scheduled pulses when a stage pauses, ends or aborts."""
+        while True:
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+            except queue.Empty:
+                break
+
     def close(self):
+        self.cancel_pending()
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=max(2.0, self.pulse_s + 1.0))
