@@ -1473,15 +1473,29 @@ async function loadSensors() {
 }
 
 const virtualDialog = document.getElementById("virtual_panel");
-virtualDialog.addEventListener("close", () => stopVirtualDiagnostics());
-virtualDialog.addEventListener("click", event => {
-    if (event.target === virtualDialog) virtualDialog.close();
-});
-document.getElementById("virtual_close").addEventListener("click", () => virtualDialog.close());
+virtualDialog.addEventListener("close", cleanupVirtualSession);
+virtualDialog.addEventListener("cancel", event => {event.preventDefault();requestVirtualClose();});
+// Clicking the backdrop must never dismiss calibration during an active camera request.
+document.getElementById("virtual_close").addEventListener("click", requestVirtualClose);
 document.getElementById("virtual_diagnostics_toggle").addEventListener("click", () => {
-    if(virtualDiagnosticsActive)stopVirtualDiagnostics();
-    else startVirtualDiagnostics().catch(error=>showToast(error.message));
+    if(virtualDiagnosticsActive) {
+        virtualDiagnosticsDesired=false;
+        void stopVirtualDiagnostics();
+    } else {
+        virtualDiagnosticsDesired=true;
+        startVirtualDiagnostics().catch(error=>showToast(error.message));
+    }
 });
+document.getElementById("virtual_preset_restore").addEventListener("click", () => {
+    if(virtualHasUnsavedChanges() && !window.confirm("Replace unsaved settings with the previous passing profile?"))return;
+    restoreVirtualPreset();
+});
+document.getElementById("virtual_advanced_fields").addEventListener("toggle", event => {
+    if(event.target.tagName!=="DETAILS" || !event.target.open)return;
+    document.querySelectorAll("#virtual_advanced_fields > details").forEach(node=>{
+        if(node!==event.target)node.open=false;
+    });
+}, true);
 document.getElementById("virtual_show_grid").addEventListener("change", () => {
     drawVirtualOverlays();drawVirtualRoiOverlay();
 });
@@ -1512,8 +1526,12 @@ document.getElementById("virtual_reference_y").addEventListener("input",()=>{
 document.getElementById("virtual_reference_confirm").addEventListener("change",event=>{
     if(virtualDraft)virtualDraft.vertical_reference_confirmed=event.target.checked;
 });
-document.getElementById("virtual_refresh_geometry").addEventListener("click",()=>
-    openVirtualCalibration().catch(error=>showToast(error.message)));
+document.getElementById("virtual_refresh_geometry").addEventListener("click",async()=>{
+    if(virtualHasUnsavedChanges() && !window.confirm("Discard unsaved changes and reload geometry?"))return;
+    virtualDialog.close();
+    await virtualCleanup;
+    await openVirtualCalibration().catch(error=>showToast(error.message));
+});
 document.getElementById("virtual_roi_refresh").addEventListener("click", () =>
     loadVirtualRoiPlane().catch(error=>showToast(error.message)));
 document.getElementById("virtual_roi_reset").addEventListener("click", () => {
@@ -1548,7 +1566,12 @@ document.getElementById("virtual_save").addEventListener("click", async () => {
     try { await virtualSaveConfiguration(); showToast("Profile saved. A new live test is required."); }
     catch (error) { showToast(error.message); }
 });
-document.getElementById("virtual_test").addEventListener("click", virtualRunTest);
+document.getElementById("virtual_test").addEventListener("click", () => {
+    if(virtualBenchmarkTask)return;
+    const task=virtualRunTest();
+    virtualBenchmarkTask=task;
+    void task.finally(()=>{if(virtualBenchmarkTask===task)virtualBenchmarkTask=null;});
+});
 document.getElementById("virtual_confirm").addEventListener("click", async () => {
     try {
         state.digiflot = await requestJson("/api/digiflot/calibration/sensors/froth_interface/confirm", {method:"POST"});
