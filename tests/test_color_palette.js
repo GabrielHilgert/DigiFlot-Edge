@@ -24,7 +24,7 @@ for(const name of ["run","sensors","results"]) {
 }
 for(const name of ["run","sensors","results","cells","config_camera","experiments","performance","settings"]){
     const page=read(`src/ui/html/${name}.html`);
-    assert.match(page,/css\/common\.css'\)\s*\}\}\?v=20261114hif1/,name+" must load versioned tokens");
+    assert.match(page,/css\/common\.css'\)\s*\}\}\?v=20261114icons1/,name+" must load versioned tokens");
     assert.match(page,new RegExp(`css/${name}\\.css'\\)\\s*\\}\\}\\?v=20261114[a-zA-Z0-9-]+`),name+" must load current CSS");
 }
 function luminance(hex){const rgb=hex.replace("#","").match(/../g).map(x=>parseInt(x,16)/255);
