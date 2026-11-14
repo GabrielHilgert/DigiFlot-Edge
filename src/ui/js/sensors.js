@@ -652,7 +652,7 @@ function calibrationMarkup(snapshot) {
             <div><strong>Calibration review (read-only)</strong>
                 <span>Status: ${escapeHtml(status)}${escapeHtml(details)}. Review does not change experiment readiness.</span></div>
             <div class="calibration-actions">
-                <button class="button button-secondary sensor-reopen" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Recalibrate</button>
+                <button class="button button-secondary sensor-reopen" data-icon="rotate-ccw" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Recalibrate</button>
             </div>
         </div>`;
     }
@@ -662,10 +662,10 @@ function calibrationMarkup(snapshot) {
         return `<div class="calibration-block">
             <div><strong>HIFIE · Camera ${escapeHtml(snapshot.source_camera_id)}</strong>
             <span>Cell ${escapeHtml(snapshot.physical_cell_id)} · Geometry + live benchmark required</span></div>
-            <div class="calibration-actions"><button class="button button-primary open-virtual-calibration" type="button">
+            <div class="calibration-actions"><button class="button button-primary open-virtual-calibration" data-icon="scan" type="button">
             ${item.status === "passed" ? "Review HIFIE calibration" : "Configure / test HIFIE"}</button>
-            ${item.status !== "passed" && item.status !== "skipped" ? '<button class="button button-secondary sensor-skip" data-sensor-id="froth_interface" type="button">Skip HIFIE</button>' : ""}
-            ${item.status === "passed" || item.status === "skipped" ? '<button class="button button-secondary sensor-reopen" data-sensor-id="froth_interface" type="button">Reopen</button>' : ""}</div>
+            ${item.status !== "passed" && item.status !== "skipped" ? '<button class="button button-secondary sensor-skip" data-icon="skip-forward" data-sensor-id="froth_interface" type="button">Skip HIFIE</button>' : ""}
+            ${item.status === "passed" || item.status === "skipped" ? '<button class="button button-secondary sensor-reopen" data-icon="rotate-ccw" data-sensor-id="froth_interface" type="button">Reopen</button>' : ""}</div>
         </div>`;
     }
     if (!state.calibrationMode) return standaloneCalibrationMarkup(snapshot);
@@ -695,7 +695,7 @@ function calibrationMarkup(snapshot) {
                 </div>
                 <div class="calibration-heading-actions">
                     <span class="calibration-pill passed">Passed</span>
-                    <button class="button button-secondary sensor-reopen" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Edit calibration</button>
+                    <button class="button button-secondary sensor-reopen" data-icon="rotate-ccw" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Edit calibration</button>
                 </div>
             </div>`;
     }
@@ -709,7 +709,7 @@ function calibrationMarkup(snapshot) {
                 </div>
                 <div class="calibration-heading-actions">
                     <span class="calibration-pill skipped">Skipped</span>
-                    <button class="button button-secondary sensor-reopen" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Edit calibration</button>
+                    <button class="button button-secondary sensor-reopen" data-icon="rotate-ccw" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Edit calibration</button>
                 </div>
             </div>`;
     }
@@ -722,8 +722,8 @@ function calibrationMarkup(snapshot) {
                     <span>Press TARE on the physical scale. Confirm after the live reading is stable at zero.</span>
                 </div>
                 <div class="calibration-actions">
-                    <button class="button button-secondary sensor-skip" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Skip tare</button>
-                    <button class="button button-primary sensor-confirm" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Tare complete</button>
+                    <button class="button button-secondary sensor-skip" data-icon="skip-forward" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Skip tare</button>
+                    <button class="button button-primary sensor-confirm" data-icon="badge-check" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Tare complete</button>
                 </div>
             </div>`;
     }
@@ -752,7 +752,7 @@ function calibrationMarkup(snapshot) {
                             </select>
                         </label>
                         <span class="calibration-pill ${escapeHtml(calibration.status)}">${escapeHtml(calibration.status)}</span>
-                        <button class="button button-secondary sensor-skip" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Skip calibration</button>
+                        <button class="button button-secondary sensor-skip" data-icon="skip-forward" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Skip calibration</button>
                     </div>
                 </div>
                 <div class="calibration-points">
@@ -776,8 +776,8 @@ function calibrationMarkup(snapshot) {
                 <span>No software calibration is configured for this sensor yet. Verify the signal is plausible and stable.</span>
             </div>
             <div class="calibration-actions">
-                <button class="button button-secondary sensor-skip" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Skip check</button>
-                <button class="button button-primary sensor-confirm" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Mark checked</button>
+                <button class="button button-secondary sensor-skip" data-icon="skip-forward" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Skip check</button>
+                <button class="button button-primary sensor-confirm" data-icon="badge-check" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Mark checked</button>
             </div>
         </div>`;
 }
@@ -786,7 +786,7 @@ function sensorCalibrationEntry(snapshot) {
     const markup = calibrationMarkup(snapshot);
     if (!markup) return "";
     if (snapshot.type === "virtual_froth_interface") return markup;
-    return '<button class="button button-secondary open-calibration-drawer" data-sensor-id="' +
+    return '<button class="button button-secondary open-calibration-drawer" data-icon="sliders" data-sensor-id="' +
         escapeHtml(snapshot.id) + '" type="button">Calibrate / review ' +
         escapeHtml(snapshot.name || snapshot.type || "sensor") + '</button>';
 }
@@ -851,6 +851,7 @@ function renderCards() {
         }
     }
     bindCalibrationControls();
+    window.DigiFlotIcons?.decorate(el.sensorGrid);
     renderCalibrationDrawer();
     updateCalibrationProgress();
 }
@@ -907,6 +908,7 @@ function updateCard(snapshot) {
     if (host) {
         host.innerHTML = sensorCalibrationEntry(snapshot);
         bindCalibrationControls(host);
+        window.DigiFlotIcons?.decorate(host);
     }
     // Live samples must not rebuild an open modal form; that would erase draft
     // calibration values and interrupt the operator's focus on every reading.
@@ -1081,6 +1083,7 @@ function renderCalibrationDrawer() {
     el.calibrationDrawerTitle.textContent = `${snapshot.name || snapshot.id} · calibration`;
     el.calibrationDrawerBody.innerHTML = calibrationMarkup(snapshot);
     bindCalibrationControls(el.calibrationDrawerBody);
+    window.DigiFlotIcons?.decorate(el.calibrationDrawerBody);
 }
 
 function bindCalibrationControls(root = document) {
