@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from api.local import get_local_directory, read_local_experiment, read_runtime_state
@@ -947,8 +947,12 @@ def clear_results_cache(storage_id: str):
 @router.get("/{storage_id}/video")
 def get_browser_video(
     storage_id: str,
+    request: Request,
     path: str = Query(...),
 ):
+    # Legacy transcoding is also forbidden during experiment preparation/run.
+    if request.app.state.digiflot.state != "Idle":
+        raise HTTPException(status_code=409, detail="Video playback requires DigiFlot to be Idle.")
     directory = get_local_directory(storage_id)
     file_path = _safe_relative_path(directory, path)
     if file_path.suffix.lower() not in _VIDEO_SUFFIXES:
