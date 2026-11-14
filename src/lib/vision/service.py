@@ -678,7 +678,8 @@ class VisionService:
         datum = resolve_vertical_reference(config, association)
         if camera.recording:
             raise RuntimeError("Stop recording before testing this sensor")
-        planned_size = self._desired_lores_size(camera, association, config)
+        planned_size = (camera.recording_lores_size() if hasattr(camera, "recording_lores_size")
+                        else self._desired_lores_size(camera, association, config))
         # No Picamera2 reconfiguration here: the benchmark uses the same
         # camera-owned lores width as preview and the production recording.
         initial_signature = self._virtual_signature()
@@ -839,7 +840,9 @@ class VisionService:
                     "vertical_reference": deepcopy(datum),
                     "association": deepcopy(association), "profile": deepcopy(profile),
                     "config": config, "benchmark": self.virtual_test_result(),
-                    "lores_size": list(camera.analysis_target_size), "frozen_at": _utc()}
+                    "lores_size": list(camera.recording_lores_size() if hasattr(camera, "recording_lores_size")
+                                       else self._desired_lores_size(camera, association, config)),
+                    "frozen_at": _utc()}
         directory = Path(directory)
         # Cell reference can be refined after the physical cell was selected.
         # Freeze its most recent definition alongside the exact sensor datum.
