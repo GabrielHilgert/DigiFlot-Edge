@@ -606,8 +606,8 @@ function ensureSensorCard(sensor) {
     card.innerHTML = virtual ? `
         <div class="live-sensor-head"><div><h3></h3><span class="live-sensor-status"></span></div>
             <div class="run-virtual-actions">
-                <button class="plot-toggle" type="button" data-image-toggle="1">Hide image</button>
-                <button class="plot-toggle" type="button" data-plot-toggle="${escapeHtml(key)}">Hide plot</button>
+                <button class="plot-toggle" type="button" data-image-toggle="1" data-icon="image-off" data-icon-only>Hide image</button>
+                <button class="plot-toggle" type="button" data-plot-toggle="${escapeHtml(key)}" data-icon="eye-off" data-icon-only>Hide plot</button>
             </div></div>
         <div class="run-virtual-layout">
             <div class="run-virtual-image-frame"><div class="run-virtual-image-surface">
@@ -627,12 +627,13 @@ function ensureSensorCard(sensor) {
                 <h3></h3>
                 <span class="live-sensor-status"></span>
             </div>
-            <button class="plot-toggle" type="button" data-plot-toggle="${escapeHtml(key)}">Hide plot</button>
+            <button class="plot-toggle" type="button" data-plot-toggle="${escapeHtml(key)}" data-icon="eye-off" data-icon-only>Hide plot</button>
         </div>
         <div class="live-sensor-reading">—</div>
         <div class="live-sensor-age">—</div>
         <div class="sensor-sparkline-wrap"><canvas class="sensor-sparkline" aria-label="Recent sensor values"></canvas></div>`;
     ui.live_sensor_grid.appendChild(card);
+    window.DigiFlotIcons?.decorate(card);
     return card;
 }
 
@@ -656,7 +657,11 @@ function renderLiveSensors(state) {
             card.classList.toggle("live-sensor-card-wide", !imageHidden);
             card.classList.toggle("virtual-image-hidden", imageHidden);
             card.querySelector(".run-virtual-image-frame").hidden = imageHidden;
-            card.querySelector("[data-image-toggle]").textContent = imageHidden ? "Show image" : "Hide image";
+            const imageControl = card.querySelector("[data-image-toggle]");
+            const imageLabel = imageHidden ? "Show image" : "Hide image";
+            if (window.DigiFlotIcons) window.DigiFlotIcons.set(imageControl,
+                imageHidden ? "image" : "image-off", imageLabel, true);
+            else imageControl.textContent = imageLabel;
         }
         card.querySelector("h3").textContent = sensor.name || sensor.id;
         const status = card.querySelector(".live-sensor-status");
@@ -677,7 +682,10 @@ function renderLiveSensors(state) {
         const wrap = card.querySelector(".sensor-sparkline-wrap");
         const toggle = card.querySelector("[data-plot-toggle]");
         wrap.hidden = hidden;
-        toggle.textContent = hidden ? "Show plot" : "Hide plot";
+        const plotLabel = hidden ? "Show plot" : "Hide plot";
+        if (window.DigiFlotIcons) window.DigiFlotIcons.set(toggle,
+            hidden ? "eye" : "eye-off", plotLabel, true);
+        else toggle.textContent = plotLabel;
         if (!hidden) drawSensorPlot(card.querySelector(".sensor-sparkline"), sensor.id);
         if (sensor.type === "virtual_froth_interface" && monitorFrame && !imageHidden)
             updateRunMonitorFrame(card, monitorFrame);
