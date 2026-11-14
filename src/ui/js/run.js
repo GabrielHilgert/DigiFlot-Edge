@@ -4,7 +4,6 @@ let physicalCells = [];
 let physicalCellChoicesSignature = "";
 let lastScrapingSequence = null;
 let audioContext = null;
-let scrapeFlashTimer = null;
 const sensorPlotHistory = new Map();
 const hiddenSensorPlots = new Set();
 const lastSensorPlotTimestamp = new Map();
@@ -543,6 +542,9 @@ function drawSensorPlot(canvas, sensorId) {
     const ratio = Math.min(2, window.devicePixelRatio || 1);
     const width = Math.max(1, Math.round(rect.width * ratio));
     const height = Math.max(1, Math.round(rect.height * ratio));
+    const signature = history.length + ":" + (history.at(-1)?.timestamp ?? "");
+    if (canvas.dataset?.drawnSignature === signature && canvas.width === width && canvas.height === height) return;
+    if (canvas.dataset) canvas.dataset.drawnSignature = signature;
     if (canvas.width !== width || canvas.height !== height) {
         canvas.width = width; canvas.height = height;
     }
@@ -1154,6 +1156,8 @@ function renderError(state) {
 function render(state) {
     if(monitorRunId!==state.storage_id){
         monitorRunId=state.storage_id;monitorFrame=null;monitorFrameRevision=0;
+        lastScrapingSequence=null;
+        ui.scrape_signal?.classList.remove("show");
     }
     latestState = state;
     document.body.dataset.runState = String(state.state || "idle").toLowerCase();
@@ -1213,21 +1217,29 @@ function beep() {
 }
 
 function handleScrapingSignal(state) {
-    const sequence = Number(state.scraping?.sequence || 0);
-    if (lastScrapingSequence === null) {
+    const scraping = state.scraping || {}, sequence = Number(scraping.sequence || 0);
+    const active = state.state === "Running" && state.stage_state === "Active" && scraping.enabled;
+    if (!active || document.hidden) {
+        ui.scrape_signal.classList.remove("show");
         lastScrapingSequence = sequence;
         return;
     }
-    if (sequence <= lastScrapingSequence) return;
+    const previous = lastScrapingSequence;
     lastScrapingSequence = sequence;
-    if (state.scraping?.alerts_enabled === false) {
+    if (sequence <= 0 || (previous !== null && sequence <= previous)) return;
+    // A late SSE update must never replay a stale scraping event.
+    const age = Number(scraping.age_s);
+    if (scraping.age_s == null || !Number.isFinite(age) || age > 1.7) return;
+    if (scraping.method === "audio") beep();
+    if (scraping.alerts_enabled === false) {
         ui.scrape_signal.classList.remove("show");
         return;
     }
-    beep();
+    ui.scrape_signal.dataset.style = scraping.alert_style === "banner" ? "banner" : "fullscreen";
+    // Restart the CSS animation. The compositor itself ends it after 0.8 s.
+    ui.scrape_signal.classList.remove("show");
+    void ui.scrape_signal.offsetWidth;
     ui.scrape_signal.classList.add("show");
-    window.clearTimeout(scrapeFlashTimer);
-    scrapeFlashTimer = window.setTimeout(() => ui.scrape_signal.classList.remove("show"), 700);
 }
 
 async function action(url, body = null) {
@@ -1319,7 +1331,6 @@ function bindActions() {
         const selected = ui.scraping_alerts_enabled.checked;
         if (!selected) {
             ui.scrape_signal.classList.remove("show");
-            window.clearTimeout(scrapeFlashTimer);
         }
         ui.scraping_alerts_enabled.disabled = true;
         try {
