@@ -129,8 +129,11 @@
         }
         try {
             const response = await originalFetch(input, options);
+            const diagnosticStart = url.pathname === "/api/vision/virtual-sensors/froth-interface/diagnostics"
+                && (() => {try {return JSON.parse(options.body || "{}").enabled === true;} catch (_) {return false;}})();
             if ((url.pathname.match(/^\/api\/cameras\/\d+\/preview\/start$/) ||
-                    url.pathname === "/api/vision/virtual-sensors/froth-interface/detection-roi-preview") && response.ok) {
+                    url.pathname === "/api/vision/virtual-sensors/froth-interface/detection-roi-preview" ||
+                    diagnosticStart) && response.ok) {
                 ownedPreview = true;
                 startLease();
             } else if (url.pathname === "/api/cameras/preview/stop" && response.ok) {
