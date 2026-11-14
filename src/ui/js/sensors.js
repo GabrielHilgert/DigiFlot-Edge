@@ -405,13 +405,19 @@ function drawVirtualTestTimeline() {
     const lo=Math.min(...points),hi=Math.max(...points),pad=Math.max((hi-lo)*.1,.1),ymin=lo-pad,ymax=hi+pad;
     const tmax=Math.max(1,...series.map(item=>Number(item.time_s)||0));
     const xOf=t=>left+(Number(t)||0)/tmax*plotW;
-    const yOf=v=>top+(ymax-Number(v))/(ymax-ymin)*plotH;
+    const reference=virtualProfileData?.reference_resolved;
+    const downward=reference?.direction==="down";
+    const yOf=v=>top+(downward ? Number(v)-ymin : ymax-Number(v))/(ymax-ymin)*plotH;
+    const axis=document.getElementById("virtual_test_axis");
+    if(axis)axis.textContent=(downward?"Depth ↓":"Height ↑")+
+        " from "+(reference?.name||String(reference?.mode||"reference").replaceAll("_"," "))+" · cm";
     const css=getComputedStyle(document.documentElement);
     ctx.font="11px system-ui";ctx.fillStyle=css.getPropertyValue("--text-soft").trim()||"#64748b";
     ctx.strokeStyle=css.getPropertyValue("--chart-grid").trim()||"#cbd5e1";ctx.lineWidth=1;
     for(let i=0;i<=4;i++){
         const y=top+i*plotH/4;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(width-right,y);ctx.stroke();
-        ctx.fillText((ymax-i*(ymax-ymin)/4).toFixed(1),3,y+4);
+        ctx.fillText((downward ? ymin+i*(ymax-ymin)/4 :
+            ymax-i*(ymax-ymin)/4).toFixed(1),3,y+4);
     }
     for(let i=0;i<=4;i++){const t=i*tmax/4;ctx.fillText(t.toFixed(tmax<10?1:0)+" s",xOf(t)-12,height-10);}
     keys.forEach(([key,color])=>{
@@ -1114,6 +1120,10 @@ function updateCard(snapshot) {
         card.querySelector(".virtual-froth").textContent = unitValue("froth_surface_cm");
         card.querySelector(".virtual-pulp").textContent = unitValue("pulp_froth_interface_cm");
         card.querySelector(".virtual-thickness").textContent = unitValue("froth_thickness_cm");
+        const ref=snapshot.reference, datumName=ref?.name||String(ref?.mode||"reference").replaceAll("_"," ");
+        card.querySelector(".virtual-chart-legend small").textContent=ref ?
+            (ref.direction==="down"?"Depth ↓":"Height ↑")+" from "+datumName+" · cm" :
+            "Awaiting physical reference";
         card.querySelector(".chart-empty").textContent = snapshot.status === "offline" ? "Camera unavailable" :
             snapshot.measurement_mode === "waiting" ? "Waiting for live lores acquisition. Test results are not plotted." :
             snapshot.reading_valid === false ? "Detection invalid: waiting for a valid interface" : "Acquiring live interface positions…";
@@ -1162,9 +1172,14 @@ function appendHistory(sensorId, timestamp, value, unit) {
 
 function appendVirtualHistory(snapshot) {
     const id = String(snapshot.id), history = state.histories.get(id) || [];
+    const ref=snapshot.reference;
+    const referenceKey=JSON.stringify([snapshot.source_camera_id,snapshot.physical_cell_id,
+        ref?.mode,ref?.reference_id,ref?.direction,ref?.y_cm]);
+    if (history.length && history.at(-1).referenceKey !== referenceKey) history.length=0;
     if (history.at(-1)?.timestamp === snapshot.timestamp_ms) return;
     const numberOrNull = value => value == null || !Number.isFinite(Number(value)) ? null : Number(value);
-    history.push({timestamp:snapshot.timestamp_ms, upper:numberOrNull(snapshot.channels?.froth_surface_cm),
+    history.push({timestamp:snapshot.timestamp_ms, referenceKey, direction:ref?.direction||"up",
+        upper:numberOrNull(snapshot.channels?.froth_surface_cm),
         lower:numberOrNull(snapshot.channels?.pulp_froth_interface_cm), unit:"cm"});
     if (history.length > HISTORY_LIMIT) history.shift();
     state.histories.set(id, history);
@@ -1182,7 +1197,11 @@ function drawVirtualChart(ctx, width, height, history, card) {
     const t0=history[0].timestamp, t1=history.at(-1).timestamp;
     const left=14, right=14, upper=12, lower=14, plotWidth=width-left-right, plotHeight=height-upper-lower;
     const xOf=(sample,index)=>left+plotWidth*(t1>t0 ? (sample.timestamp-t0)/(t1-t0) : index/Math.max(1,history.length-1));
-    const yOf=value=>upper+plotHeight*(1-(value-bottom)/(top-bottom));
+    // Height from a bottom datum increases up; depth from a top datum
+    // increases down. Keep the boundary order identical to the camera image.
+    const downward=history.at(-1)?.direction==="down";
+    const yOf=value=>upper+plotHeight*(downward ?
+        (value-bottom)/(top-bottom) : 1-(value-bottom)/(top-bottom));
     const css=getComputedStyle(document.documentElement);
     ctx.strokeStyle=css.getPropertyValue("--chart-grid").trim() || "#394350";
     ctx.lineWidth=1;
