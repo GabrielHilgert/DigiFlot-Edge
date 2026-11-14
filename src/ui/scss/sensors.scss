@@ -137,3 +137,69 @@ a { color: inherit; text-decoration: none; }
   .calibration-drawer-header { align-items:stretch; flex-direction:column; }
   .ph-mode-label { align-items:stretch; flex-direction:column !important; }
 }
+
+/* HIFIE calibration: safe viewport-sized editor with fixed header and actions. */
+.sensor-virtual .calibration-block { flex-direction:column; align-items:stretch; min-width:0; }
+.sensor-virtual .calibration-block > div:first-child { min-width:0; overflow-wrap:anywhere; }
+.sensor-virtual .calibration-actions { flex-wrap:wrap; min-width:0; width:100%; justify-content:flex-start; }
+.sensor-virtual .calibration-actions .button { white-space:normal; min-width:0; max-width:100%; overflow-wrap:anywhere; }
+.sensor-virtual .sensor-reading-row { grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); }
+.sensor-virtual .reading-details { min-width:0; }
+.sensor-virtual .reading-details > div { padding:8px 6px; }
+@media(max-width:760px) {
+  .sensor-virtual .sensor-reading-row { grid-template-columns:minmax(0,1fr); }
+  .sensor-virtual .calibration-actions { align-items:stretch; }
+}
+
+.virtual-panel.calibration-modal[open] { display:flex; flex-direction:column; box-sizing:border-box;
+    width:min(1440px,96vw); height:min(94dvh,1100px); max-height:94dvh; max-width:96vw;
+    padding:0; overflow:hidden; }
+.virtual-panel.calibration-modal > :not(.virtual-panel-header) { margin-left:0; margin-right:0; }
+.virtual-panel.calibration-modal .virtual-panel-header { position:relative; flex:0 0 auto; top:auto; display:flex;
+    flex-direction:row; align-items:center; gap:18px; justify-content:space-between;
+    margin:0; padding:14px 24px; z-index:2; }
+.virtual-panel-header .virtual-panel-heading { flex:1; min-width:0; overflow-wrap:anywhere; }
+.virtual-panel-header .virtual-panel-heading h2 { margin:2px 0 0; font-size:1.25rem; line-height:1.25; }
+.virtual-panel-header .virtual-panel-heading p { margin:5px 0 0; font-size:.8rem; overflow-wrap:anywhere; }
+.virtual-panel-header #virtual_close { flex:0 0 auto; margin-left:auto; }
+.virtual-panel.calibration-modal .virtual-panel-body { flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden;
+    padding:20px 24px; overscroll-behavior:contain; }
+.virtual-panel-body #virtual_editor { min-width:0; }
+.virtual-panel.calibration-modal .virtual-modal-footer { flex:0 0 auto; display:flex; gap:10px; flex-wrap:wrap;
+    align-items:center; justify-content:flex-end; padding:12px 24px;
+    border-top:1px solid var(--border); background:var(--surface); }
+.virtual-panel.calibration-modal .virtual-diagnostics { margin:0 0 20px; padding:0 0 18px; border-top:0;
+    border-bottom:1px solid var(--border); }
+.virtual-panel.calibration-modal .virtual-roi-config { margin:14px 0 20px; padding:18px; min-width:0; }
+.virtual-panel.calibration-modal .virtual-roi-stage { width:100%; max-width:1000px; }
+.virtual-panel.calibration-modal .virtual-reference-config { margin:18px 0 0; padding:18px 0 0;
+    border:0; border-top:1px solid var(--border); border-radius:0; background:transparent; }
+.virtual-panel.calibration-modal .virtual-method-section { margin:18px 0; border:1px solid var(--border);
+    border-radius:var(--radius-md); background:var(--surface-soft); overflow:hidden; }
+.virtual-method-section > summary { padding:16px 18px; display:flex; align-items:center; cursor:pointer;
+    font-size:.97rem; font-weight:700; }
+.virtual-method-section > summary small { display:block; margin-top:3px; font-size:.76rem; font-weight:400; color:var(--text-soft); }
+.virtual-method-section[open] > summary { border-bottom:1px solid var(--border); }
+.virtual-method-body { padding:16px 18px; }
+.virtual-method-body > p { margin:0 0 14px; color:var(--text-soft); font-size:.8rem; }
+.virtual-advanced-heading { margin:18px 0 9px; font-size:.84rem; font-weight:750; }
+.virtual-advanced { margin:0; gap:8px; min-width:0; }
+.virtual-advanced details { min-width:0; }
+.virtual-presets { min-width:0; margin:0 0 17px; padding:13px; border:1px solid var(--border);
+    border-radius:var(--radius-sm); background:var(--surface); }
+.virtual-presets label { display:block; margin-bottom:8px; font-size:.82rem; font-weight:700; }
+.virtual-preset-actions { display:flex; gap:9px; flex-wrap:wrap; }
+.virtual-preset-actions select { flex:1 1 240px; min-width:0; min-height:41px; padding:7px 10px;
+    background:var(--surface); color:var(--text); border:1px solid var(--border-strong);
+    border-radius:var(--radius-sm); }
+.virtual-presets small { display:block; margin-top:8px; color:var(--text-soft); font-size:.75rem; }
+.virtual-panel.calibration-modal .virtual-message { margin:15px 0; }
+@media(max-width:760px) {
+  .virtual-panel.calibration-modal[open] { width:calc(100vw - 12px); max-width:calc(100vw - 12px); max-height:96dvh; height:96dvh; }
+  .virtual-panel.calibration-modal .virtual-panel-header { padding:12px; flex-direction:row; align-items:center; }
+  .virtual-panel.calibration-modal .virtual-panel-body { padding:12px; }
+  .virtual-panel.calibration-modal .virtual-modal-footer { padding:10px 12px; gap:7px; }
+  .virtual-panel.calibration-modal .virtual-modal-footer .button { flex:1 1 auto; width:auto; }
+  .virtual-panel.calibration-modal .virtual-roi-config { padding:12px; }
+  .virtual-method-body { padding:12px; }
+}
