@@ -226,3 +226,27 @@ a { color: inherit; text-decoration: none; }
 
 /* A flex button must obey the hidden state set by the workflow controller. */
 #cancel_calibration_edit[hidden] { display:none !important; }
+
+/* Calibration editors are dialogs, not expanding content below the sensor grid. */
+.calibration-modal { position:fixed; inset:0; width:min(1040px,calc(100vw - 36px)); max-width:100%;
+    max-height:min(90dvh,980px); margin:auto; padding:0; border:1px solid var(--border-strong);
+    border-radius:var(--radius-lg); background:var(--surface); color:var(--text);
+    box-shadow:0 12px 36px rgba(0,0,0,.18); overflow:auto; overscroll-behavior:contain; scrollbar-width:thin; }
+.calibration-modal:not([open]) { display:none !important; }
+.calibration-modal::backdrop { background:rgba(8,16,24,.32); }
+.calibration-drawer.calibration-modal { margin:auto; }
+.calibration-drawer.calibration-modal .calibration-drawer-header,
+.virtual-panel.calibration-modal .virtual-panel-header { position:sticky; top:0; z-index:5; background:var(--surface);
+    border-bottom:1px solid var(--border); padding:14px 20px; margin:0; }
+.calibration-drawer.calibration-modal #calibration_drawer_body { padding:4px 0 16px; }
+.virtual-panel.calibration-modal { margin:auto; padding:0; }
+.virtual-panel.calibration-modal > :not(.virtual-panel-header) { margin-left:20px; margin-right:20px; }
+.virtual-panel.calibration-modal > :last-child { margin-bottom:20px; }
+.calibration-modal:focus-visible { outline:none; }
+@media(max-width:680px) {
+    .calibration-modal { width:calc(100vw - 14px); max-height:94dvh; border-radius:var(--radius-md); }
+    .virtual-panel.calibration-modal .virtual-panel-header, .calibration-drawer.calibration-modal .calibration-drawer-header {
+        padding:12px; gap:8px; flex-direction:row; align-items:center;
+    }
+    .virtual-panel.calibration-modal > :not(.virtual-panel-header) { margin-left:12px; margin-right:12px; }
+}
