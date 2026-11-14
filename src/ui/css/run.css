@@ -92,6 +92,7 @@ a { color: inherit; text-decoration: none; }
 .completion-panel p, .error-panel p { color:var(--text-soft); }
 .completion-panel .button-group, .error-panel .button-group { justify-content:center; margin-top:20px; }
 .abort-bar { display:flex; justify-content:space-between; align-items:center; gap:18px; margin-top:18px; border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; background:var(--surface); color:var(--text-soft); }
+#abort_bar[hidden] { display:none !important; }
 .scrape-signal { position:fixed; inset:0; z-index:100; display:grid; place-items:center; pointer-events:none; opacity:0; background:rgba(207, 104, 0, .88); color:white; transition:opacity .12s ease; }
 .scrape-signal span { font-size:clamp(4rem,12vw,10rem); font-weight:900; letter-spacing:-.05em; }
 .scrape-signal.show { opacity:1; }
@@ -464,19 +465,17 @@ body[data-run-layout="compact"] .live-sensor-panel > .card-body { padding:15px; 
 @media(min-width:1101px) {
   body[data-run-layout="compact"] .run-workspace.is-dashboard {
     display:grid; grid-template-columns:minmax(0,1.7fr) minmax(345px,.96fr);
-    grid-template-areas:"sensors action" "sensors acquisition" "sensors abort";
+    grid-template-areas:"sensors action" "sensors acquisition";
     align-items:start; gap:12px 14px;
   }
   body[data-run-layout="compact"] .run-workspace.is-dashboard > .live-sensor-panel { grid-area:sensors; min-width:0; align-self:start; }
   body[data-run-layout="compact"] .run-workspace.is-dashboard > #ready_panel,
   body[data-run-layout="compact"] .run-workspace.is-dashboard > #run_panel { grid-area:action; min-width:0; }
   body[data-run-layout="compact"] .run-workspace.is-dashboard > #measurement_launcher { grid-area:acquisition; min-width:0; }
-  body[data-run-layout="compact"] .run-workspace.is-dashboard > #abort_bar { grid-area:abort; min-width:0; }
   body[data-run-layout="compact"] .run-workspace.is-dashboard > .panel { margin:0; }
-  body[data-run-layout="compact"] .run-workspace.is-dashboard > #abort_bar { margin:0; }
   /* Expanding the data editor grants both columns to its tables and form. */
   body[data-run-layout="compact"] .run-workspace.is-dashboard.acquisition-expanded {
-    grid-template-areas:"sensors action" "sensors abort" "acquisition acquisition";
+    grid-template-areas:"sensors action" "acquisition acquisition";
   }
 }
 body[data-run-layout="compact"] #ready_panel > .card-header { min-height:auto; padding:12px 14px; }
@@ -521,7 +520,6 @@ body[data-run-layout="compact"] .abort-bar .button { min-height:35px; font-size:
   body[data-run-layout="compact"] .run-workspace > #completed_panel { order:1; }
   body[data-run-layout="compact"] .run-workspace > .live-sensor-panel { order:2; }
   body[data-run-layout="compact"] .run-workspace > #measurement_launcher { order:3; }
-  body[data-run-layout="compact"] .run-workspace > #abort_bar { order:4; }
 }
 @media(max-width:680px) {
   .run-header-tools { align-items:flex-start; }
@@ -590,15 +588,14 @@ body[data-run-layout="compact"] .workflow-full .workflow-step strong { font-size
 .calibration-review-action:hover { color:var(--interactive-text); border-color:var(--accent); }
 .calibration-review-action:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 body[data-run-layout="compact"] .calibration-review-strip { display:block; padding:0; margin-bottom:10px; }
-body[data-run-layout="compact"] .calibration-review-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:6px; padding:0 10px 10px; }
+body[data-run-layout="compact"] .calibration-review-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:6px; padding:10px 10px 10px; }
 body[data-run-layout="compact"] .calibration-review-item { min-height:51px; }
 body[data-run-layout="compact"] .calibration-review-heading { display:none; }
 @media(prefers-reduced-motion:reduce) { .calibration-review-chevron { transition:none; } }
 
-/* Preserve the original automatic sensor placement; do not stretch normal cards to froth height. */
-body[data-run-layout="compact"] .live-sensor-card:not(.live-sensor-card-virtual) { height:166px; min-height:166px; align-self:start; }
-@media(max-width:520px) {
-  body[data-run-layout="compact"] .live-sensor-card:not(.live-sensor-card-virtual) { height:auto; min-height:166px; }
+/* Sensor content grows naturally; normal cards need only a minimum height. */
+body[data-run-layout="compact"] .live-sensor-card:not(.live-sensor-card-virtual) {
+  min-height:166px; align-self:start; display:flex; flex-direction:column; flex-wrap:wrap;
 }
 
 #calibration_review_panel[hidden] { display:none !important; }
