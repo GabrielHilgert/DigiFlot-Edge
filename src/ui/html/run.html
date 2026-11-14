@@ -26,8 +26,8 @@
                     </span>
                 </div>
                 <div class="run-layout-switch" role="group" aria-label="Run page layout">
-                    <button type="button" data-run-layout="standard" aria-pressed="false">Standard</button>
-                    <button type="button" data-run-layout="compact" aria-pressed="true">Compact</button>
+                    <button type="button" data-run-layout="standard" aria-pressed="false" data-icon="layout-dashboard" data-icon-only>Standard</button>
+                    <button type="button" data-run-layout="compact" aria-pressed="true" data-icon="rows-3" data-icon-only>Compact</button>
                 </div>
             </div>
         </header>
@@ -81,8 +81,8 @@
                 <div id="performance_summary" class="performance-summary">Not evaluated</div>
             </div>
             <div class="operations-actions">
-                <button id="operations_retry_devices" class="button button-secondary button-small" type="button">Retry devices</button>
-                <a id="run_performance_link" class="button button-secondary button-small" href="/performance">Performance</a>
+                <button id="operations_retry_devices" class="button button-secondary button-small" type="button" data-icon="refresh-cw" data-icon-only>Retry devices</button>
+                <a id="run_performance_link" class="button button-secondary button-small" href="/performance" data-icon="activity" data-icon-only>Performance</a>
             </div>
         </section>
 
@@ -139,7 +139,7 @@
 <div class="run-cell-references">
                     <div><strong>Cell &amp; physical references</strong>
                     <p id="run_reference_state">Review saved reference points after camera calibration. Outlet level is the named default.</p></div>
-                    <a id="open_cell_references" class="button button-secondary" href="/cells">Open Cells</a>
+                    <a id="open_cell_references" class="button button-secondary" href="/cells" data-icon="external-link">Open Cells</a>
                 </div>
                 
                 <div>
@@ -224,7 +224,7 @@
                             </div>
                         </div>
     
-                        <button id="capture_measurement_button" class="button button-primary" type="submit">Capture measurement</button>
+                        <button id="capture_measurement_button" class="button button-primary" type="submit" data-icon="badge-check">Capture measurement</button>
                         <p id="measurement_form_hint" class="measurement-form-hint">Select Feed mass or Water volume from Variables to record the initial condition. Source defaults to a compatible sensor when available; manual entry remains possible.</p>
                     </form>
     
@@ -275,7 +275,7 @@
             </div>
             <div class="card-body ready-layout">
                 <div id="ready_stage" class="stage-summary"></div>
-                <button id="start_first_stage" class="button button-primary button-large" type="button">
+                <button id="start_first_stage" class="button button-primary button-large" type="button" data-icon="play">
                     Start Stage 1
                 </button>
             </div>
@@ -327,11 +327,11 @@
             </div>
 
             <div class="run-actions">
-                <button id="start_now_button" class="button button-primary" type="button" hidden>Start now</button>
-                <button id="finish_stage_button" class="button button-secondary" type="button">Finish early</button>
-                <button id="skip_stage_button" class="button button-danger" type="button">Abort stage</button>
-                <button id="pause_button" class="button button-warning" type="button">Pause</button>
-                <button id="resume_button" class="button button-primary" type="button" hidden>Resume</button>
+                <button id="start_now_button" class="button button-primary" type="button" hidden data-icon="play">Start now</button>
+                <button id="finish_stage_button" class="button button-secondary" type="button" data-icon="skip-forward">Finish early</button>
+                <button id="skip_stage_button" class="button button-danger" type="button" data-icon="x">Abort stage</button>
+                <button id="pause_button" class="button button-warning" type="button" data-icon="pause">Pause</button>
+                <button id="resume_button" class="button button-primary" type="button" hidden data-icon="play">Resume</button>
             </div>
         </section>
 
@@ -341,7 +341,7 @@
             <p>All acquisition streams were finalized and the execution metadata was saved.</p>
             <div class="button-group">
                 <a class="button button-secondary" href="/">Experiments</a>
-                <button id="reset_button" class="button button-primary" type="button">Close run</button>
+                <button id="reset_button" class="button button-primary" type="button" data-icon="x">Close run</button>
             </div>
         </section>
 
@@ -350,14 +350,14 @@
             <p id="error_message">—</p>
             <div id="recovery_details" class="recovery-details" hidden></div>
             <div id="recovery_actions" class="button-group" hidden>
-                <button id="retry_devices_button" class="button button-secondary" type="button">Retry devices</button>
-                <button id="recovery_resume_button" class="button button-primary" type="button">Resume stage</button>
-                <button id="restart_stage_button" class="button button-warning" type="button">Restart stage</button>
-                <button id="recovery_skip_button" class="button button-secondary" type="button">Abort stage</button>
-                <button id="recovery_abort_button" class="button button-danger" type="button">Abort experiment</button>
+                <button id="retry_devices_button" class="button button-secondary" type="button" data-icon="refresh-cw">Retry devices</button>
+                <button id="recovery_resume_button" class="button button-primary" type="button" data-icon="play">Resume stage</button>
+                <button id="restart_stage_button" class="button button-warning" type="button" data-icon="rotate-ccw">Restart stage</button>
+                <button id="recovery_skip_button" class="button button-secondary" type="button" data-icon="x">Abort stage</button>
+                <button id="recovery_abort_button" class="button button-danger" type="button" data-icon="x">Abort experiment</button>
             </div>
             <div id="error_close_actions" class="button-group">
-                <button id="error_reset_button" class="button button-primary" type="button">Close run</button>
+                <button id="error_reset_button" class="button button-primary" type="button" data-icon="x">Close run</button>
                 <a class="button button-secondary" href="/">Experiments</a>
             </div>
         </section>
@@ -365,7 +365,7 @@
         </div>
         <div id="abort_bar" class="abort-bar" hidden>
             <span>Execution data are saved continuously.</span>
-            <button id="abort_button" class="button button-danger" type="button">Abort experiment</button>
+            <button id="abort_button" class="button button-danger" type="button" data-icon="x">Abort experiment</button>
         </div>
     </main>
 
