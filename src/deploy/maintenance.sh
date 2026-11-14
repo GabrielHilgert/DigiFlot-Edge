@@ -321,6 +321,7 @@ update_repo() {
     fi
     if (( needs_restart )); then
         log "Backend sources/configuration changed; restarting backend."
+        assert_safe
         systemctl restart "$SERVICE"
     else
         log "No backend restart needed (browser/frontend/deployment-only update)."
@@ -339,6 +340,7 @@ case "$ACTION" in
         assert_safe
         sync_integration
         if (( SYNC_BACKEND_UNIT_CHANGED )); then
+            assert_safe
             systemctl restart "$SERVICE"
         fi
         ;;
