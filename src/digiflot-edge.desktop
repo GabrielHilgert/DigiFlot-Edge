@@ -1,10 +1,10 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Digiflot Edge
-Comment=Digiflot Edge Launcher
-Exec=bash -c 'cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && ./launch.sh'
+Name=DigiFlot Edge
+Comment=Open the single DigiFlot Chromium fullscreen window
+Exec=/usr/local/bin/digiflot-edge-open
 Icon=digiflot-edge-icon
-Terminal=true
+Terminal=false
 Categories=Science;Education;
-Name[en_US]=digiflot-edge.desktop
+StartupNotify=true
