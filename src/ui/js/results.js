@@ -869,7 +869,7 @@ function drawNumericTrack(track, canvas, points, mode = "line") {
 function eventColor(category) {
     return {
         warning: cssVar("--warning", "#D08A28"),
-        stage: cssVar("--accent", "#2f6fed"),
+        stage: cssVar("--plot-froth", "#55BAE7"),
         camera: cssVar("--preview", "#7254d8"),
         sensor: cssVar("--success", "#18845b"),
         other: cssVar("--plot-muted", "#c6cdd5"),
@@ -921,7 +921,7 @@ function drawVideoTrack(track, canvas) {
         const x1 = xForTime(Math.max(start, state.viewStart), width, left, right);
         const x2 = xForTime(Math.min(Math.max(end, start + 0.1), state.viewEnd), width, left, right);
         ctx.fillStyle = video.needs_proxy ? "rgba(208,138,40,.32)" : "rgba(0,162,224,.33)";
-        ctx.strokeStyle = video.needs_proxy ? cssVar("--warning", "#c47a12") : cssVar("--preview", "#7254d8");
+        ctx.strokeStyle = video.needs_proxy ? cssVar("--warning", "#D08A28") : cssVar("--plot-froth-upper", "#29AEE4");
         ctx.fillRect(x1, top, Math.max(2, x2 - x1), barHeight);
         ctx.strokeRect(x1, top, Math.max(2, x2 - x1), barHeight);
     }
