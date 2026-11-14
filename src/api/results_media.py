@@ -139,7 +139,7 @@ class ResultsMediaSession:
             process = subprocess.Popen(command, stdout=subprocess.PIPE,
                                        stderr=subprocess.DEVNULL, bufsize=0,
                                        start_new_session=(os.name == "posix"))
-            if os.name == "posix" and hasattr(os, "setpriority"):
+            if os.name == "posix" and hasattr(os, "setpriority") and getattr(process, "pid", None):
                 try:
                     os.setpriority(os.PRIO_PROCESS, process.pid, 10)
                 except OSError:
