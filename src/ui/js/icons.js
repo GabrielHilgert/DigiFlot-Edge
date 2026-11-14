@@ -30,6 +30,7 @@
         "wand":'<path d="m4 20 12-12 4 4-12 12zM3 5V2m-2 3h4M18 2v4m-2-2h4M21 15v4m-2-2h4"/>',
         "check":'<path d="m4 12 5 5L20 6"/>',
         "badge-check":'<circle cx="12" cy="12" r="9"/><path d="m7 12 3 3 7-7"/>',
+        "circle-dashed":'<path d="M12 3a9 9 0 0 1 6.4 2.6M21 12a9 9 0 0 1-2.6 6.4M12 21a9 9 0 0 1-6.4-2.6M3 12a9 9 0 0 1 2.6-6.4"/>',
         "crop":'<path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14"/>',
         "maximize":'<path d="M8 3H3v5M3 3l6 6M16 3h5v5m0-5-6 6M3 16v5h5m-5 0 6-6M21 16v5h-5m5 0-6-6"/>',
         "scan":'<path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3M3 12h18"/>',
