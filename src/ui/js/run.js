@@ -16,7 +16,8 @@ let stageTimelineSignature = null;
 let readyViewSignature = null;
 let runStorageEstimateFor = null;
 let monitorFrameRevision = 0, monitorFrame = null, monitorBusy = false, monitorRunId = null;
-let imageHidden = false, measurementOpen = false, runLayout = "standard";
+let imageHidden = false, measurementOpen = false, runLayout = "compact";
+let calibrationReviewOpen = null;
 try {
     const preference = window.localStorage?.getItem("digiflot-run-layout");
     if (preference === "compact" || preference === "standard") runLayout = preference;
@@ -54,6 +55,11 @@ function cacheUi() {
         "run_workspace"
     ].forEach((id) => { ui[id] = document.getElementById(id); });
     ui.workflowSteps = [...document.querySelectorAll(".workflow-step")];
+    ui.workflowQuick = document.querySelector(".workflow-quick");
+    ui.workflowSetupToggle = document.getElementById("workflow_setup_toggle");
+    ui.workflowSetupLinks = document.getElementById("workflow_setup_links");
+    ui.calibrationReviewToggle = document.getElementById("toggle_calibration_review");
+    ui.calibrationReviewSummary = document.getElementById("calibration_review_summary");
     ui.layoutButtons = [...document.querySelectorAll("[data-run-layout]")];
 }
 
@@ -68,6 +74,7 @@ function applyRunLayout(value, persist = true) {
     }
     // Refit the existing plot canvases after their parent grid changes width.
     if (latestState) {
+        renderCalibrationReview(latestState);
         renderMeasurements(latestState);
         window.requestAnimationFrame?.(() => renderLiveSensors(latestState));
     }
@@ -155,6 +162,47 @@ function formatTime(seconds) {
     return `${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
 }
 
+function workflowAccess(step, data) {
+    const state = data.state || "Idle";
+    const locked = ["Running", "Paused", "RecoveryRequired"].includes(state);
+    if (locked && step !== "run") return {reason: "An experiment is active. Setup pages are locked until the execution finishes or is aborted."};
+    const targets = {
+        experiment: "/", camera: "/cameras", references: "/cells",
+        sensor: "/sensors", froth: "/sensors?review=froth_interface"
+    };
+    if (step === "run") {
+        return ["Running","Paused"].includes(state) ? {anchor:"run_panel"} :
+            {reason: state === "Ready" ? "Use Start Stage 1 to begin the run." : "The Run step is available only after starting the experiment."};
+    }
+    if (step === "ready") {
+        return state === "Ready" ? {anchor:"ready_panel"} :
+            {reason: state === "Running" || state === "Paused" ? "Ready is already complete. The experiment is running." : "Complete the required calibration steps before entering Ready."};
+    }
+    if (step === "experiment") return {url:"/"};
+    if (step === "references") {
+        return ["CellSelection","CameraCalibration","SensorCalibration","Ready","Completed","Aborted","Error","Idle"].includes(state) ?
+            {url:"/cells"} : {reason:"Cell references cannot be edited while a run is active."};
+    }
+    if (step === "camera") {
+        return ["CameraCalibration","SensorCalibration","Ready","Completed","Aborted","Error","Idle"].includes(state) ?
+            {url:state==="CameraCalibration" ? "/cameras?calibration=1" : "/cameras"} :
+            {reason:"First select a physical cell to prepare camera calibration."};
+    }
+    if (step === "sensor" || step === "froth") {
+        return ["SensorCalibration","Ready","Completed","Aborted","Error","Idle"].includes(state) ?
+            {url: step==="froth" ? "/sensors?review=froth_interface" : "/sensors"} :
+            {reason:"Complete cell and camera preparation before reviewing sensors."};
+    }
+    return {reason:"This workflow step is not available in the current state."};
+}
+
+function navigateWorkflow(step) {
+    const access = workflowAccess(step, latestState || {});
+    if (access.reason) { showToast(access.reason); return; }
+    if (access.anchor) { document.getElementById(access.anchor)?.scrollIntoView?.({behavior:"smooth",block:"start"}); return; }
+    if (access.url) window.location.href = access.url;
+}
+
 function setWorkflow(data) {
     const order=["experiment","camera","references","sensor","froth","ready","run"];
     const state=data.state||"Idle", calibrated=Object.values(data.calibration?.sensors||{});
@@ -166,10 +214,27 @@ function setWorkflow(data) {
     else if(state==="Ready")active=5;
     else if(["Running","Paused","Completed","Aborted","Error","RecoveryRequired"].includes(state))active=6;
     ui.workflowSteps.forEach(element=>{
-        const index=order.indexOf(element.dataset.step);
+        const index=order.indexOf(element.dataset.step), access=workflowAccess(element.dataset.step,data);
         element.classList.toggle("done",index<active||state==="Completed");
         element.classList.toggle("active",index===active&&state!=="Completed");
+        element.classList.toggle("restricted",Boolean(access.reason));
+        element.setAttribute("aria-current",index===active ? "step" : "false");
+        element.title=access.reason || "Open " + element.querySelector("strong")?.textContent;
     });
+    const compactReady=["Ready","Running","Paused","RecoveryRequired","Completed","Aborted"].includes(state);
+    document.body.dataset.runPhase=compactReady?"operational":"setup";
+    if(ui.workflowQuick){
+        ui.workflowQuick.hidden=!compactReady;
+        for (const item of ui.workflowQuick.querySelectorAll("[data-step-target]")) {
+            const step=item.dataset.stepTarget, access=workflowAccess(step,data);
+            item.classList.toggle("restricted",Boolean(access.reason));
+            item.classList.toggle("active",step===order[active] && state!=="Completed");
+            item.title=access.reason || "Open " + step;
+            item.setAttribute("aria-current",step===order[active]?"step":"false");
+        }
+        const completed= Math.min(5,Math.max(0,active));
+        document.getElementById("workflow_setup_progress").textContent=completed+"/5";
+    }
 }
 
 function hidePanels() {
@@ -332,18 +397,30 @@ function renderCalibrationReview(state) {
     ui.calibration_review_panel.hidden = !visible;
     if (!visible) return;
 
+    let passed=0,skipped=0,pending=0;
     const items = [];
-    for (const camera of Object.values(state.calibration?.cameras || {})) {
-        const status = camera.status || "pending";
-        const editable = camera.available !== false && ["passed", "skipped"].includes(status);
-        items.push(`<div class="calibration-review-item"><span class="review-kind">Camera</span><strong>${escapeHtml(camera.name || `Camera ${camera.id}`)}</strong><span class="calibration-status ${escapeHtml(status)}">${escapeHtml(status)}</span>${editable ? `<button class="button button-secondary button-small" type="button" data-edit-camera="${escapeHtml(camera.id)}">Recalibrate</button>` : ""}</div>`);
+    const iconReview='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const iconRecalibrate='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 6"/><path d="M20 4v7h-7"/></svg>';
+    const addItem=(kind,id,name,status,canEdit)=>{
+        if(status==="passed")passed++;else if(status==="skipped")skipped++;else pending++;
+        const label=kind==="Camera"?"Recalibrate":"Review", icon=kind==="Camera"?iconRecalibrate:iconReview;
+        const attr=kind==="Camera"?"data-edit-camera":"data-edit-sensor";
+        const action=canEdit?`<button class="calibration-review-action" type="button" ${attr}="${escapeHtml(id)}" aria-label="${label} ${escapeHtml(name)}" title="${label} ${escapeHtml(name)}">${icon}</button>`:"";
+        items.push(`<div class="calibration-review-item"><span class="review-kind">${kind}</span><strong title="${escapeHtml(name)}">${escapeHtml(name)}</strong>${action}<span class="calibration-status ${escapeHtml(status)}">${escapeHtml(status)}</span></div>`);
+    };
+    for(const camera of Object.values(state.calibration?.cameras || {})){
+        const status=camera.status||"pending", editable=camera.available!==false && ["passed","skipped"].includes(status);
+        addItem("Camera",camera.id,camera.name||`Camera ${camera.id}`,status,editable);
     }
-    for (const sensor of Object.values(state.calibration?.sensors || {})) {
-        const status = sensor.status || "pending";
-        const editable = ["passed", "skipped"].includes(status);
-        items.push(`<div class="calibration-review-item"><span class="review-kind">Sensor</span><strong>${escapeHtml(sensor.name || sensor.id)}</strong><span class="calibration-status ${escapeHtml(status)}">${escapeHtml(status)}</span>${editable ? `<button class="button button-secondary button-small" type="button" data-edit-sensor="${escapeHtml(sensor.id)}">Review</button>` : ""}</div>`);
+    for(const sensor of Object.values(state.calibration?.sensors || {})){
+        const status=sensor.status||"pending", editable=["passed","skipped"].includes(status);
+        addItem("Sensor",sensor.id,sensor.name||sensor.id,status,editable);
     }
-    ui.calibration_review_list.innerHTML = items.join("") || `<span class="review-empty">No calibration entries.</span>`;
+    ui.calibration_review_list.innerHTML=items.join("")||'<span class="review-empty">No calibration entries.</span>';
+    ui.calibrationReviewSummary.textContent=[passed+" passed",skipped+" skipped",...(pending?[pending+" pending"]:[])].join(" · ");
+    const open=calibrationReviewOpen===null ? !(runLayout==="compact" && state.state==="Ready") : calibrationReviewOpen;
+    ui.calibration_review_list.hidden=!open;
+    ui.calibrationReviewToggle.setAttribute("aria-expanded",String(open));
 }
 
 function renderMiniStageTimeline(state) {
@@ -1165,6 +1242,32 @@ async function action(url, body = null) {
 }
 
 function bindActions() {
+    ui.workflowSetupToggle?.addEventListener("click", () => {
+        const open=ui.workflowSetupLinks.hidden;
+        ui.workflowSetupLinks.hidden=!open;
+        ui.workflowSetupToggle.setAttribute("aria-expanded",String(open));
+    });
+    for (const step of ui.workflowSteps) step.addEventListener("click", () => navigateWorkflow(step.dataset.step));
+    document.querySelectorAll("[data-step-target]").forEach(step => step.addEventListener("click", () => {
+        ui.workflowSetupLinks.hidden=true;ui.workflowSetupToggle.setAttribute("aria-expanded","false");
+        navigateWorkflow(step.dataset.stepTarget);
+    }));
+    document.addEventListener("click", event => {
+        if(!event.target.closest(".workflow-setup-menu") && ui.workflowSetupLinks && !ui.workflowSetupLinks.hidden){
+            ui.workflowSetupLinks.hidden=true;ui.workflowSetupToggle.setAttribute("aria-expanded","false");
+        }
+    });
+    document.addEventListener("keydown", event => {
+        if(event.key==="Escape" && ui.workflowSetupLinks && !ui.workflowSetupLinks.hidden){
+            ui.workflowSetupLinks.hidden=true;ui.workflowSetupToggle.setAttribute("aria-expanded","false");
+            ui.workflowSetupToggle.focus();
+        }
+    });
+    ui.calibrationReviewToggle?.addEventListener("click", () => {
+        calibrationReviewOpen=ui.calibration_review_list.hidden;
+        ui.calibration_review_list.hidden=!calibrationReviewOpen;
+        ui.calibrationReviewToggle.setAttribute("aria-expanded",String(calibrationReviewOpen));
+    });
     for (const button of ui.layoutButtons || []) {
         button.addEventListener("click", () => applyRunLayout(button.dataset.runLayout));
     }
