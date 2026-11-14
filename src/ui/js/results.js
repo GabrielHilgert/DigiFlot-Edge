@@ -870,7 +870,7 @@ function eventColor(category) {
     return {
         warning: cssVar("--warning", "#D08A28"),
         stage: cssVar("--plot-froth", "#55BAE7"),
-        camera: cssVar("--preview", "#7254d8"),
+        camera: cssVar("--plot-froth-upper", "#29AEE4"),
         sensor: cssVar("--success", "#18845b"),
         other: cssVar("--plot-muted", "#c6cdd5"),
     }[category] || cssVar("--plot-muted", "#c6cdd5");
