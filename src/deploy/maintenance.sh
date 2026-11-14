@@ -97,9 +97,17 @@ assert_safe() {
 }
 
 write_if_changed() {
-    local source="$1" target="$2" mode="${3:-0644}"
+    local source="$1" target="$2" mode="${3:-0644}" temporary
     if [[ -f "$target" ]] && cmp -s "$source" "$target"; then return 1; fi
-    install -D -m "$mode" "$source" "$target"
+    install -d -m 0755 "$(dirname "$target")"
+    temporary="$(mktemp "$(dirname "$target")/.digiflot-sync.XXXXXXXX")"
+    # Atomic rename preserves the inode of any currently running maintainer.
+    # Never truncate the executable that is performing this very update.
+    if ! install -m "$mode" "$source" "$temporary"; then
+        rm -f "$temporary"
+        die "Could not stage $target"
+    fi
+    mv -f "$temporary" "$target"
     log "Updated: $target"
     return 0
 }
