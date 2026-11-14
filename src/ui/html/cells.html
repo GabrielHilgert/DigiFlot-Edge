@@ -14,7 +14,7 @@
   <p class="page-description">Physical cells, reusable ArUco geometry and a planar analysis ROI for real-time vision.</p></div>
   <div class="cv-inline-row"><a id="return_to_sensor_calibration" class="button button-secondary" href="/sensors?calibration=1" hidden>Back to sensor calibration</a><span class="state-badge" id="vision_state">Loading</span></div></header>
   <div class="cell-vision-grid">
-    <section class="card cell-profile-card"><div class="cv-card-head"><div><p class="eyebrow">01 / Physical cell</p><h2>Cell registry</h2></div><button type="button" class="button button-secondary" id="new_cell">New cell</button></div>
+    <section class="card cell-profile-card"><div class="cv-card-head"><div><p class="eyebrow">01 / Physical cell</p><h2>Cell registry</h2></div><button type="button" class="button button-secondary" id="new_cell" data-icon="plus">New cell</button></div>
       <div class="cv-select-panel"><label>Stored cell <select id="cell_select"><option value="">Select a cell</option></select></label></div>
       <div class="cv-field-group"><div class="cv-group-heading"><strong>Cell dimensions</strong><span>Physical parameters</span></div>
       <div class="cv-two"><label>Cell name <input id="cell_name" placeholder="Flotation Cell A" maxlength="80"></label>
@@ -35,8 +35,8 @@
         <option value="cell_top">Cell top (depth from rim)</option></select></label>
         <label>Cell top Y (cm, ArUco plane) <input id="cell_top_y_cm" type="number" step="any" placeholder="Optional if bottom + height known"></label></div>
       <div class="cv-two"><label>Cell bottom Y (cm, ArUco plane) <input id="cell_bottom_y_cm" type="number" step="any" placeholder="Can be outside image"></label>
-        <div class="cv-reference-action"><button class="button button-secondary" type="button" id="save_cell_reference">Save cell reference</button><span id="cell_reference_status" class="cv-mono">Default: lowest ArUco marker</span></div></div></div>
-      <div class="cv-card-actions"><button class="button button-primary" type="button" id="save_cell">Save cell</button></div>
+        <div class="cv-reference-action"><button class="button button-secondary" type="button" id="save_cell_reference" data-icon="save">Save cell reference</button><span id="cell_reference_status" class="cv-mono">Default: lowest ArUco marker</span></div></div></div>
+      <div class="cv-card-actions"><button class="button button-primary" type="button" id="save_cell" data-icon="save">Save cell</button></div>
     </section>
     <section class="card camera-profile-card"><div class="cv-card-head"><div><p class="eyebrow">02 / Camera</p><h2>Camera profile</h2></div></div>
       <div class="cv-select-panel"><label>Vision camera <select id="camera_select"><option value="">Select a camera</option></select></label></div>
@@ -46,39 +46,39 @@
       <label class="cv-inline"><input id="invert_markers" type="checkbox"> Invert marker detection</label>
       <label>Import existing intrinsic calibration JSON <input id="import_intrinsics" type="file" accept="application/json,.json"></label>
       <p class="cv-description">Use a distortion preset now; import K/D from an existing calibration or a future checkerboard calibration. The sensor ROI is independent of the analysis ROI. Select the physical analysis ROI on the rectified plane below.</p>
-      <div class="cv-inline-row"><button class="button button-secondary" type="button" id="reset_roi">Reset sensor ROI</button><button class="button button-primary" type="button" id="save_camera">Save camera calibration</button></div>
+      <div class="cv-inline-row"><button class="button button-secondary" type="button" id="reset_roi" data-icon="rotate-ccw" data-icon-only>Reset sensor ROI</button><button class="button button-primary" type="button" id="save_camera" data-icon="save">Save camera calibration</button></div>
       <div id="roi_caption" class="cv-mono">ROI: [0, 0, 1, 1]</div></div>
       <div class="cv-worker-panel"><div class="cv-card-head"><div><p class="eyebrow">Optional acquisition</p><h3>Vision worker</h3></div></div>
       <label class="cv-inline"><input type="checkbox" id="vision_enabled"> Process the selected camera while recording</label>
       <div class="cv-two"><label>Sample interval (s) <input id="sample_interval" type="number" min="0.2" max="60" step="0.2" value="1"></label>
-      <div class="cv-action-end"><button class="button button-secondary" type="button" id="save_vision_settings">Save vision settings</button></div></div>
+      <div class="cv-action-end"><button class="button button-secondary" type="button" id="save_vision_settings" data-icon="save">Save vision settings</button></div></div>
       <p class="cv-description">Disabled by default. Only this camera receives a low-resolution analysis stream during recording; the main recorder remains unchanged.</p></div>
     </section>
   </div>
   <section class="card vision-calibration-card"><div class="cv-card-head"><div><p class="eyebrow">03 / Camera–cell association</p><h2>ArUco calibration</h2><p class="cv-description">Load the last confirmed grid, detect the present marker positions, then confirm a new calibration if needed.</p></div>
-    <div class="cv-inline-row"><button class="button button-secondary" type="button" id="start_preview">Start preview</button><button class="button button-secondary" type="button" id="stop_preview">Stop preview</button></div></div>
+    <div class="cv-inline-row"><button class="button button-secondary" type="button" id="start_preview" data-icon="play" data-icon-only>Start preview</button><button class="button button-secondary" type="button" id="stop_preview" data-icon="square" data-icon-only>Stop preview</button></div></div>
     <div class="cv-stage"><div class="cv-image-panel"><div class="cv-image-surface" id="image_surface"><img id="camera_image" alt="Camera or rectified planar image" draggable="false"><div id="roi_selection" hidden></div><div id="roi_drag" hidden></div><div id="reference_overlays" aria-hidden="true"></div></div>
       <div class="cv-image-help" id="image_help">Raw camera: drag to adjust the sensor ROI. Switch to Rectified plane to define the physical analysis ROI.</div></div>
       <div class="cv-tools"><h3>Calibration</h3><p id="association_status">Select a cell and camera.</p>
-        <button class="button button-secondary" id="refresh_snapshot" type="button">Raw camera + saved grid</button>
-        <button class="button button-primary" id="detect_aruco" type="button">Detect ArUco / preview new grid</button>
-        <button class="button button-primary" id="confirm_aruco" type="button" disabled>Confirm new calibration</button>
-        <button class="button button-secondary" id="test_rectification" type="button">Rectified plane (full view)</button>
+        <button class="button button-secondary" id="refresh_snapshot" type="button" data-icon="refresh-cw">Raw camera + saved grid</button>
+        <button class="button button-primary" id="detect_aruco" type="button" data-icon="scan">Detect ArUco / preview new grid</button>
+        <button class="button button-primary" id="confirm_aruco" type="button" disabled data-icon="badge-check">Confirm new calibration</button>
+        <button class="button button-secondary" id="test_rectification" type="button" data-icon="scan">Rectified plane (full view)</button>
         <section class="cv-reference-editor">
           <div class="cv-group-heading"><strong>Named physical references</strong><span>Cell-level · stable ArUco coordinates</span></div>
           <p class="cv-description">Outlet level is the initial default. Add as many named points as needed. Select one, open the rectified plane, and click the physical point. When the camera moves but the marker ruler stays fixed, previously saved ArUco coordinates remain valid.</p>
           <div id="named_reference_list" class="cv-reference-list"></div>
           <div class="cv-reference-new"><input id="reference_new_name" placeholder="Reference name (e.g. Overflow weir)" maxlength="80">
             <select id="reference_new_type"><option value="custom">Custom</option><option value="top">Cell top</option><option value="bottom">Cell bottom</option></select>
-            <button id="reference_add" class="button button-secondary" type="button">Add point</button></div>
-          <div class="cv-inline-row"><button id="reference_save" class="button button-primary" type="button">Save references</button>
-            <button id="reference_reuse" class="button button-secondary" type="button">Reproject saved points</button></div>
+            <button id="reference_add" class="button button-secondary" type="button" data-icon="plus" data-icon-only>Add point</button></div>
+          <div class="cv-inline-row"><button id="reference_save" class="button button-primary" type="button" data-icon="save">Save references</button>
+            <button id="reference_reuse" class="button button-secondary" type="button" data-icon="rotate-ccw">Reproject saved points</button></div>
           <p id="reference_status" class="cv-description">Select a cell to configure reference points.</p>
         </section>
         <div class="cv-physical-roi"><h4>Analysis ROI · physical plane</h4>
           <p class="cv-description">Open the rectified plane and drag to select the area processed during recording. This selection is independent of the sensor ROI and the marker locations.</p>
-          <div class="cv-inline-row"><button class="button button-primary" id="save_analysis_roi" type="button" disabled>Save analysis ROI</button>
-          <button class="button button-secondary" id="clear_analysis_roi" type="button" disabled>Clear ROI</button></div>
+          <div class="cv-inline-row"><button class="button button-primary" id="save_analysis_roi" type="button" disabled data-icon="save">Save analysis ROI</button>
+          <button class="button button-secondary" id="clear_analysis_roi" type="button" disabled data-icon="eraser" data-icon-only>Clear ROI</button></div>
           <div class="cv-mono" id="analysis_roi_caption">No analysis ROI saved.</div></div>
         <dl class="cv-metrics"><div><dt>Detected IDs</dt><dd id="found_markers">—</dd></div><div><dt>RMS reprojection</dt><dd id="rms_metric">—</dd></div><div><dt>Scale</dt><dd id="scale_metric">—</dd></div><div><dt>Last calibration</dt><dd id="last_calibration">—</dd></div></dl>
         <p id="calibration_message" class="cv-description">No pending calibration.</p>
