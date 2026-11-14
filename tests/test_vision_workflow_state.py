@@ -88,7 +88,7 @@ class WorkflowTests(unittest.TestCase):
             "mode":"virtual_interface","confirmed_at":"old"}
         run.reopen_sensor_calibration("froth_interface")
         run.vision.virtual_test_passed=lambda:False
-        with self.assertRaisesRegex(RuntimeError,"benchmark"):
+        with self.assertRaisesRegex(RuntimeError,"HIFIE calibration"):
             run.cancel_calibration_edit()
         self.assertEqual(run.state,run.SENSOR_CALIBRATION)
         self.assertEqual(run.sensor_calibration["froth_interface"]["status"],"pending")
@@ -125,7 +125,7 @@ class WorkflowTests(unittest.TestCase):
     def test_ready_start_gate_rejects_stale_virtual_benchmark(self):
         run=FakeFlow();run.sensor_calibration["froth_interface"]={"status":"passed","mode":"virtual_interface"}
         run.vision.virtual_test_passed=lambda:False
-        with self.assertRaisesRegex(RuntimeError,"fresh benchmark"):
+        with self.assertRaisesRegex(RuntimeError,"HIFIE conditions"):
             run.start_next_stage()
         self.assertEqual(run.state,run.SENSOR_CALIBRATION)
         self.assertEqual(run.sensor_calibration["froth_interface"]["status"],"pending")
