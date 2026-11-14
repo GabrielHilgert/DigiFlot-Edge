@@ -1487,13 +1487,13 @@ class DigiFlot:
             if self.state == self.CAMERA_CALIBRATION:
                 self._advance_from_camera_calibration_unlocked()
             if self.state in {self.SENSOR_CALIBRATION, self.READY} and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and (self.vision is None or not self.vision.virtual_test_passed()):
-                self._invalidate_virtual_calibration_unlocked("Restart requires a fresh Froth Interface benchmark")
+                self._invalidate_virtual_calibration_unlocked("Saved HIFIE validation no longer matches the current conditions")
             edit = self.calibration_edit
             if (edit and edit.get("kind") == "sensor" and edit.get("id") == "froth_interface"
                     and edit.get("previous", {}).get("status") == "passed"
                     and (self.vision is None or not self.vision.virtual_test_passed())):
                 edit["dirty"] = True
-                self._touch_unlocked("VIRTUAL_CALIBRATION_RETEST_REQUIRED_AFTER_RESTART")
+                self._touch_unlocked("VIRTUAL_CALIBRATION_REVALIDATION_REQUIRED_AFTER_RESTART")
             return
         else:
             self.state = self.RECOVERY_REQUIRED
@@ -1857,7 +1857,7 @@ class DigiFlot:
             if (kind == "sensor" and key == "froth_interface"
                     and edit["previous"].get("status") == "passed"
                     and (self.vision is None or not self.vision.virtual_test_passed())):
-                raise RuntimeError("The previous virtual benchmark is no longer available. Retest or skip the sensor.")
+                raise RuntimeError("The previous HIFIE calibration is no longer valid for these conditions. Retest or skip the sensor.")
             records = self.camera_calibration if kind == "camera" else self.sensor_calibration
             records[key] = deepcopy(edit["previous"])
             self.calibration_edit = None
@@ -1908,7 +1908,7 @@ class DigiFlot:
             item = self.sensor_calibration[sensor_id]
             if item.get("mode") == "virtual_interface":
                 if self.vision is None or not self.vision.virtual_test_passed():
-                    raise RuntimeError("A passing live detection and timing test is required for this sensor and configuration")
+                    raise RuntimeError("A matching previous HIFIE benchmark or a new passing test is required for these conditions")
                 item["status"] = "passed"
                 item["confirmed_at"] = _utc_now()
                 item["benchmark"] = deepcopy(self.vision.virtual_test_result())
@@ -2001,7 +2001,7 @@ class DigiFlot:
                         item["confirmed_at"] = None
                         item.pop("benchmark", None)
                         self._touch_unlocked("VIRTUAL_SENSOR_BENCHMARK_EXPIRED", {"sensor_id": sensor_id})
-                        raise RuntimeError("The virtual sensor configuration changed after its benchmark; repeat the test")
+                        raise RuntimeError("HIFIE conditions no longer match a passing benchmark; restore verified settings or test again")
                 snapshot = self._sensor_status_unlocked(sensor_id)
                 if snapshot.get("status") == "connected":
                     if item.get("status") not in {"passed", "skipped"}:
@@ -2198,7 +2198,7 @@ class DigiFlot:
                     raise RuntimeError("Sensor calibration needs review. Complete or skip it before starting.")
                 if self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and (self.vision is None or not self.vision.virtual_test_passed()):
                     self._invalidate_virtual_calibration_unlocked("Saved Froth Interface benchmark is not valid")
-                    raise RuntimeError("Froth Interface requires a fresh benchmark. Reopen its sensor calibration.")
+                    raise RuntimeError("HIFIE conditions are not verified. Restore a passing configuration or run a test.")
                 if self.current_stage_index is not None:
                     raise RuntimeError("The first stage has already been started.")
                 required = self._execution_inputs_payload_unlocked()
@@ -2208,7 +2208,7 @@ class DigiFlot:
                 self._verify_start_storage_unlocked()
                 if "froth_interface" in self.sensor_calibration and self.sensor_calibration["froth_interface"]["status"] == "passed":
                     if self.vision is None or not self.vision.virtual_test_passed():
-                        raise RuntimeError("Virtual sensor performance test is no longer valid; reopen calibration")
+                        raise RuntimeError("HIFIE validation no longer matches current conditions; reopen calibration")
                     self.vision.freeze_run_config(self.run_directory)
                 elif self.vision is not None:
                     self.vision.disable_run_sensor()
