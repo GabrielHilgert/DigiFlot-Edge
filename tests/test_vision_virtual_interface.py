@@ -1,6 +1,7 @@
 """Hardware-free regression tests for froth-interface virtual sensor profiles."""
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -50,6 +51,35 @@ class VirtualInterfaceTests(unittest.TestCase):
             s2 = config_signature(config, assoc2, {"size": [640,480]})
             self.assertNotEqual(s1,s2)
             self.assertEqual(assoc["cell_id"], cell["id"])
+
+    def test_bottom_height_and_top_depth_keep_camera_boundary_order(self):
+        """Image rows grow downward; bottom heights grow upward, top depths grow downward."""
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        config = normalized_config({"method": "dual_entropy", "resolution_px": 100})
+        roi = [0., 2., 10., 12.]
+        # Rows 20 and 60 imply physical ArUco Y=4 and Y=8 cm, respectively.
+        detections = {"upper_row_px": 20, "lower_row_px": 60}
+        with patch("lib.virtual_sensors.interface_detection.detect_dual_entropy_boundaries",
+                   return_value=detections):
+            bottom = detect_interface(img, config, roi, 10.,
+                                      vertical_reference={"direction": "up", "y_cm": 10., "mode": "cell_bottom"})
+            top = detect_interface(img, config, roi, 10.,
+                                   vertical_reference={"direction": "down", "y_cm": 1., "mode": "cell_top"})
+        self.assertTrue(bottom["valid"])
+        self.assertEqual((bottom["froth_surface_cm"], bottom["pulp_froth_interface_cm"]), (6., 2.))
+        self.assertGreater(bottom["froth_surface_cm"], bottom["pulp_froth_interface_cm"])
+        self.assertTrue(all(bottom[key] >= 0 for key in ("froth_surface_cm", "pulp_froth_interface_cm")))
+        self.assertEqual((top["froth_surface_cm"], top["pulp_froth_interface_cm"]), (3., 7.))
+        self.assertLess(top["froth_surface_cm"], top["pulp_froth_interface_cm"])
+        self.assertEqual(bottom["froth_thickness_cm"], 4.)
+        self.assertEqual(top["froth_thickness_cm"], 4.)
+        # Negative heights are meaningful BELOW the chosen reference, not a
+        # plotting sign error; the UI must not silently take the absolute value.
+        with patch("lib.virtual_sensors.interface_detection.detect_dual_entropy_boundaries",
+                   return_value=detections):
+            above_interface = detect_interface(img, config, roi, 10.,
+                              vertical_reference={"direction":"up", "y_cm":5., "mode":"aruco_bottom"})
+        self.assertEqual(above_interface["pulp_froth_interface_cm"], -3.)
 
     def test_grayscale_and_color_detectors_return_physical_fields(self):
         rng = np.random.default_rng(12)
