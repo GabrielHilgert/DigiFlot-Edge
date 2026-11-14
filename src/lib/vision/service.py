@@ -109,6 +109,7 @@ class VisionService:
         self._benchmark_series = []
         self._benchmark_diagnostic = None
         self._diagnostic_until = 0.0
+        self._diagnostic_owner_id = None
         self._diagnostic_next_due = 0.0
         self._diagnostic_preview_camera_id = None
         self._diagnostic_revision = 0
@@ -381,18 +382,31 @@ class VisionService:
                 self._diagnostic_error = str(error)
 
     def diagnostic_preview(self, enabled=True, last_revision=0, owner_id=None):
-        """Renew a calibration lease without controlling another tab's camera."""
+        """Own a short-lived camera preview lease; another tab cannot clear it."""
+        now = time.monotonic()
+        with self._lock:
+            owner = self._diagnostic_owner_id
+            if owner and owner_id != owner and now < self._diagnostic_until:
+                if enabled:
+                    raise RuntimeError("HIFIE diagnostics belong to another browser tab.")
+                return {"enabled": False, "revision": self._diagnostic_revision}
         if owner_id and self.digiflot.preview_owner_id and owner_id != self.digiflot.preview_owner_id:
-            if time.monotonic() < self.digiflot.preview_owner_until:
+            if now < self.digiflot.preview_owner_until:
                 if enabled:
                     raise RuntimeError("Camera preview belongs to another browser tab; close it there before opening diagnostics.")
                 return {"enabled": False, "revision": self._diagnostic_revision}
         if enabled and self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
             raise RuntimeError("Diagnostic preview is only available while calibrating sensors")
         if enabled:
-            self._virtual_context()  # Reject an uncalibrated camera-cell association.
+            camera, *_ = self._virtual_context()
+            if self._benchmarking:
+                raise RuntimeError("Calibration test is using the camera; diagnostics will resume when it finishes")
+            # Claim the same per-tab lease used by the ROI editor. The main
+            # encoder cannot start while an unrelated preview owns the camera.
+            self.digiflot.start_preview(camera.id, owner_id=owner_id)
         with self._lock:
             self._diagnostic_until = time.monotonic() + 12.0 if enabled else 0.0
+            self._diagnostic_owner_id = str(owner_id) if enabled and owner_id else None
             if not enabled:
                 return {"enabled": False, "revision": self._diagnostic_revision}
             snapshot = self._diagnostic_latest
