@@ -220,6 +220,7 @@ class VirtualBenchmarkTests(unittest.TestCase):
             self.assertFalse(restarted.cameras[1].started, "Reusing evidence must not start a benchmark")
 
             # The normal controller approval path must accept the same evidence.
+            restarted.sensor_calibration["froth_interface"]["mode"] = "virtual_interface"
             status = namespace["confirm_sensor_calibration"](restarted, "froth_interface")
             self.assertEqual(restarted.sensor_calibration["froth_interface"]["status"], "passed")
             self.assertTrue(restarted.sensor_calibration["froth_interface"]["benchmark"]["reused"])
