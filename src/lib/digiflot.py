@@ -2242,6 +2242,7 @@ class DigiFlot:
             return self.status
 
     def _start_stage_unlocked(self, stage: dict, new_attempt=False):
+        self.scraping_gpio.cancel_pending()
         if new_attempt:
             self.stage_attempt = max(1, self.stage_attempt + 1)
         elif self.stage_attempt < 1:
@@ -2320,6 +2321,7 @@ class DigiFlot:
             },
         )
         self.next_scraping_deadline = None
+        self.scraping_gpio.cancel_pending()
         self.stage_deadline = None
 
         if next_stage is None:
@@ -2405,6 +2407,7 @@ class DigiFlot:
                 raise RuntimeError("There is no active stage or transition to pause.")
 
             self.paused_stage_state = self.stage_state
+            self.scraping_gpio.cancel_pending()
             self.pause_started_monotonic = time.monotonic()
             self.pause_started_at = _utc_now()
             self.state = self.PAUSED
@@ -2447,6 +2450,7 @@ class DigiFlot:
             return self.status
 
     def _finish_experiment_unlocked(self):
+        self.scraping_gpio.cancel_pending()
         self.next_scraping_deadline = None
         self.stage_deadline = None
         self.transition_deadline = None
@@ -2470,6 +2474,7 @@ class DigiFlot:
             if self.state == self.IDLE:
                 return self.status
 
+            self.scraping_gpio.cancel_pending()
             self.next_scraping_deadline = None
             self.stage_deadline = None
             self.transition_deadline = None
@@ -2494,6 +2499,7 @@ class DigiFlot:
             return self.status
 
     def _enter_recovery_unlocked(self, error, source="orchestrator"):
+        self.scraping_gpio.cancel_pending()
         previous_state = self.state
         previous_stage_state = self.stage_state
         snapshot = self._status_unlocked()
