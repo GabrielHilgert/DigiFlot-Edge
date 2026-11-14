@@ -27,6 +27,7 @@ jobs:
           node --check src/ui/js/experiments.js
           node tests/test_color_palette.js
           node --check src/ui/js/results.js
+          node tests/test_results_mjpeg.js
           node tests/test_operation_feedback.js
           node tests/test_workflow_navigation.js
           node --check src/ui/js/config_cameras.js
