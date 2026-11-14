@@ -14,12 +14,12 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114hif1">
     <link
         rel="stylesheet"
-        href="{{ url_for('static', path='css/experiments.css') }}?v=20261114hif1"
+        href="{{ url_for('static', path='css/experiments.css') }}?v=20261114hfds1"
     >
 
     <script
         defer
-        src="{{ url_for('static', path='js/experiments.js') }}?v=20261109a"
+        src="{{ url_for('static', path='js/experiments.js') }}?v=20261114hfds1"
     ></script>
 </head>
 
@@ -236,6 +236,7 @@
             </article>
 
 
+            <dialog id="experiment_details_dialog" class="experiment-detail-dialog" aria-labelledby="detail_heading">
             <article class="card detail-card">
 
                 <div class="card-header">
@@ -247,7 +248,7 @@
                         </span>
 
                         <div>
-                            <h2>
+                            <h2 id="detail_heading">
                                 Experiment details
                             </h2>
 
@@ -260,7 +261,7 @@
 
 
                     <div class="detail-header-actions">
-
+                        <button id="close_detail_dialog" class="button button-secondary" type="button" aria-label="Close experiment details">Close</button>
                         <span
                             id="experiment_badge"
                             class="experiment-badge"
@@ -524,6 +525,7 @@
                 </div>
 
             </article>
+            </dialog>
 
         </section>
 
