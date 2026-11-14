@@ -1377,6 +1377,7 @@ async function initialise() {
             if (sensor && String(sensor.type || "").toLowerCase() === "ph") {
                 state.activeCalibrationSensorId = String(requested);
                 renderCalibrationDrawer();
+                if (!el.calibrationDrawer.open) el.calibrationDrawer.showModal();
             }
         }
     } catch (error) {
