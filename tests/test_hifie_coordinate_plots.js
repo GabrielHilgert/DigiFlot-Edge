@@ -23,7 +23,8 @@ function testRun(direction,upper,lower){
         getBoundingClientRect:()=>({width:240,height:120}),getContext:()=>ctx};
     const points=[0,1].map(i=>({timestamp:i,virtual:true,referenceDirection:direction,upper,lower}));
     const context={hiddenSensorPlots:new Set(),sensorPlotHistory:new Map([["hifie",points]]),
-        window:{devicePixelRatio:1},getComputedStyle:()=>({getPropertyValue:()=>""})};
+        window:{devicePixelRatio:1},document:{documentElement:{}},
+        getComputedStyle:()=>({getPropertyValue:()=>""})};
     const draw=vm.runInNewContext(pick(run,"function drawSensorPlot(", "function ensureSensorCard(")+"\ndrawSensorPlot",context);
     draw(canvas,"hifie");
     assert.ok(firstBoundaryY(ctx,colors.surface)<firstBoundaryY(ctx,colors.pulp),
@@ -33,7 +34,8 @@ function testSensors(direction,upper,lower){
     const ctx=context2D(),stats=new Map(),card={querySelector:sel=>{
         if(!stats.has(sel))stats.set(sel,{hidden:false,textContent:""});return stats.get(sel);
     }};
-    const context={getComputedStyle:()=>({getPropertyValue:()=>""}),virtualInterfaceColors:()=>colors};
+    const context={document:{documentElement:{}},getComputedStyle:()=>({getPropertyValue:()=>""}),
+        virtualInterfaceColors:()=>colors};
     const draw=vm.runInNewContext(pick(sensors,"function drawVirtualChart(", "function drawChart(")+"\ndrawVirtualChart",context);
     const points=[0,1].map(i=>({timestamp:i,upper,lower,direction}));
     draw(ctx,240,120,points,card);
@@ -46,7 +48,7 @@ function testCalibration(direction,upper,lower){
             {time_s:1,valid:true,froth_surface_cm:upper,pulp_froth_interface_cm:lower}],
         virtualProfileData:{reference_resolved:{direction,mode:direction==="up"?"cell_bottom":"cell_top"}},
         virtualCanvas:()=>ctx,virtualInterfaceColors:()=>colors,window:{devicePixelRatio:1},
-        document:{getElementById:id=>id==="virtual_test_chart"?chart:label},
+        document:{documentElement:{},getElementById:id=>id==="virtual_test_chart"?chart:label},
         getComputedStyle:()=>({getPropertyValue:()=>""})};
     const draw=vm.runInNewContext(pick(sensors,"function drawVirtualTestTimeline(", "async function pollVirtualDiagnostics(")+
         "\ndrawVirtualTestTimeline",context);
