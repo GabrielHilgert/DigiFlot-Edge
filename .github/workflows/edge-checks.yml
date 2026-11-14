@@ -21,7 +21,7 @@ jobs:
           node --check src/ui/js/settings.js
           bash -n src/install.sh
           node tests/test_run_layout.js
-          node tests/test_hfds_operational.js
+          node tests/test_hifd_operational.js
           node --check src/ui/js/experiments.js
           node tests/test_color_palette.js
           node --check src/ui/js/results.js
