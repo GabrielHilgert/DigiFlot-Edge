@@ -498,12 +498,31 @@ function shouldStorePlotSample(sensor) {
     return true;
 }
 
+function interfaceReferenceKey(sensor) {
+    const ref=sensor.reference;
+    return JSON.stringify([sensor.source_camera_id,sensor.physical_cell_id,
+        ref?.mode,ref?.reference_id,ref?.direction,ref?.y_cm]);
+}
+
+function interfaceReferenceLabel(reference) {
+    if (!reference) return "Awaiting physical reference";
+    const name=reference.name || String(reference.mode || "reference").replaceAll("_"," ");
+    return (reference.direction === "down" ? "Depth ↓" : "Height ↑")+" from "+name+" · cm";
+}
+
 function appendSensorPlotSample(sensor) {
-    if (!shouldStorePlotSample(sensor)) return;
     const key = String(sensor.id), history = sensorPlotHistory.get(key) || [];
     const numeric = value => value == null || !Number.isFinite(Number(value)) ? null : Number(value);
     const virtual = sensor.type === "virtual_froth_interface";
-    history.push({timestamp:Number(sensor.timestamp_ms), value:numeric(sensor.value), virtual,
+    const referenceKey=virtual ? interfaceReferenceKey(sensor) : null;
+    // Never combine histories from a prior experiment or another datum.
+    if (virtual && history.length && history.at(-1).referenceKey !== referenceKey) {
+        history.length=0;
+        lastSensorPlotTimestamp.delete(key);
+    }
+    if (!shouldStorePlotSample(sensor)) return;
+    history.push({timestamp:Number(sensor.timestamp_ms), value:numeric(sensor.value), virtual, referenceKey,
+        referenceDirection:sensor.reference?.direction || "up",
         upper:virtual ? numeric(sensor.channels?.froth_surface_cm) : null,
         lower:virtual ? numeric(sensor.channels?.pulp_froth_interface_cm) : null});
     while (history.length > 60) history.shift();
@@ -543,7 +562,11 @@ function drawSensorPlot(canvas, sensorId) {
             const value=item[key];
             if(value==null){started=false;return;}
             const x=pad+index/Math.max(1,history.length-1)*(width-2*pad);
-            const y=height-pad-(value-min)/(max-min)*(height-2*pad);
+            // Heights grow upward; depths from a top datum grow downward.
+            // Both conventions therefore preserve the order seen in the image.
+            const fraction=(value-min)/(max-min);
+            const y=virtual && history.at(-1).referenceDirection==="down"
+                ? pad+fraction*(height-2*pad) : height-pad-fraction*(height-2*pad);
             if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);
         });
         ctx.strokeStyle=color||fallback;ctx.stroke();
@@ -575,7 +598,8 @@ function ensureSensorCard(sensor) {
                 <div class="run-virtual-boundaries"><span>Froth surface <strong class="run-virtual-froth">—</strong></span>
                     <span>Pulp–froth interface <strong class="run-virtual-pulp">—</strong></span></div>
                 <div class="live-sensor-age">—</div>
-                <div class="sensor-sparkline-wrap"><canvas class="sensor-sparkline" aria-label="Recent interface positions"></canvas></div>
+                <span class="run-virtual-reference status-label">Awaiting physical reference</span>
+                <div class="sensor-sparkline-wrap"><canvas class="sensor-sparkline" aria-label="Recent interface positions in physical coordinates"></canvas></div>
             </div></div>` : `
         <div class="live-sensor-head">
             <div>
@@ -628,6 +652,7 @@ function renderLiveSensors(state) {
             card.querySelector(".live-sensor-reading").textContent = display("froth_thickness_cm").replace("—",sensor.value==null?"—":Number(sensor.value).toFixed(2)+" cm");
             card.querySelector(".run-virtual-froth").textContent=display("froth_surface_cm");
             card.querySelector(".run-virtual-pulp").textContent=display("pulp_froth_interface_cm");
+            card.querySelector(".run-virtual-reference").textContent=interfaceReferenceLabel(sensor.reference);
             card.querySelector(".live-sensor-reading").classList.add("virtual-live-reading");
             status.textContent = sensor.measurement_mode === "experiment" ? "Live · experiment" :
                 sensor.measurement_mode === "preview" ? "Live · preview" : "Waiting for lores";
