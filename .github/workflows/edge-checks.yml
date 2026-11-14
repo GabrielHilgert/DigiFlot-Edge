@@ -39,6 +39,7 @@ jobs:
           node --check src/ui/js/sensors.js
           node tests/test_vision_reference_overlay.js
           node tests/test_calibration_modals.js
+          node tests/test_hifie_reuse_ui.js
       - name: Compile Python sources
         run: python -m compileall -q src tests
       - name: Results video preview cache tests
