@@ -477,7 +477,7 @@ class VisionService:
                           "y_cm": physical_y, "selected": point["id"] == ref_selected,
                           "error": warning})
         crop = list(camera.crop_region or camera.full_sensor_crop())
-        presets = self.registry.successful_virtual_profiles(camera.id, cell_id, crop, assoc["calibration_id"])
+        presets = self.registry.successful_virtual_profiles(camera.id, cell_id, crop)
         return {**profile, "successful_presets": presets,
                 "cell_vertical_reference": self.registry.cell_vertical_reference(cell_id),
                 "named_references": named, "reference_lines": lines,
@@ -538,7 +538,7 @@ class VisionService:
         return config_signature(profile["config"], assoc, camera_geometry)
 
     def _matching_saved_virtual_test(self, signature=None):
-        """Read the last passing benchmark only when ALL captured conditions match."""
+        """Reuse a globally verified detector configuration across experiments."""
         camera, cell_id, assoc, profile = self._virtual_context()
         config = normalized_config(profile["config"])
         if not config["vertical_reference_confirmed"]:
@@ -548,8 +548,7 @@ class VisionService:
         signature = signature or self._virtual_signature()
         crop = list(camera.crop_region or camera.full_sensor_crop())
         saved = self.registry.matching_successful_virtual_profile(
-            camera.id, cell_id, crop, assoc["calibration_id"], roi,
-            config["sampling_interval_s"], config, signature)
+            camera.id, cell_id, crop, roi, config["sampling_interval_s"], config)
         if saved is None:
             return None
         summary = deepcopy(saved["benchmark"])
