@@ -661,11 +661,11 @@ function calibrationMarkup(snapshot) {
         if (!state.calibrationMode) return '<div class="calibration-block"><strong>Virtual camera-based sensor</strong><span>Configured in the experiment calibration workflow.</span></div>';
         const item = calibrationItem(snapshot.id) || {};
         return `<div class="calibration-block">
-            <div><strong>Virtualized from Camera ${escapeHtml(snapshot.source_camera_id)}</strong>
+            <div><strong>HFDS · Camera ${escapeHtml(snapshot.source_camera_id)}</strong>
             <span>Cell ${escapeHtml(snapshot.physical_cell_id)} · Geometry + live benchmark required</span></div>
             <div class="calibration-actions"><button class="button button-primary open-virtual-calibration" type="button">
-            ${item.status === "passed" ? "Review virtual calibration" : "Configure / test virtual sensor"}</button>
-            ${item.status !== "passed" && item.status !== "skipped" ? '<button class="button button-secondary sensor-skip" data-sensor-id="froth_interface" type="button">Skip virtual sensor</button>' : ""}
+            ${item.status === "passed" ? "Review HFDS calibration" : "Configure / test HFDS"}</button>
+            ${item.status !== "passed" && item.status !== "skipped" ? '<button class="button button-secondary sensor-skip" data-sensor-id="froth_interface" type="button">Skip HFDS</button>' : ""}
             ${item.status === "passed" || item.status === "skipped" ? '<button class="button button-secondary sensor-reopen" data-sensor-id="froth_interface" type="button">Reopen</button>' : ""}</div>
         </div>`;
     }
