@@ -284,14 +284,15 @@ class VisionRegistry:
                             or context.get("calibration_id") != calibration_id):
                         continue
                     results.append({"id": path.stem, "tested_at": item.get("tested_at"),
-                                    "context": context, "config": normalized_config(item.get("config"))})
+                                    "context": context, "config": normalized_config(item.get("config")),
+                                    "reusable": bool(item.get("signature") and (item.get("benchmark") or {}).get("passed"))})
                 except (OSError, ValueError, TypeError, KeyError):
                     continue
             return sorted(results, key=lambda item: item.get("tested_at") or "", reverse=True)[:30]
 
     def remember_successful_virtual_profile(self, camera_id, cell_id, crop_region, calibration_id,
                                              roi_cm, sampling_interval_s, config,
-                                             sensor_id="froth_interface"):
+                                             sensor_id="froth_interface", *, signature=None, benchmark=None):
         """Persist only a passing benchmark, never a saved draft or failed test."""
         from lib.virtual_sensors.interface import normalized_config
         with self.lock:
@@ -302,11 +303,38 @@ class VisionRegistry:
                        "sampling_interval_s": float(sampling_interval_s)}
             payload = json.dumps(context, sort_keys=True, separators=(",", ":"))
             key = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-            value = {"schema_version": 1, "context": context, "tested_at": _timestamp(),
+            value = {"schema_version": 2 if signature else 1, "context": context, "tested_at": _timestamp(),
                      "config": normalized}
+            if signature:
+                value["signature"] = str(signature)
+                # Retain measured evidence, not pictures, a full time-series or a draft.
+                value["benchmark"] = deepcopy(benchmark or {})
             folder = self.root / "virtual_sensors" / context["sensor_id"] / "successful"
             _write(folder / f"{key}.json", value)
             return {"id": key, **value}
+
+    def matching_successful_virtual_profile(self, camera_id, cell_id, crop_region, calibration_id,
+                                           roi_cm, sampling_interval_s, config, signature,
+                                           sensor_id="froth_interface"):
+        """Return a signed, passing record for exactly these physical and algorithmic conditions."""
+        from lib.virtual_sensors.interface import normalized_config
+        with self.lock:
+            context = {"sensor_id": _safe_id(sensor_id), "camera_id": _safe_id(camera_id),
+                       "cell_id": _safe_id(cell_id), "crop_region": list(crop_region or []),
+                       "calibration_id": str(calibration_id), "detection_roi_cm": [float(v) for v in roi_cm],
+                       "sampling_interval_s": float(sampling_interval_s)}
+            key = hashlib.sha256(json.dumps(context, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            folder = self.root / "virtual_sensors" / context["sensor_id"] / "successful"
+            item = _read(folder / f"{key}.json", {})
+            if (item.get("schema_version") != 2 or item.get("signature") != signature
+                    or item.get("context") != context or not (item.get("benchmark") or {}).get("passed")):
+                return None
+            try:
+                if normalized_config(item.get("config")) != normalized_config(config):
+                    return None
+            except (TypeError, ValueError, KeyError):
+                return None
+            return {"id": key, **item}
 
     def association(self, camera_id, cell_id):
         with self.lock:
