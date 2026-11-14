@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot Edge | Settings</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114hif1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20261114hif1-scraping1">
-    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20261114scraping1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20261114hfds1">
+    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20261114hfds1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -25,31 +25,35 @@
                 <div><p class="eyebrow">Orchestration</p><h2>Experiment behavior</h2></div>
                 <button id="save_settings" class="button button-primary" type="button">Save settings</button>
             </div>
-            <div class="settings-grid">
-                <label class="switch-field">
+            <div class="settings-grid orchestration-grid">
+                <label class="switch-field orchestration-advance">
                     <span><strong>Automatic stage advance</strong><small>Start the next stage automatically after the transition delay.</small></span>
                     <input id="auto_advance_enabled" type="checkbox">
                 </label>
-                <label>Transition delay
+                <label class="orchestration-delay">Transition delay
                     <span class="input-unit"><input id="transition_timeout_s" type="number" min="0" step="1"><span>s</span></span>
                 </label>
-                <label>Scraping interval
+                <label class="orchestration-interval">Scraping interval
                     <span class="input-unit"><input id="scraping_interval" type="number" min="1" step="0.5"><span>s</span></span>
                 </label>
-                <label>Scraping output
-                    <select id="scraping_method"><option value="audio">Audio (browser beep)</option><option value="gpio">GPIO (3.3 V TTL pulse)</option></select>
+                <label class="orchestration-output">Scraping output
+                    <select id="scraping_method">
+                        <option value="disabled">Disabled (visual alert only)</option>
+                        <option value="audio">Audio (browser beep)</option>
+                        <option value="gpio">GPIO (3.3 V TTL pulse)</option>
+                    </select>
                 </label>
-                <label class="switch-field">
+                <label class="switch-field orchestration-alert">
                     <span><strong>Show Scraping Alert</strong><small>Display a visual cue on Run, independent of the scraping output.</small></span>
                     <input id="scraping_alerts_enabled" type="checkbox" checked>
                 </label>
-                <label>Scraping alert display
+                <label class="orchestration-alert-style">Scraping alert display
                     <select id="scraping_alert_style">
                         <option value="fullscreen">Whole Screen Alert</option>
                         <option value="banner">Compact Banner</option>
                     </select>
                 </label>
-                <label id="scraping_gpio_pin_field" hidden>GPIO output (BCM numbering)
+                <label id="scraping_gpio_pin_field" class="orchestration-gpio" hidden>GPIO output (BCM numbering)
                     <select id="scraping_gpio_pin"></select>
                     <small>Active-high 200 ms pulse. Select a free pin; GPIO 17 is physical pin 11.</small>
                 </label>
