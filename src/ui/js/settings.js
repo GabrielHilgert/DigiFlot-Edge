@@ -1,6 +1,7 @@
 const state = { settings: null, discovery: null };
 const el = Object.fromEntries([
     "settings_state", "auto_advance_enabled", "transition_timeout_s", "scraping_interval", "scraping_method",
+    "scraping_alerts_enabled", "scraping_alert_style", "scraping_gpio_pin", "scraping_gpio_pin_field", "scraping_gpio_warning",
     "save_performance", "telemetry_interval_s", "idle_telemetry_interval_s", "min_disk_free_gb", "storage_safety_margin_pct",
     "save_settings", "auto_advance_hint", "server_ip", "server_id", "server_name", "server_token",
     "server_status", "server_runtime_error", "server_restart_notice", "save_server", "autodetect", "save_devices",
@@ -43,6 +44,14 @@ function updateAutoHint() {
     el.auto_advance_hint.textContent = el.auto_advance_enabled.checked
         ? "After a stage ends, the next stage starts automatically after this delay unless the operator starts it sooner or pauses."
         : "Automatic advance is disabled. Transitions wait indefinitely for the operator to start the next stage.";
+}
+
+const GPIO_PHYSICAL_PINS = {4:7,5:29,6:31,12:32,13:33,16:36,17:11,18:12,19:35,20:38,21:40,22:15,23:16,24:18,25:22,26:37,27:13};
+function updateScrapingOptions() {
+    const gpio = el.scraping_method.value === "gpio";
+    el.scraping_gpio_pin_field.hidden = !gpio;
+    el.scraping_gpio_warning.hidden = !gpio;
+    el.scraping_alert_style.disabled = !el.scraping_alerts_enabled.checked;
 }
 
 function configuredDiscovery(payload) {
@@ -108,7 +117,14 @@ function applySettings(payload, resetDiscovery = false) {
     el.transition_timeout_s.value = orchestration.transition_timeout_s ?? 30;
     el.scraping_interval.value = orchestration.scraping_interval ?? 5;
     el.scraping_method.value = orchestration.scraping_method || "audio";
+    el.scraping_alerts_enabled.checked = orchestration.scraping_alerts_enabled !== false;
+    el.scraping_alert_style.value = orchestration.scraping_alert_style || "fullscreen";
+    const options = orchestration.scraping_gpio_options || Object.keys(GPIO_PHYSICAL_PINS).map(Number);
+    el.scraping_gpio_pin.innerHTML = options.map(pin =>
+        `<option value="${pin}">GPIO ${pin} · physical pin ${GPIO_PHYSICAL_PINS[pin] || "?"}</option>`).join("");
+    el.scraping_gpio_pin.value = String(orchestration.scraping_gpio_pin ?? 17);
     updateAutoHint();
+    updateScrapingOptions();
 
     const performance = payload.performance || {};
     el.telemetry_interval_s.value = performance.telemetry_interval_s ?? 10;
@@ -320,6 +336,8 @@ function selectedHardware() {
 }
 
 el.auto_advance_enabled.addEventListener("change", updateAutoHint);
+el.scraping_method.addEventListener("change", updateScrapingOptions);
+el.scraping_alerts_enabled.addEventListener("change", updateScrapingOptions);
 
 el.save_settings.addEventListener("click", async () => {
     el.save_settings.disabled = true;
@@ -332,6 +350,9 @@ el.save_settings.addEventListener("click", async () => {
                 transition_timeout_s: Number(el.transition_timeout_s.value),
                 scraping_interval: Number(el.scraping_interval.value),
                 scraping_method: el.scraping_method.value,
+                scraping_alerts_enabled: el.scraping_alerts_enabled.checked,
+                scraping_alert_style: el.scraping_alert_style.value,
+                scraping_gpio_pin: Number(el.scraping_gpio_pin.value),
             }),
         });
         await load(false);
