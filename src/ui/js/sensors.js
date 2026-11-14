@@ -124,6 +124,7 @@ let virtualProfileData = null;
 let virtualDraft = null;
 let virtualSessionGeneration = 0, virtualRoiController = null, virtualRoiTask = null;
 let virtualCleanup = Promise.resolve(), virtualTestBusy = false, virtualDiagnosticsDesired = false;
+let virtualBenchmarkTask = null;
 let virtualSavedConfig = null;
 
 const virtualMethods = ["mean_derivative", "cumulative_distribution", "heuristic_entropy",
@@ -614,41 +615,84 @@ function virtualBenchmarkMarkup(result) {
         ${result.errors?.length ? `<p>${escapeHtml(result.errors.join("; "))}</p>` : ""}`;
 }
 
+async function releaseVirtualCamera() {
+    try {await requestJson("/api/cameras/preview/stop",{method:"POST"});}
+    catch(error){if(!/another browser tab|another camera/i.test(error.message))
+        console.warn("Could not release HIFIE camera preview:", error);}
+}
+
+function virtualHasUnsavedChanges() {
+    if(!virtualSavedConfig || !virtualDraft)return false;
+    try {return virtualRoiDirty || JSON.stringify(virtualCollectInputs())!==JSON.stringify(virtualSavedConfig);}
+    catch(_) {return true;}
+}
+
+function requestVirtualClose() {
+    const panel=document.getElementById("virtual_panel");
+    if(!panel.open)return;
+    if(virtualHasUnsavedChanges() && !window.confirm("Discard unsaved HIFIE settings?"))return;
+    panel.close();
+}
+
+function cleanupVirtualSession() {
+    ++virtualSessionGeneration;
+    virtualRoiController?.abort();virtualRoiController=null;virtualRoiTask=null;
+    virtualDiagnosticsDesired=false;
+    const stop=stopVirtualDiagnostics();
+    virtualCleanup=virtualCleanup.catch(()=>{}).then(async()=>{
+        await stop;
+        if(virtualBenchmarkTask)await virtualBenchmarkTask.catch(()=>{});
+        await releaseVirtualCamera();
+    });
+}
+
 async function openVirtualCalibration() {
-    if (!state.calibrationMode) return;
-    const panel = document.getElementById("virtual_panel");
-    const missing = document.getElementById("virtual_missing");
-    const editor = document.getElementById("virtual_editor");
-    if (!panel.open) panel.showModal();
-    const cellId = state.digiflot?.cell_selection?.cell_id || "";
-    const cameraId = state.digiflot?.cell_selection?.camera_id;
-    document.getElementById("virtual_source").textContent = cameraId == null ? "No camera" : `Camera ${cameraId}`;
-    document.getElementById("virtual_open_cells").href = `/cells?cell=${encodeURIComponent(cellId)}&camera=${encodeURIComponent(cameraId ?? "")}`;
-    document.getElementById("virtual_recalibrate_camera").href = document.getElementById("virtual_open_cells").href;
-    document.getElementById("virtual_edit_named").href = document.getElementById("virtual_open_cells").href;
+    if (!state.calibrationMode)return;
+    const panel=document.getElementById("virtual_panel");
+    if(panel.open)return;
+    const generation=++virtualSessionGeneration;
+    const missing=document.getElementById("virtual_missing"),editor=document.getElementById("virtual_editor");
+    panel.showModal();
+    missing.hidden=true;editor.hidden=true;
+    document.getElementById("virtual_modal_footer").hidden=true;
+    virtualRoiDirty=false;virtualSavedConfig=null;
     try {
-        virtualProfileData = await requestJson("/api/vision/virtual-sensors/froth-interface/profile");
-        virtualDraft = {...virtualProfileData.config};
-        document.getElementById("virtual_geometry").textContent =
-            `${cellId} · Camera ${cameraId} · Geometry ${virtualProfileData.geometry.calibration_id} · ${virtualProfileData.source} profile`;
-        missing.hidden = true; editor.hidden = false;
-        renderVirtualFields();
-        renderVerticalReference();
+        await virtualCleanup;
+        if(generation!==virtualSessionGeneration || !panel.open)return;
+        const cellId=state.digiflot?.cell_selection?.cell_id || "";
+        const cameraId=state.digiflot?.cell_selection?.camera_id;
+        document.getElementById("virtual_source").textContent=cameraId==null?"No camera":`Camera ${cameraId}`;
+        document.getElementById("virtual_open_cells").href=
+            `/cells?cell=${encodeURIComponent(cellId)}&camera=${encodeURIComponent(cameraId??"")}`;
+        document.getElementById("virtual_recalibrate_camera").href=document.getElementById("virtual_open_cells").href;
+        document.getElementById("virtual_edit_named").href=document.getElementById("virtual_open_cells").href;
+        const profile=await requestJson("/api/vision/virtual-sensors/froth-interface/profile");
+        if(generation!==virtualSessionGeneration || !panel.open)return;
+        virtualProfileData=profile;virtualDraft={...profile.config};
+        document.getElementById("virtual_geometry").textContent=
+            `${cellId} · Geometry ${profile.geometry.calibration_id} · ${profile.source} profile`;
+        missing.hidden=true;editor.hidden=false;
+        document.getElementById("virtual_modal_footer").hidden=false;
+        document.getElementById("virtual_method_section").open=false;
+        renderVirtualFields();renderVerticalReference();
+        virtualSavedConfig=virtualCollectInputs();
         virtualRoiPlane=null;virtualRoiDirty=false;
         document.getElementById("virtual_roi_stage").hidden=true;
         renderVirtualRoiCaption();
-        virtualBenchmarkMarkup(virtualProfileData.test);
-        renderVirtualTestTimeline(virtualProfileData.test?.series || []);
-        if(virtualProfileData.test_diagnostic)
-            renderVirtualDiagnostic(virtualProfileData.test_diagnostic,"Last calibration test");
-        try {await loadVirtualRoiPlane();} catch(error){
-            document.getElementById("virtual_roi_label").textContent="Unable to load calibrated plane: "+error.message;
+        virtualBenchmarkMarkup(profile.test);renderVirtualTestTimeline(profile.test?.series||[]);
+        if(profile.test_diagnostic)renderVirtualDiagnostic(profile.test_diagnostic,"Last calibration test");
+        // Diagnostics must not wait for the expensive full-plane ROI capture.
+        if(virtualEffectiveRoi()) {
+            virtualDiagnosticsDesired=true;
+            startVirtualDiagnostics().catch(error=>{if(panel.open)showToast(error.message);});
         }
-        if(virtualEffectiveRoi())startVirtualDiagnostics().catch(error=>showToast(error.message));
-    } catch (error) {
-        missing.hidden = false; editor.hidden = true;
-        stopVirtualDiagnostics();
-        missing.querySelector("p").textContent = error.message;
+        void loadVirtualRoiPlane();
+    } catch(error) {
+        if(generation!==virtualSessionGeneration || !panel.open)return;
+        missing.hidden=false;editor.hidden=true;
+        document.getElementById("virtual_modal_footer").hidden=true;
+        await stopVirtualDiagnostics();
+        missing.querySelector("p").textContent=error.message;
     }
 }
 
