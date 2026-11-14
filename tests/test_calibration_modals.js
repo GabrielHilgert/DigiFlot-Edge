@@ -12,7 +12,10 @@ assert.doesNotMatch(html,/<section id="virtual_panel"/);
 assert.match(js,/if \(!panel\.open\) panel\.showModal\(\)/);
 assert.match(js,/function sensorCalibrationEntry\(snapshot\)/);
 assert.match(js,/host\.innerHTML = sensorCalibrationEntry\(snapshot\)/);
-assert.match(js,/sensor\.type !== "virtual_froth_interface"/);
+assert.match(js,/String\(snapshot\.type \|\| ""\)\.toLowerCase\(\) !== "ph"/);
+assert.match(js,/if \(!snapshot \|\| String\(snapshot\.type \|\| ""\)\.toLowerCase\(\) !== "ph"\)/);
+assert.match(js,/closeResolvedPhDialog\(button\.dataset\.sensorId\)/);
+assert.match(js,/if \(sensor && String\(sensor\.type \|\| ""\)\.toLowerCase\(\) === "ph"\)/);
 assert.match(js,/if \(!el\.calibrationDrawer\.open\) el\.calibrationDrawer\.showModal\(\)/);
 assert.match(js,/virtualDialog\.addEventListener\("close", \(\) => stopVirtualDiagnostics\(\)\)/);
 assert.match(js,/if \(event\.target === virtualDialog\) virtualDialog\.close\(\)/);
@@ -24,4 +27,26 @@ assert.match(css,/\.virtual-panel\.calibration-modal/);
 assert.match(experimentCss,/box-shadow:0 10px 32px rgba\(0,0,0,\.16\)/);
 assert.match(experimentCss,/background:rgba\(8,16,24,\.32\)/);
 assert.doesNotMatch(experimentCss,/25px 95px|backdrop-filter:blur\(3px\)/);
-console.log("Calibration modals and subtle experiment dialog styling passed");
+// Regression: calibration completion badges for scales and other non-pH sensors
+// must remain in the card. pH uses a dialog but still shows a card status.
+const vm=require("node:vm");
+const begin=js.indexOf("function sensorCalibrationEntry(snapshot) {");
+const end=js.indexOf("function sensorCard(snapshot) {",begin);
+assert.ok(begin>=0 && end>begin);
+const calibration={status:"passed",requested_points:2,points:{mid:{status:"passed"},low:{status:"passed"}}};
+const context={state:{standaloneCalibration:new Map()},calibrationItem:()=>calibration,
+    calibrationMarkup:()=>'<div class="calibration-block complete-block"><span class="calibration-pill passed">Passed</span></div>',
+    escapeHtml:value=>String(value)};
+const render=vm.runInNewContext(js.slice(begin,end)+"\nsensorCalibrationEntry;",context);
+const scale=render({id:"scale1",type:"scale"});
+assert.match(scale,/calibration-pill passed/);
+assert.doesNotMatch(scale,/open-calibration-drawer/);
+const ph=render({id:"ph1",type:"ph"});
+assert.match(ph,/calibration-pill passed/);
+assert.match(ph,/2\/2 calibration points completed/);
+assert.match(ph,/open-calibration-drawer/);
+const virtual=render({id:"froth_interface",type:"virtual_froth_interface"});
+assert.doesNotMatch(virtual,/open-calibration-drawer/);
+calibration.status="skipped";
+assert.match(render({id:"ph1",type:"ph"}),/calibration-pill skipped/);
+console.log("Calibration modals, inline completion status and experiment styling passed");
