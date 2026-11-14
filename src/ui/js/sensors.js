@@ -264,6 +264,7 @@ function invalidateVerticalReference() {
 
 let virtualDiagnostic = null, virtualTestSeries = [];
 let virtualDiagnosticsActive = false, virtualDiagnosticsTimer = null, virtualDiagBusy = false, virtualDiagRevision = 0;
+let virtualDiagRequest = null;
 
 function paletteColor(name, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -420,10 +421,12 @@ async function pollVirtualDiagnostics() {
     if(!virtualDiagnosticsActive||virtualDiagBusy||document.hidden||!document.getElementById("virtual_panel").open)return;
     virtualDiagBusy=true;
     try {
-        const payload=await requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
+        const pending=requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
             method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({enabled:true,last_revision:virtualDiagRevision})
         });
+        virtualDiagRequest=pending;
+        const payload=await pending;
         if(!virtualDiagnosticsActive)return;
         if(payload.diagnostic){virtualDiagRevision=payload.revision;renderVirtualDiagnostic(payload.diagnostic,"Live preview");}
         if(payload.error)document.getElementById("virtual_diagnostics_status").textContent=
@@ -436,11 +439,14 @@ async function pollVirtualDiagnostics() {
             virtualDiagnosticsDesired=false;
             void stopVirtualDiagnostics();
         }
-    } finally {virtualDiagBusy=false;}
+    } finally {virtualDiagBusy=false;virtualDiagRequest=null;}
 }
 
 async function startVirtualDiagnostics() {
     if(virtualDiagnosticsActive)return;
+    // A full-plane request and the live lores acquisition cannot race at startup.
+    if(virtualRoiTask)await virtualRoiTask;
+    if(!document.getElementById("virtual_panel").open)return;
     if(!virtualEffectiveRoi())throw new Error("Select and save a Detection ROI before starting live diagnostics");
     virtualDiagnosticsActive=true;virtualDiagRevision=0;
     document.getElementById("virtual_diagnostics_toggle").textContent="Stop live diagnostics";
@@ -454,9 +460,15 @@ function stopVirtualDiagnostics() {
     if(virtualDiagnosticsTimer){window.clearInterval(virtualDiagnosticsTimer);virtualDiagnosticsTimer=null;}
     document.getElementById("virtual_diagnostics_toggle").textContent="Start live diagnostics";
     window.DigiFlotIcons?.enhance(document.getElementById("virtual_diagnostics_toggle"));
-    return requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
-        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false})
-    }).catch(()=>{});
+    // A pending enable request must finish BEFORE disable, otherwise the old
+    // response can re-enable preview after closing the modal or starting a test.
+    const pending=virtualDiagRequest;
+    return (async()=>{
+        if(pending)await pending.catch(()=>{});
+        await requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
+            method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false})
+        }).catch(()=>{});
+    })();
 }
 
 
@@ -562,9 +574,21 @@ async function loadVirtualRoiPlane() {
     const label=document.getElementById("virtual_roi_label");
     label.textContent="Loading the rectified camera plane…";
     const task=(async()=>{
-        const payload=await requestJson("/api/vision/virtual-sensors/froth-interface/detection-roi-preview",
-            {signal:controller.signal});
-        if(generation!==virtualSessionGeneration || !document.getElementById("virtual_panel").open)return;
+        let payload;
+        for(let attempt=0;attempt<3;attempt++){
+            try {
+                payload=await requestJson("/api/vision/virtual-sensors/froth-interface/detection-roi-preview",
+                    {signal:controller.signal});
+                break;
+            } catch(error) {
+                if(controller.signal.aborted || generation!==virtualSessionGeneration)throw error;
+                const transient=/busy|in use|temporar|start camera|request failed|not available|unavailable/i.test(error.message);
+                if(!transient || attempt===2)throw error;
+                label.textContent=`Camera plane temporarily busy. Retrying (${attempt+1}/2)…`;
+                await new Promise(resolve=>window.setTimeout(resolve,400*(attempt+1)));
+            }
+        }
+        if(generation!==virtualSessionGeneration || !document.getElementById("virtual_panel").open)return false;
         virtualRoiPlane=payload;
         const stage=document.getElementById("virtual_roi_stage"),image=document.getElementById("virtual_roi_image");
         const [w,h]=payload.size;stage.hidden=false;
@@ -572,11 +596,13 @@ async function loadVirtualRoiPlane() {
         stage.style.removeProperty("max-width");
         image.src="data:image/jpeg;base64,"+payload.jpeg_base64;
         renderVirtualRoiCaption();drawVirtualRoiOverlay();
+        return true;
     })();
     virtualRoiTask=task;
-    try {await task;}
+    try {return await task;}
     catch(error){if(error.name!=="AbortError" && generation===virtualSessionGeneration && !controller.signal.aborted)
-        label.textContent="Unable to load calibrated plane: "+error.message;}
+        label.textContent="Unable to load calibrated plane: "+error.message;
+        return false;}
     finally {if(virtualRoiTask===task)virtualRoiTask=null;
         if(virtualRoiController===controller)virtualRoiController=null;}
 }
@@ -692,12 +718,14 @@ async function openVirtualCalibration() {
         renderVirtualRoiCaption();
         virtualBenchmarkMarkup(profile.test);renderVirtualTestTimeline(profile.test?.series||[]);
         if(profile.test_diagnostic)renderVirtualDiagnostic(profile.test_diagnostic,"Last calibration test");
-        // Diagnostics must not wait for the expensive full-plane ROI capture.
+        // First capture the calibrated plane, then start the background lores
+        // diagnostics. Simultaneous Picamera2 acquisition broke some sessions.
+        await loadVirtualRoiPlane();
+        if(generation!==virtualSessionGeneration || !panel.open)return;
         if(virtualEffectiveRoi()) {
             virtualDiagnosticsDesired=true;
-            startVirtualDiagnostics().catch(error=>{if(panel.open)showToast(error.message);});
+            await startVirtualDiagnostics().catch(error=>{if(panel.open)showToast(error.message);});
         }
-        void loadVirtualRoiPlane();
     } catch(error) {
         if(generation!==virtualSessionGeneration || !panel.open)return;
         missing.hidden=false;editor.hidden=true;
