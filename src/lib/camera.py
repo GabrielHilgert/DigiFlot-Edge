@@ -1056,6 +1056,14 @@ class Camera:
             encode="lores",
         )
 
+    def recording_lores_size(self):
+        """Camera-owned lores width; only the recording crop aspect changes."""
+        width = min(int(self.analysis_target_size[0]), int(self.frame_size[0]))
+        width = max(2, width - width % 2)
+        height = max(2, int(round(width * self.frame_size[1] / self.frame_size[0] / 2)) * 2)
+        height = min(height, int(self.frame_size[1]) // 2 * 2)
+        return width, height
+
     def create_recording_configuration(self):
         mode = self.select_sensor_mode(
             crop_region=self.crop_region,
@@ -1063,14 +1071,9 @@ class Camera:
             frame_rate=self.frame_rate,
         )
 
-        # One optional low-resolution stream accompanies the unchanged main recording.
-        lores = None
-        if self.analysis_enabled:
-            width = min(int(self.analysis_target_size[0]), int(self.frame_size[0]))
-            width = max(2, width - width % 2)
-            height = max(2, int(round(width * self.frame_size[1] / self.frame_size[0] / 2)) * 2)
-            height = min(height, int(self.frame_size[1]) // 2 * 2)
-            lores = {"size": (width, height), "format": "YUV420"}
+        # This lores stream is enabled only for a calibrated, frozen sensor.
+        lores = ({"size": self.recording_lores_size(), "format": "YUV420"}
+                 if self.analysis_enabled else None)
 
         return self.picam2.create_video_configuration(
             lores=lores,
