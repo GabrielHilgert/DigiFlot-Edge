@@ -92,6 +92,9 @@ class FakeRun:
             self.preview_owner_until = 0.
     def get_camera(self, camera_id):
         return self.cameras[int(camera_id)]
+    @property
+    def status(self):
+        return {"state": self.state, "sensor_calibration": self.sensor_calibration}
     def camera_summaries(self):
         return [{"id":1,"name":"Side"}]
     def _touch_unlocked(self, *args, **kwargs):
@@ -168,6 +171,82 @@ class VirtualBenchmarkTests(unittest.TestCase):
             self.assertEqual(vision.virtual_profile()["successful_presets"][0]["config"]["resolution_px"], 128)
             self.assertEqual(run.sensor_calibration["froth_interface"]["status"],"pending")
 
+
+
+    def test_exact_passed_conditions_are_reusable_after_restart_without_benchmark(self):
+        from lib.digiflot import DigiFlot
+        with tempfile.TemporaryDirectory() as root:
+            run = FakeRun()
+            vision = VisionService(run, root)
+            run.vision = vision
+            cell = vision.registry.save_cell({"name": "Passing benchmark reuse"})
+            run.cell_profile = {"physical_cell_id": cell["id"]}
+            geom = source_geometry([900,920], [0,0,900,920])
+            cal = calibrate(run.cameras[1].image, DEFAULT_LAYOUT, frame_geometry=geom)
+            vision.registry.save_association(1, cell["id"], cal)
+            vision.registry.save_analysis_roi(1, cell["id"], [2,2,10,10])
+            config = vision.save_virtual_profile({
+                "resolution_px":128, "sampling_interval_s":.2,
+                "detection_roi_cm":[2.,2.,10.,10.], "vertical_reference_confirmed":True})["config"]
+            reading = {"valid":True, "froth_surface_cm":4., "pulp_froth_interface_cm":7.,
+                       "froth_thickness_cm":3., "froth_surface_row_px":20, "pulp_froth_row_px":50}
+            with patch("lib.vision.service.detect_interface", return_value=reading):
+                successful = vision.benchmark_virtual_sensor(samples=12)
+            self.assertTrue(successful["passed"], successful)
+            self.assertFalse(successful.get("reused", False))
+            self.assertFalse(vision.virtual_test_result().get("reused", False))
+
+            # Simulate the exact restart behavior: only the registry persists.
+            restarted = FakeRun()
+            restarted.cell_profile = {"physical_cell_id":cell["id"]}
+            new_vision = VisionService(restarted, root)
+            restarted.vision = new_vision
+            self.assertTrue(new_vision.virtual_test_passed())
+            evidence = new_vision.virtual_test_result()
+            self.assertTrue(evidence["reused"])
+            self.assertTrue(evidence["current"])
+            self.assertEqual(evidence["samples"], successful["samples"])
+            self.assertEqual(evidence["source"], "saved")
+            self.assertEqual(len(new_vision.virtual_profile()["successful_presets"]), 1)
+            self.assertTrue(new_vision.virtual_profile()["successful_presets"][0]["reusable"])
+            self.assertFalse(restarted.cameras[1].started, "Reusing evidence must not start a benchmark")
+
+            # The normal controller approval path must accept the same evidence.
+            status = DigiFlot.confirm_sensor_calibration(restarted, "froth_interface")
+            self.assertEqual(restarted.sensor_calibration["froth_interface"]["status"], "passed")
+            self.assertTrue(restarted.sensor_calibration["froth_interface"]["benchmark"]["reused"])
+            self.assertEqual(restarted.cameras[1].state, restarted.cameras[1].PREVIEW)
+            self.assertTrue(status)
+
+            new_vision.clear_virtual_test()
+            restarted.cameras[1].stop_preview()
+            restarted.preview_camera_id = None
+            restarted.sensor_calibration["froth_interface"]["status"] = "pending"
+            restarted.cameras[1].exposure_time_us += 100
+            self.assertFalse(new_vision.virtual_test_passed(), "Exposure change must require a new test")
+            restarted.cameras[1].exposure_time_us -= 100
+            self.assertTrue(new_vision.virtual_test_passed())
+            restarted.cameras[1].crop_region = (0, 2, 900, 918)
+            self.assertFalse(new_vision.virtual_test_passed(), "Crop change must require a new test")
+            restarted.cameras[1].crop_region = None
+            self.assertTrue(new_vision.virtual_test_passed())
+            restarted.cameras[1].frame_rate += 1
+            self.assertFalse(new_vision.virtual_test_passed(), "Camera FPS change must require retesting")
+            restarted.cameras[1].frame_rate -= 1
+            self.assertTrue(new_vision.virtual_test_passed())
+            with patch("lib.vision.service._virtual_implementation_fingerprint", return_value="new-algorithm"):
+                self.assertFalse(new_vision.virtual_test_passed(), "Detector software changes must require retesting")
+
+            newer = {**config, "entropy_radius":22}
+            new_vision.save_virtual_profile(newer)
+            self.assertFalse(new_vision.virtual_test_passed(), "Detector tuning change must require a new test")
+            new_vision.save_virtual_profile(config)
+            self.assertTrue(new_vision.virtual_test_passed(), "Restoring identical settings should reuse the passing test")
+            changed_rate = {**config, "sampling_interval_s":.4}
+            new_vision.save_virtual_profile(changed_rate)
+            self.assertFalse(new_vision.virtual_test_passed(), "Sampling-rate change must require a new test")
+            new_vision.save_virtual_profile(config)
+            self.assertTrue(new_vision.virtual_test_passed())
 
     def test_diagnostic_lease_is_owned_and_full_plane_remap_releases_run_lock(self):
         with tempfile.TemporaryDirectory() as root:
