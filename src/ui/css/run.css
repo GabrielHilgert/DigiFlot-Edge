@@ -559,3 +559,72 @@ body[data-run-layout="compact"] .abort-bar .button { min-height:35px; font-size:
   body[data-run-layout="compact"] .run-health-row > .run-storage-strip { grid-template-columns:repeat(2,minmax(0,1fr)); }
   body[data-run-layout="compact"] .run-panel .run-body { grid-template-columns:minmax(0,1fr); }
 }
+
+
+/* Compact navigation and calibration review: direct navigation never changes experiment state. */
+.workflow-card { display:block; overflow:visible; padding:0; }
+.workflow-full { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:8px; padding:10px 14px; }
+.workflow-full .workflow-step { display:flex; flex-direction:column; justify-content:center; align-items:center; gap:5px; min-height:54px; padding:4px; border:0; border-radius:8px; background:transparent; cursor:pointer; text-align:center; white-space:normal; font:inherit; font-size:.74rem; }
+.workflow-full .workflow-step span { flex:0 0 24px; width:24px; height:24px; }
+.workflow-full .workflow-step strong { font-size:.74rem; font-weight:750; line-height:1.2; }
+.workflow-full .workflow-step:not(.restricted):hover { background:var(--surface-soft); }
+.workflow-full .workflow-step.restricted { color:var(--text-faint); }
+.workflow-full .workflow-step:focus-visible, .workflow-quick button:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.workflow-quick { display:none; align-items:center; justify-content:center; gap:12px; min-height:43px; padding:4px 10px; }
+.workflow-quick-step { display:flex; align-items:center; justify-content:center; gap:8px; min-height:34px; padding:5px 15px; border:1px solid transparent; border-radius:8px; background:transparent; color:var(--text-soft); font:inherit; font-size:.79rem; font-weight:740; cursor:pointer; }
+.workflow-quick-step.active { color:var(--accent); border-color:var(--border-strong); background:var(--accent-soft); }
+.workflow-quick-step.restricted { color:var(--text-faint); }
+.workflow-quick-step:hover { background:var(--surface-soft); }
+.workflow-step-number { display:inline-grid; place-items:center; flex:0 0 22px; width:22px; height:22px; border:1px solid var(--border-strong); border-radius:6px; font-size:.64rem; font-weight:800; }
+.workflow-quick-separator { color:var(--text-faint); font-size:1.1rem; }
+.workflow-setup-menu { position:relative; }
+#workflow_setup_progress { color:var(--success); font-size:.74rem; font-weight:750; }
+.workflow-setup-links { position:absolute; top:calc(100% + 8px); left:0; z-index:20; display:grid; gap:3px; min-width:215px; padding:6px; border:1px solid var(--border-strong); border-radius:var(--radius-md); background:var(--surface); box-shadow:var(--shadow); }
+.workflow-setup-links button { display:block; width:100%; min-height:34px; border:0; border-radius:6px; padding:7px 10px; background:transparent; color:var(--text); text-align:left; font:inherit; font-size:.77rem; cursor:pointer; }
+.workflow-setup-links button:hover { background:var(--surface-soft); }
+.workflow-setup-links button.restricted { color:var(--text-faint); }
+.workflow-setup-links[hidden], .workflow-quick[hidden] { display:none !important; }
+body[data-run-layout="compact"][data-run-phase="operational"] .workflow-card { margin-bottom:10px; }
+body[data-run-layout="compact"][data-run-phase="operational"] .workflow-full { display:none; }
+body[data-run-layout="compact"][data-run-phase="operational"] .workflow-quick { display:flex; }
+body[data-run-layout="compact"] .workflow-card { padding:0; }
+body[data-run-layout="compact"] .workflow-full { padding:6px 10px; gap:4px; }
+body[data-run-layout="compact"] .workflow-full .workflow-step { min-height:45px; padding:4px 1px; gap:3px; }
+body[data-run-layout="compact"] .workflow-full .workflow-step strong { font-size:.7rem; }
+@media(max-width:750px) {
+  .workflow-full { gap:3px; padding:7px; overflow-x:auto; }
+  .workflow-full .workflow-step { min-width:92px; }
+  .workflow-quick { justify-content:space-evenly; gap:4px; }
+  .workflow-quick-step { padding:4px 7px; font-size:.7rem; gap:4px; }
+  .workflow-setup-links { left:-2px; }
+}
+
+/* Two-line calibration items, with a single accessible disclosure header. */
+.calibration-review-strip { display:block; padding:0; overflow:visible; }
+.calibration-review-toggle { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-height:42px; padding:8px 14px; border:0; border-radius:var(--radius-lg); background:transparent; color:var(--text); text-align:left; font:inherit; cursor:pointer; }
+.calibration-review-toggle:hover { background:var(--surface-soft); }
+.calibration-review-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.calibration-review-title { display:flex; flex-wrap:wrap; align-items:center; gap:10px; min-width:0; font-size:.85rem; }
+.calibration-review-summary { margin-left:auto; color:var(--text-soft); font-size:.73rem; font-weight:600; white-space:nowrap; }
+.calibration-review-chevron { flex:0 0 9px; width:9px; height:9px; margin-left:8px; border-right:2px solid currentColor; border-bottom:2px solid currentColor; color:var(--text-soft); transform:rotate(45deg); transition:transform .18s ease; }
+.calibration-review-toggle[aria-expanded="true"] .calibration-review-chevron { transform:rotate(225deg); }
+.calibration-review-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); align-items:stretch; gap:7px; padding:0 12px 12px; }
+.calibration-review-list[hidden] { display:none !important; }
+.calibration-review-item { display:grid; grid-template-columns:auto minmax(0,1fr) 28px; grid-template-rows:auto auto; align-items:center; column-gap:6px; row-gap:1px; min-height:53px; padding:7px 8px; border:1px solid var(--border); border-radius:9px; background:var(--surface-soft); }
+.calibration-review-item .review-kind { grid-column:1; grid-row:1; font-size:.58rem; }
+.calibration-review-item strong { grid-column:2; grid-row:1; font-size:.76rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.calibration-review-item .calibration-status { grid-column:1/3; grid-row:2; font-size:.64rem; }
+.calibration-review-action { display:grid; grid-column:3; grid-row:1/3; place-items:center; width:28px; height:28px; border:1px solid var(--border-strong); border-radius:7px; background:var(--surface); color:var(--text-soft); cursor:pointer; }
+.calibration-review-action:hover { color:var(--accent); border-color:var(--accent); }
+.calibration-review-action:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+body[data-run-layout="compact"] .calibration-review-strip { display:block; padding:0; margin-bottom:10px; }
+body[data-run-layout="compact"] .calibration-review-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); gap:6px; padding:0 10px 10px; }
+body[data-run-layout="compact"] .calibration-review-item { min-height:51px; }
+body[data-run-layout="compact"] .calibration-review-heading { display:none; }
+@media(prefers-reduced-motion:reduce) { .calibration-review-chevron { transition:none; } }
+
+/* Preserve the original automatic sensor placement; do not stretch normal cards to froth height. */
+body[data-run-layout="compact"] .live-sensor-card:not(.live-sensor-card-virtual) { height:166px; min-height:166px; align-self:start; }
+@media(max-width:520px) {
+  body[data-run-layout="compact"] .live-sensor-card:not(.live-sensor-card-virtual) { height:auto; min-height:166px; }
+}
