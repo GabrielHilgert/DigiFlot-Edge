@@ -591,6 +591,18 @@ write_root_file_if_changed "$TMP_DIR/digiflot-status" "$GLOBAL_STATUS_SCRIPT" 07
 write_root_file_if_changed "$TMP_DIR/digiflot-update" "$GLOBAL_UPDATE_SCRIPT" 0755 || true
 write_root_file_if_changed "$TMP_DIR/digiflot-edge.desktop" "$GLOBAL_DESKTOP" 0755 || true
 
+# The full installer is only a bootstrap. From this point onward, the
+# root-owned maintenance dispatcher and versioned service definitions are
+# synchronized by 'sudo digiflot-update' without rerunning apt/pip/install.sh.
+if [[ -f "$SRC_DIR/deploy/maintenance.sh" ]]; then
+    log "Bootstrapping Git-managed maintenance and digiflot-restart..."
+    as_root env DIGIFLOT_SERVICE_USER="$SERVICE_USER" DIGIFLOT_SERVICE_HOME="$SERVICE_HOME" \
+        DIGIFLOT_PORT="$PORT" DIGIFLOT_HEALTH_INTERVAL="$HEALTH_INTERVAL" \
+        DIGIFLOT_HEALTH_BOOT_DELAY="$HEALTH_BOOT_DELAY" \
+        DIGIFLOT_HEALTH_MAX_FAILURES="$HEALTH_MAX_FAILURES" DIGIFLOT_BRANCH="$BRANCH" \
+        bash "$SRC_DIR/deploy/maintenance.sh" bootstrap
+fi
+
 if [[ $SYSTEMD_CHANGED -eq 1 ]]; then
     log "systemd configuration changed; reloading daemon."
 else
