@@ -118,6 +118,32 @@ class GPIOTests(unittest.TestCase):
             self.assertEqual(gpio.dropped, 1)
         finally: gpio.close()
 
+    def test_stage_cancel_rejects_pulse_waiting_on_device_initialization(self):
+        creating=threading.Event(); proceed=threading.Event(); done=threading.Event()
+        reports=[]; outputs=[]
+        class Device:
+            def on(self): outputs.append("on")
+            def off(self): outputs.append("off")
+            def close(self): pass
+        def factory(pin):
+            creating.set()
+            proceed.wait(2)
+            return Device()
+        def report(result):
+            reports.append(result); done.set()
+        gpio=ScrapingGPIO(17, pulse_s=.03, output_factory=factory, report=report)
+        try:
+            self.assertTrue(gpio.schedule(time.monotonic()))
+            self.assertTrue(creating.wait(2))
+            gpio.cancel_pending()
+            proceed.set()
+            self.assertTrue(done.wait(2))
+            self.assertEqual(reports[0]["status"],"cancelled")
+            self.assertNotIn("on",outputs,"GPIO must not pulse after stage cancellation")
+        finally:
+            proceed.set()
+            gpio.close()
+
     def test_gpio_factory_failure_does_not_break_scheduler(self):
         reports = []; done = threading.Event()
         def factory(pin): raise RuntimeError("Permission denied")
