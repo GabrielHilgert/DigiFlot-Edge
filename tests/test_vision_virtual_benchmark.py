@@ -66,6 +66,8 @@ class FakeRun:
         self.virtual_camera_id = 1
         self.cell_profile = {}
         self.preview_camera_id = None
+        self.preview_owner_id = None
+        self.preview_owner_until = 0.
         self.sensor_calibration = {"froth_interface":{"status":"pending"}}
         self.lock = threading.RLock()
         self.execution_locked = False
@@ -74,10 +76,20 @@ class FakeRun:
         self.run_started_monotonic = None
         self.current_stage = {"id": "stage_1"}
         self.stage_attempt = 1
+    def start_preview(self, camera_id, owner_id=None):
+        camera = self.cameras[int(camera_id)]
+        if camera.state == camera.IDLE:
+            camera.start_preview()
+        self.preview_camera_id = camera.id
+        self.preview_owner_id = owner_id
+        self.preview_owner_until = time.monotonic() + 35.
+        return {"camera_id": camera.id}
     def stop_preview(self):
         if self.preview_camera_id is not None:
             self.cameras[self.preview_camera_id].stop_preview()
             self.preview_camera_id = None
+            self.preview_owner_id = None
+            self.preview_owner_until = 0.
     def get_camera(self, camera_id):
         return self.cameras[int(camera_id)]
     def camera_summaries(self):
@@ -138,6 +150,9 @@ class VirtualBenchmarkTests(unittest.TestCase):
             self.assertTrue(run.cameras[1].started and run.cameras[1].stopped)
             self.assertEqual(run.cameras[1].state, run.cameras[1].IDLE)
             self.assertTrue(vision.virtual_test_passed())
+            passing = vision.virtual_profile()["successful_presets"]
+            self.assertEqual(len(passing), 1)
+            self.assertEqual(passing[0]["config"]["resolution_px"], 128)
             run_dir = Path(root) / "run"
             run_dir.mkdir()
             snap = vision.freeze_run_config(run_dir)
@@ -149,7 +164,38 @@ class VirtualBenchmarkTests(unittest.TestCase):
             self.assertEqual(restored._run_virtual["config"], snap["config"])
             vision.save_virtual_profile({"resolution_px":256})
             self.assertFalse(vision.virtual_test_passed())
+            # Editing a draft cannot erase the previous passing detector settings.
+            self.assertEqual(vision.virtual_profile()["successful_presets"][0]["config"]["resolution_px"], 128)
             self.assertEqual(run.sensor_calibration["froth_interface"]["status"],"pending")
+
+
+    def test_diagnostic_lease_is_owned_and_full_plane_remap_releases_run_lock(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = FakeRun()
+            vision = VisionService(run, root)
+            cell = vision.registry.save_cell({"name": "Diagnostic safety"})
+            run.cell_profile = {"physical_cell_id": cell["id"]}
+            geom = source_geometry([900,920], [0,0,900,920])
+            cal = calibrate(run.cameras[1].image, DEFAULT_LAYOUT, frame_geometry=geom)
+            vision.registry.save_association(1, cell["id"], cal)
+            vision.registry.save_analysis_roi(1, cell["id"], [2,2,10,10])
+
+            self.assertTrue(vision.diagnostic_preview(True, owner_id="tab-a")["enabled"])
+            self.assertEqual(run.preview_owner_id, "tab-a")
+            with self.assertRaises(RuntimeError):
+                vision.diagnostic_preview(True, owner_id="tab-b")
+            self.assertFalse(vision.diagnostic_preview(False, owner_id="tab-b")["enabled"])
+            self.assertEqual(vision._diagnostic_owner_id, "tab-a")
+            self.assertFalse(vision.diagnostic_preview(False, owner_id="tab-a")["enabled"])
+            self.assertIsNone(vision._diagnostic_owner_id)
+
+            def verify_no_lock(image, frame, profile, association):
+                self.assertFalse(run.lock._is_owned(), "Full-plane remap must not hold DigiFlot.lock")
+                return {"jpeg_base64": "", "size": [10,10], "plane": {}}
+            with patch.object(vision, "_rectify_captured", side_effect=verify_no_lock):
+                preview = vision.virtual_detection_roi_preview(owner_id="tab-a")
+            self.assertEqual(preview["size"], [10,10])
+            self.assertEqual(run.preview_owner_id, "tab-a")
 
     def test_calibrated_sensor_stays_live_in_ready_run_and_pause_and_writes_tsv(self):
         with tempfile.TemporaryDirectory() as root:
