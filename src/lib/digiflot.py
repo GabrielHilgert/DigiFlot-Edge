@@ -3271,8 +3271,8 @@ class DigiFlot:
                 self.scraping_interval_s = value
             if "scraping_method" in payload:
                 method = str(payload["scraping_method"]).strip().lower()
-                if method not in {"audio", "gpio"}:
-                    raise ValueError("scraping_method must be 'audio' or 'gpio'.")
+                if method not in {"disabled", "audio", "gpio"}:
+                    raise ValueError("scraping_method must be 'disabled', 'audio' or 'gpio'.")
                 self.scraping_method = method
             if "scraping_alerts_enabled" in payload:
                 if type(payload["scraping_alerts_enabled"]) is not bool:
