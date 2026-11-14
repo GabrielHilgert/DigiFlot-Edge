@@ -208,7 +208,7 @@ class Camera:
         self.id = int(config["id"])
         self.picam2 = Picamera2(self.id)
         self.analysis_enabled = False
-        self.analysis_target_size = None  # opt-in for the selected Vision camera
+        self.analysis_target_size = None  # Stable camera-owned lores geometry, set by refresh_from_config().
 
         self.preview_encoder = None
         self.preview_output = None
@@ -264,6 +264,14 @@ class Camera:
             )
         )
         preview["size"] = list(self.preview_size)
+        # A single, camera-owned lores resolution is shared by preview, ROI
+        # calibration and HIFIE. Changing detector ROI must never reconfigure
+        # Picamera2. No camera stream is started during this setup.
+        lores_width = int(preview.get("lores_width", 1280))
+        if lores_width < 2:
+            raise ValueError("preview.lores_width must be at least 2 pixels")
+        lores_width = max(lores_width, int(self.preview_size[0]))
+        self.analysis_target_size = self.native_preview_size((lores_width, 2))
         self.preview_frame_rate = float(
             preview.get(
                 "frame_rate",
@@ -1028,7 +1036,7 @@ class Camera:
             frame_rate=self.preview_frame_rate,
         )
 
-        analysis_preview = self.analysis_target_size or self.preview_size
+        analysis_preview = self.analysis_target_size
         main_preview = (max(int(self.preview_size[0]), int(analysis_preview[0])),
                         max(int(self.preview_size[1]), int(analysis_preview[1])))
         return self.picam2.create_video_configuration(
@@ -1058,7 +1066,7 @@ class Camera:
         # One optional low-resolution stream accompanies the unchanged main recording.
         lores = None
         if self.analysis_enabled:
-            width = min(int((self.analysis_target_size or self.preview_size)[0]), int(self.frame_size[0]))
+            width = min(int(self.analysis_target_size[0]), int(self.frame_size[0]))
             width = max(2, width - width % 2)
             height = max(2, int(round(width * self.frame_size[1] / self.frame_size[0] / 2)) * 2)
             height = min(height, int(self.frame_size[1]) // 2 * 2)
