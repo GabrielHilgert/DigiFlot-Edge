@@ -5,10 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261026b">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261114layout1">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261114layout1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261114layout2">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261114layout2"></script>
 </head>
-<body>
+<body data-run-layout="compact">
     {% include "_navbar.html" %}
     <main class="page-shell">
         <header class="page-header">
@@ -26,27 +26,47 @@
                     </span>
                 </div>
                 <div class="run-layout-switch" role="group" aria-label="Run page layout">
-                    <button type="button" data-run-layout="standard" aria-pressed="true">Standard</button>
-                    <button type="button" data-run-layout="compact" aria-pressed="false">Compact</button>
+                    <button type="button" data-run-layout="standard" aria-pressed="false">Standard</button>
+                    <button type="button" data-run-layout="compact" aria-pressed="true">Compact</button>
                 </div>
             </div>
         </header>
 
-        <nav class="workflow-card card" aria-label="Experiment preparation steps">
-            <div class="workflow-step" data-step="experiment"><span>01</span><strong>Experiment</strong></div>
-            <div class="workflow-step" data-step="camera"><span>02</span><strong>Cameras</strong></div>
-            <div class="workflow-step" data-step="references"><span>03</span><strong>Cell &amp; References</strong></div>
-            <div class="workflow-step" data-step="sensor"><span>04</span><strong>Sensors</strong></div>
-            <div class="workflow-step" data-step="froth"><span>05</span><strong>Froth Interface</strong></div>
-            <div class="workflow-step" data-step="ready"><span>06</span><strong>Ready</strong></div>
-            <div class="workflow-step" data-step="run"><span>07</span><strong>Run</strong></div>
+        <nav class="workflow-card card" aria-label="Experiment workflow">
+            <div class="workflow-full" aria-label="Detailed workflow">
+                <button class="workflow-step" type="button" data-step="experiment"><span>01</span><strong>Experiment</strong></button>
+                <button class="workflow-step" type="button" data-step="camera"><span>02</span><strong>Cameras</strong></button>
+                <button class="workflow-step" type="button" data-step="references"><span>03</span><strong>Cell &amp; References</strong></button>
+                <button class="workflow-step" type="button" data-step="sensor"><span>04</span><strong>Sensors</strong></button>
+                <button class="workflow-step" type="button" data-step="froth"><span>05</span><strong>Froth Interface</strong></button>
+                <button class="workflow-step" type="button" data-step="ready"><span>06</span><strong>Ready</strong></button>
+                <button class="workflow-step" type="button" data-step="run"><span>07</span><strong>Run</strong></button>
+            </div>
+            <div class="workflow-quick" aria-label="Compact workflow" hidden>
+                <div class="workflow-setup-menu">
+                    <button type="button" id="workflow_setup_toggle" class="workflow-quick-step" aria-expanded="false"
+                            aria-controls="workflow_setup_links"><span class="workflow-step-number">✓</span><strong>Setup</strong><span id="workflow_setup_progress">0/5</span><span aria-hidden="true">⌄</span></button>
+                    <div id="workflow_setup_links" class="workflow-setup-links" hidden>
+                        <button type="button" data-step-target="experiment">01 · Experiment</button>
+                        <button type="button" data-step-target="camera">02 · Cameras</button>
+                        <button type="button" data-step-target="references">03 · Cell &amp; References</button>
+                        <button type="button" data-step-target="sensor">04 · Sensors</button>
+                        <button type="button" data-step-target="froth">05 · Froth Interface</button>
+                    </div>
+                </div>
+                <span class="workflow-quick-separator" aria-hidden="true">›</span>
+                <button type="button" class="workflow-quick-step" data-step-target="ready"><span class="workflow-step-number">06</span><strong>Ready</strong></button>
+                <span class="workflow-quick-separator" aria-hidden="true">›</span>
+                <button type="button" class="workflow-quick-step" data-step-target="run"><span class="workflow-step-number">07</span><strong>Run</strong></button>
+            </div>
         </nav>
 
         <section id="calibration_review_panel" class="calibration-review-strip card" hidden>
-            <div class="calibration-review-heading">
-                <div><span class="status-label">Calibration</span><strong>Review before starting</strong></div>
-                <span>Any resolved device can be reopened before the first stage starts.</span>
-            </div>
+            <button id="toggle_calibration_review" type="button" class="calibration-review-toggle" aria-expanded="true" aria-controls="calibration_review_list">
+                <span class="calibration-review-title"><span class="status-label">Calibration</span><strong>Review before starting</strong></span>
+                <span id="calibration_review_summary" class="calibration-review-summary">Checking calibrations…</span>
+                <span class="calibration-review-chevron" aria-hidden="true"></span>
+            </button>
             <div id="calibration_review_list" class="calibration-review-list"></div>
         </section>
 
