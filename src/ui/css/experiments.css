@@ -1143,3 +1143,31 @@ button:disabled {
 .storage-estimate-note { margin: 12px 0 0; color: var(--text-soft); font-size: .82rem; }
 @media (max-width: 900px) { .system-health-grid, .storage-estimate-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 520px) { .system-health-grid, .storage-estimate-grid { grid-template-columns: 1fr; } }
+
+/* Keep the hierarchy searchable while only the experiment rows scroll. */
+.experiments-card .table-frame {
+  max-height:min(61vh,680px); overflow:auto; overscroll-behavior:contain; scrollbar-width:thin;
+}
+.experiments-card .experiment-table thead th {
+  position:sticky; top:0; z-index:2; background:var(--surface-strong);
+}
+/* Details are modal, with sticky actions and independent content scrolling. */
+.experiment-detail-dialog {
+  position:fixed; inset:0; width:min(1080px,calc(100vw - 36px)); max-width:100%;
+  max-height:min(88vh,960px); margin:auto; padding:0; border:1px solid var(--border-strong);
+  border-radius:var(--radius-lg); background:var(--surface); color:var(--text);
+  box-shadow:0 25px 95px color-mix(in srgb,CanvasText 40%,transparent);
+  overflow:auto; overscroll-behavior:contain; scrollbar-width:thin;
+}
+.experiment-detail-dialog::backdrop { background:color-mix(in srgb,#05090D 74%,transparent); backdrop-filter:blur(3px); }
+.experiment-detail-dialog .detail-card { position:relative; top:auto; border:0; border-radius:0; box-shadow:none; margin:0; overflow:visible; }
+.experiment-detail-dialog .detail-card > .card-header {
+  position:sticky; top:0; z-index:4; background:var(--surface); border-bottom:1px solid var(--border);
+}
+#close_detail_dialog { min-width:70px; }
+@media(max-width:680px) {
+  .experiments-card .table-frame { max-height:55vh; }
+  .experiment-detail-dialog { width:calc(100vw - 14px); max-height:94vh; border-radius:var(--radius-md); }
+  .experiment-detail-dialog .detail-card > .card-header { padding:12px; }
+  .experiment-detail-dialog .detail-header-actions { gap:7px; flex-wrap:wrap; }
+}
