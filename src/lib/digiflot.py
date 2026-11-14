@@ -1402,7 +1402,7 @@ class DigiFlot:
         self.sensor_calibration.pop("froth_interface", None)
         if self.virtual_camera_id is not None:
             self.sensor_calibration["froth_interface"] = {
-                "id": "froth_interface", "name": "Froth Interface",
+                "id": "froth_interface", "name": "HFDS",
                 "type": "virtual_froth_interface", "mode": "virtual_interface",
                 "source_camera_id": self.virtual_camera_id,
                 "physical_cell_id": (self.cell_profile or {}).get("physical_cell_id"),
