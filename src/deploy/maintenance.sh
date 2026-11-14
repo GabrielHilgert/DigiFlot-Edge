@@ -200,10 +200,11 @@ EOF_HEALTH
     # Use a root-owned launcher to inject only the installation-specific constants.
     sed -i "2a DIGIFLOT_HEALTH_URL='$URL'\\nDIGIFLOT_MAX_FAILURES='$DIGIFLOT_HEALTH_MAX_FAILURES'" "$tmp/digiflot-healthcheck"
 
-    cat > "$tmp/digiflot-edge-open" <<'EOF_OPEN'
+    cat > "$tmp/digiflot-edge-open" <<EOF_OPEN
 #!/usr/bin/env bash
 set -Eeuo pipefail
-exec /bin/bash /opt/digiflot-edge/src/deploy/browser-open.sh "$@"
+export DIGIFLOT_PORT="$DIGIFLOT_PORT"
+exec /bin/bash /opt/digiflot-edge/src/deploy/browser-open.sh "\$@"
 EOF_OPEN
     cat > "$tmp/digiflot-browser-autostart" <<'EOF_AUTOSTART'
 #!/usr/bin/env bash
