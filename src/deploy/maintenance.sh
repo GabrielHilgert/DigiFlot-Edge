@@ -105,9 +105,11 @@ write_if_changed() {
 }
 
 sync_integration() {
-    [[ -f "$DEPLOY_DIR/maintenance.sh" && -f "$DEPLOY_DIR/browser-open.sh" ]] ||
+    [[ -f "$DEPLOY_DIR/maintenance.sh" && -f "$DEPLOY_DIR/browser-open.sh" &&
+       -f "$DEPLOY_DIR/browser-autostart.sh" ]] ||
         die "Deployment sources missing from Git checkout."
-    bash -n "$DEPLOY_DIR/maintenance.sh" "$DEPLOY_DIR/browser-open.sh" ||
+    bash -n "$DEPLOY_DIR/maintenance.sh" && bash -n "$DEPLOY_DIR/browser-open.sh" &&
+        bash -n "$DEPLOY_DIR/browser-autostart.sh" ||
         die "Deployment scripts failed syntax verification."
     # Do not promote an uncommitted local shell edit into a root-owned executable.
     as_service git -C "$APP_DIR" diff --quiet HEAD -- src/deploy/maintenance.sh ||
@@ -203,6 +205,11 @@ EOF_HEALTH
 set -Eeuo pipefail
 exec /bin/bash /opt/digiflot-edge/src/deploy/browser-open.sh "$@"
 EOF_OPEN
+    cat > "$tmp/digiflot-browser-autostart" <<'EOF_AUTOSTART'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+exec /bin/bash /opt/digiflot-edge/src/deploy/browser-autostart.sh "$@"
+EOF_AUTOSTART
     cat > "$tmp/digiflot-update" <<'EOF_UPDATE'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -246,6 +253,7 @@ EOF_STATUS
     if write_if_changed "$tmp/$HEALTH.timer" "/etc/systemd/system/$HEALTH.timer"; then health_changed=1; fi
     write_if_changed "$tmp/digiflot-healthcheck" /usr/local/bin/digiflot-healthcheck 0755 || true
     write_if_changed "$tmp/digiflot-edge-open" /usr/local/bin/digiflot-edge-open 0755 || true
+    write_if_changed "$tmp/digiflot-browser-autostart" /usr/local/bin/digiflot-browser-autostart 0755 || true
     write_if_changed "$tmp/digiflot-update" /usr/local/sbin/digiflot-update 0755 || true
     write_if_changed "$tmp/digiflot-restart" /usr/local/bin/digiflot-restart 0755 || true
     write_if_changed "$tmp/digiflot-sync" /usr/local/sbin/digiflot-sync 0755 || true
