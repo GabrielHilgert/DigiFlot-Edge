@@ -105,7 +105,8 @@ class RunUXTests(unittest.TestCase):
         run = SimpleNamespace(lock=threading.RLock(), IDLE="Idle", ABORTED="Aborted",
             state="Running", next_scraping_deadline=3, stage_deadline=5, transition_deadline=7,
             stage_state="Running", STAGE_NONE="None", recovery_context={},
-            revision=0, condition=SimpleNamespace(notify_all=lambda:None), last_error=None)
+            revision=0, condition=SimpleNamespace(notify_all=lambda:None), last_error=None,
+            scraping_gpio=SimpleNamespace(cancel_pending=lambda:events.append("gpio_cancelled")))
         run._stop_camera_recording_unlocked=lambda **kw: events.append("camera_stopped")
         run._stop_sensor_recording_unlocked=lambda:events.append("sensors_stopped")
         run._stop_performance_telemetry_unlocked=lambda:events.append("telemetry_stopped")
