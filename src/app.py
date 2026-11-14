@@ -38,6 +38,8 @@ async def lifespan(app: FastAPI):
     digiflot.start()
     app.state.vision = VisionService(digiflot, LOCAL_STORAGE_DIR)
     digiflot.vision = app.state.vision
+    # Boot-time approval check must wait for persisted HIFIE evidence to load.
+    digiflot.validate_restored_virtual_calibration()
     if digiflot.state == digiflot.RECOVERY_REQUIRED and digiflot.run_directory is not None:
         try:
             app.state.vision.restore_run_config(digiflot.run_directory)
