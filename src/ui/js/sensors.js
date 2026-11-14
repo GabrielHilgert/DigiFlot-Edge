@@ -601,11 +601,15 @@ function virtualBenchmarkMarkup(result) {
     const confirm = document.getElementById("virtual_confirm");
     confirm.disabled = !result?.passed || result?.current === false;
     if (!result) {
-        target.textContent = "Mandatory: save settings and run a live timing/detection test before confirming.";
+        target.textContent = "Save settings to check for a matching passed test. If none exists, run a live calibration test.";
         return;
     }
     const fmt = n => Number.isFinite(Number(n)) ? Number(n).toFixed(1) : "—";
-    target.innerHTML = `<strong>${result.passed && result.current !== false ? "Test passed" : "Test not accepted"}</strong>
+    const reused = Boolean(result.reused && result.passed && result.current !== false);
+    const testedOn = result.tested_at ? new Date(result.tested_at).toLocaleString() : "";
+    target.innerHTML = `<strong>${reused ? "Previously validated · test not required" :
+        result.passed && result.current !== false ? "Test passed" : "Test not accepted"}</strong>
+        ${reused ? `<p>Exact camera, crop, geometry, ROI, acquisition rate, detector settings and processing version match the last successful benchmark${testedOn ? " (" + escapeHtml(testedOn) + ")" : ""}. You can confirm this sensor without retesting.</p>` : ""}
         <div class="virtual-stats">
         <div><span>P95 latency</span><strong>${fmt(result.p95_ms)} ms</strong></div>
         <div><span>P99 latency</span><strong>${fmt(result.p99_ms)} ms</strong></div>
@@ -614,7 +618,7 @@ function virtualBenchmarkMarkup(result) {
         <div><span>Valid detections</span><strong>${fmt(Number(result.valid_fraction)*100)}%</strong></div>
         <div><span>lores</span><strong>${escapeHtml((result.lores_size||[]).join(" × "))}</strong></div>
         <div><span>Output ROI</span><strong>${escapeHtml((result.roi_resolution||[]).join(" × "))}</strong></div>
-        </div><p>Samples are captured at the configured acquisition interval, with the main encoder recording simultaneously. The temporary video is discarded.</p>
+        </div>${reused ? "" : "<p>Samples were captured at the configured acquisition interval with the main encoder recording. The temporary video was discarded.</p>"}
         ${result.frame_reuse_detected ? '<p>Repeated camera timestamps detected; choose a lower acquisition rate or check the camera stream.</p>' : ''}
         ${result.errors?.length ? `<p>${escapeHtml(result.errors.join("; "))}</p>` : ""}`;
 }
@@ -705,17 +709,23 @@ async function virtualSaveConfiguration() {
     await requestJson("/api/vision/virtual-sensors/froth-interface/profile", {
         method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(config)
     });
+    // Server is authoritative: after Save, an exact historical match may
+    // immediately enable Confirm, without another recording benchmark.
+    const refreshed = await requestJson("/api/vision/virtual-sensors/froth-interface/profile");
+    virtualProfileData = refreshed;
     virtualProfileData.config={...config};
+    renderVirtualPresets();
     virtualSavedConfig=JSON.parse(JSON.stringify(config));
     virtualRoiDirty=false;
     renderVirtualRoiCaption();
-    virtualBenchmarkMarkup(null);
-    renderVirtualTestTimeline([]);
+    virtualBenchmarkMarkup(refreshed.test);
+    renderVirtualTestTimeline(refreshed.test?.series || []);
     virtualDiagnostic=null;
     document.getElementById("virtual_diagnostic_grid").hidden=true;
     document.getElementById("virtual_diagnostic_positions").hidden=true;
     document.getElementById("virtual_diagnostics_status").textContent=
-        "Settings updated. Waiting for a diagnostic frame with the new parameters.";
+        refreshed.test?.reused ? "Previous passing benchmark matches these settings. A new test is optional." :
+            "Settings updated. Waiting for a diagnostic frame with the new parameters.";
     await refreshDigiFlotState();
 }
 
@@ -791,7 +801,7 @@ function calibrationMarkup(snapshot) {
         const item = calibrationItem(snapshot.id) || {};
         return `<div class="calibration-block">
             <div><strong>HIFIE · Camera ${escapeHtml(snapshot.source_camera_id)}</strong>
-            <span>Cell ${escapeHtml(snapshot.physical_cell_id)} · Geometry + live benchmark required</span></div>
+            <span>Cell ${escapeHtml(snapshot.physical_cell_id)} · Reuse matching passed calibration or run a test</span></div>
             <div class="calibration-actions"><span class="calibration-pill ${escapeHtml(item.status || "pending")}">${escapeHtml(item.status || "Pending")}</span>
             <button class="button button-primary open-virtual-calibration" data-icon="scan" type="button">
             ${item.status === "passed" ? "Review" : "Configure"}</button>
@@ -1567,7 +1577,11 @@ window.addEventListener("resize", () => {
     if(virtualTestSeries.length)window.requestAnimationFrame(drawVirtualTestTimeline);
 });
 document.getElementById("virtual_save").addEventListener("click", async () => {
-    try { await virtualSaveConfiguration(); showToast("Profile saved. A new live test is required."); }
+    try { await virtualSaveConfiguration();
+        showToast(virtualProfileData?.test?.reused ?
+            "Exact previous calibration verified. You can confirm without a new test." :
+            virtualProfileData?.test?.current && virtualProfileData?.test?.passed ?
+                "Configuration already tested. Ready to confirm." : "Profile saved. Run a calibration test to confirm."); }
     catch (error) { showToast(error.message); }
 });
 document.getElementById("virtual_test").addEventListener("click", () => {
