@@ -11,6 +11,38 @@
 - Proposed `#F47721` is an **approximation of the orange shown in the HIF logo**, not a verified official digital color specification.
 - DigiFlot is an operator interface, not a reproduction of HIF corporate stationery. Preserve its dark style and semantics; distinguish **brand**, **interactive control**, **status**, and **measurement plotting**. Do not recolor source images or logo artwork.
 
+## 0. Visual comparison — current color A → proposed color B
+
+This table is the **quick visual map** for the proposed theme. The swatches display the actual HEX colors; the SVG overview is stored in the repository, so there is also an offline-friendly version.
+
+![Side-by-side visual comparison of current DigiFlot colors and the proposed HIF-inspired palette](assets/HIF_COLOR_COMPARISON.svg)
+
+| Context | Color A · current | → | Color B · proposed |
+|---|---|:---:|---|
+| Primary buttons | ![#2F6FED](https://img.shields.io/badge/%20-%20-2F6FED?style=flat-square) `#2F6FED` | → | ![#176FA6](https://img.shields.io/badge/%20-%20-176FA6?style=flat-square) `#176FA6` |
+| Button hover | ![#255ED0](https://img.shields.io/badge/%20-%20-255ED0?style=flat-square) `#255ED0` | → | ![#105C90](https://img.shields.io/badge/%20-%20-105C90?style=flat-square) `#105C90` |
+| Links and focus on dark panels | ![#2F6FED](https://img.shields.io/badge/%20-%20-2F6FED?style=flat-square) `#2F6FED` | → | ![#69B9E8](https://img.shields.io/badge/%20-%20-69B9E8?style=flat-square) `#69B9E8` |
+| Active selection / pale borders | ![#CBDAFD](https://img.shields.io/badge/%20-%20-CBDAFD?style=flat-square) `#CBDAFD` | → | ![#BFDDED](https://img.shields.io/badge/%20-%20-BFDDED?style=flat-square) `#BFDDED` |
+| Live preview (purple → HIF blue) | ![#7254D8](https://img.shields.io/badge/%20-%20-7254D8?style=flat-square) `#7254D8` | → | ![#00A2E0](https://img.shields.io/badge/%20-%20-00A2E0?style=flat-square) `#00A2E0` |
+| Success / Passed | ![#18845B](https://img.shields.io/badge/%20-%20-18845B?style=flat-square) `#18845B` | → | ![#23865D](https://img.shields.io/badge/%20-%20-23865D?style=flat-square) `#23865D` |
+| Warning / Skipped | ![#C47A12](https://img.shields.io/badge/%20-%20-C47A12?style=flat-square) `#C47A12` | → | ![#D08A28](https://img.shields.io/badge/%20-%20-D08A28?style=flat-square) `#D08A28` |
+| Danger / Abort | ![#C74242](https://img.shields.io/badge/%20-%20-C74242?style=flat-square) `#C74242` | → | ![#C94B3E](https://img.shields.io/badge/%20-%20-C94B3E?style=flat-square) `#C94B3E` |
+| HIF orange highlights | ![#F59E0B](https://img.shields.io/badge/%20-%20-F59E0B?style=flat-square) `#F59E0B` | → | ![#F47721](https://img.shields.io/badge/%20-%20-F47721?style=flat-square) `#F47721` |
+| Selected physical reference | ![#38BDF8](https://img.shields.io/badge/%20-%20-38BDF8?style=flat-square) `#38BDF8` | → | ![#55BAE7](https://img.shields.io/badge/%20-%20-55BAE7?style=flat-square) `#55BAE7` |
+| Froth upper line | ![#0EA5E9](https://img.shields.io/badge/%20-%20-0EA5E9?style=flat-square) `#0EA5E9` | → | ![#29AEE4](https://img.shields.io/badge/%20-%20-29AEE4?style=flat-square) `#29AEE4` |
+| Froth lower line | ![#FBBF24](https://img.shields.io/badge/%20-%20-FBBF24?style=flat-square) `#FBBF24` | → | ![#E6AF11](https://img.shields.io/badge/%20-%20-E6AF11?style=flat-square) `#E6AF11` |
+| ROI selection cyan | ![#22D3EE](https://img.shields.io/badge/%20-%20-22D3EE?style=flat-square) `#22D3EE` | → | ![#28BEE8](https://img.shields.io/badge/%20-%20-28BEE8?style=flat-square) `#28BEE8` |
+| ROI drag yellow | ![#FACC15](https://img.shields.io/badge/%20-%20-FACC15?style=flat-square) `#FACC15` | → | ![#E6AF11](https://img.shields.io/badge/%20-%20-E6AF11?style=flat-square) `#E6AF11` |
+| Camera diagnostic surface | ![#17212B](https://img.shields.io/badge/%20-%20-17212B?style=flat-square) `#17212B` | → | ![#172637](https://img.shields.io/badge/%20-%20-172637?style=flat-square) `#172637` |
+| Camera viewport surface | ![#101827](https://img.shields.io/badge/%20-%20-101827?style=flat-square) `#101827` | → | ![#122131](https://img.shields.io/badge/%20-%20-122131?style=flat-square) `#122131` |
+| Toast surface | ![#17202A](https://img.shields.io/badge/%20-%20-17202A?style=flat-square) `#17202A` | → | ![#162B3A](https://img.shields.io/badge/%20-%20-162B3A?style=flat-square) `#162B3A` |
+| Muted labels | ![#728294](https://img.shields.io/badge/%20-%20-728294?style=flat-square) `#728294` | → | ![#748A9D](https://img.shields.io/badge/%20-%20-748A9D?style=flat-square) `#748A9D` |
+| Secondary labels | ![#435162](https://img.shields.io/badge/%20-%20-435162?style=flat-square) `#435162` | → | ![#44596B](https://img.shields.io/badge/%20-%20-44596B?style=flat-square) `#44596B` |
+| Neutral borders | ![#AEB9C4](https://img.shields.io/badge/%20-%20-AEB9C4?style=flat-square) `#AEB9C4` | → | ![#A7BDCC](https://img.shields.io/badge/%20-%20-A7BDCC?style=flat-square) `#A7BDCC` |
+| Video background | ![#000](https://img.shields.io/badge/%20-%20-000?style=flat-square) `#000` | → | ![#000](https://img.shields.io/badge/%20-%20-000?style=flat-square) `#000` |
+
+**Adaptive neutrals:** `Canvas`, `CanvasText`, neutral surface mixes and shadows should remain theme-aware rather than being replaced with a single HEX. See the semantic foundation below. **Context matters:** a blue used for a solid button should not automatically be used for small text on a dark background.
+
 ## 1. Complete file coverage
 
 | CSS file | Approx. lines | Hex occurrences | rgba occurrences | Functional context |
@@ -54,87 +86,87 @@
 
 ## 3. Mapping of every distinct hex literal (all 60)
 
-This is a **proposed mapping**, not an instruction to replace every occurrence blindly: one source color may need different semantic tokens depending on its property and background.
+This is a **proposed mapping**, not an instruction to replace every occurrence blindly: one source color may need different semantic tokens depending on its property and background. The table below includes a representative context for **all 60 original HEX values**. For 8-digit HEX colors, the small swatch displays their RGB hue, and the text retains the exact alpha value.
 
 ### Interactive/HIF blues
 
-| Current | Proposed | Occurrences |
-|---|---|---:|
-| `#2F6FED` | `#176FA6`  | 12 |
-| `#255ED0` | `#105C90`  | 6 |
-| `#285FCD` | `#0E628E`  | 1 |
-| `#CBDAFD` | `#BFDDED`  | 3 |
-| `#D8E3FB` | `#C6E4F2`  | 2 |
-| `#D9E5FF` | `#CBE7F2`  | 1 |
-| `#38BDF8` | `#55BAE7`  | 4 |
-| `#0EA5E9` | `#29AEE4`  | 3 |
-| `#22D3EE` | `#28BEE8`  | 1 |
-| `#22D3EE20` | `#28BEE820`  | 1 |
-| `#DDD6FF` | `#B4E1F4`  | 1 |
-| `#7254D8` | `#00A2E0`  | 10 |
+| Context | Color A · current | → | Color B · proposed |
+|---|---|:---:|---|
+| Primary accent / controls (12 uses) | ![#2F6FED](https://img.shields.io/badge/%20-%20-2F6FED?style=flat-square) `#2F6FED` | → | ![#176FA6](https://img.shields.io/badge/%20-%20-176FA6?style=flat-square) `#176FA6` |
+| Interactive hover (6 uses) | ![#255ED0](https://img.shields.io/badge/%20-%20-255ED0?style=flat-square) `#255ED0` | → | ![#105C90](https://img.shields.io/badge/%20-%20-105C90?style=flat-square) `#105C90` |
+| Experiment button hover (1 use) | ![#285FCD](https://img.shields.io/badge/%20-%20-285FCD?style=flat-square) `#285FCD` | → | ![#0E628E](https://img.shields.io/badge/%20-%20-0E628E?style=flat-square) `#0E628E` |
+| Active-state border (3 uses) | ![#CBDAFD](https://img.shields.io/badge/%20-%20-CBDAFD?style=flat-square) `#CBDAFD` | → | ![#BFDDED](https://img.shields.io/badge/%20-%20-BFDDED?style=flat-square) `#BFDDED` |
+| Information outline (2 uses) | ![#D8E3FB](https://img.shields.io/badge/%20-%20-D8E3FB?style=flat-square) `#D8E3FB` | → | ![#C6E4F2](https://img.shields.io/badge/%20-%20-C6E4F2?style=flat-square) `#C6E4F2` |
+| Experiment selection (1 use) | ![#D9E5FF](https://img.shields.io/badge/%20-%20-D9E5FF?style=flat-square) `#D9E5FF` | → | ![#CBE7F2](https://img.shields.io/badge/%20-%20-CBE7F2?style=flat-square) `#CBE7F2` |
+| Selected reference / Froth (4 uses) | ![#38BDF8](https://img.shields.io/badge/%20-%20-38BDF8?style=flat-square) `#38BDF8` | → | ![#55BAE7](https://img.shields.io/badge/%20-%20-55BAE7?style=flat-square) `#55BAE7` |
+| Upper Froth curve (3 uses) | ![#0EA5E9](https://img.shields.io/badge/%20-%20-0EA5E9?style=flat-square) `#0EA5E9` | → | ![#29AEE4](https://img.shields.io/badge/%20-%20-29AEE4?style=flat-square) `#29AEE4` |
+| ROI cyan outline (1 use) | ![#22D3EE](https://img.shields.io/badge/%20-%20-22D3EE?style=flat-square) `#22D3EE` | → | ![#28BEE8](https://img.shields.io/badge/%20-%20-28BEE8?style=flat-square) `#28BEE8` |
+| ROI cyan fill (alpha) (1 use) | ![#22D3EE20](https://img.shields.io/badge/%20-%20-22D3EE?style=flat-square) `#22D3EE20` | → | ![#28BEE820](https://img.shields.io/badge/%20-%20-28BEE8?style=flat-square) `#28BEE820` |
+| Preview outline (1 use) | ![#DDD6FF](https://img.shields.io/badge/%20-%20-DDD6FF?style=flat-square) `#DDD6FF` | → | ![#B4E1F4](https://img.shields.io/badge/%20-%20-B4E1F4?style=flat-square) `#B4E1F4` |
+| Preview status (10 uses) | ![#7254D8](https://img.shields.io/badge/%20-%20-7254D8?style=flat-square) `#7254D8` | → | ![#00A2E0](https://img.shields.io/badge/%20-%20-00A2E0?style=flat-square) `#00A2E0` |
 
 ### Warning/energy/HIF orange
 
-| Current | Proposed | Occurrences |
-|---|---|---:|
-| `#FACC15` | `#E6AF11`  | 1 |
-| `#FACC1522` | `#E6AF1122`  | 1 |
-| `#F59E0B` | `#F47721`  | 3 |
-| `#FBBF24` | `#E6AF11`  | 2 |
-| `#EFCE93` | `#E9CBA0`  | 2 |
-| `#C47A12` | `#D08A28`  | 13 |
-| `#F0D8AD` | `#E9CEA8`  | 1 |
-| `#704300` | `#704300` (keep) | 1 |
-| `#EAD7AE` | `#E4CCA6`  | 1 |
+| Context | Color A · current | → | Color B · proposed |
+|---|---|:---:|---|
+| ROI yellow outline (1 use) | ![#FACC15](https://img.shields.io/badge/%20-%20-FACC15?style=flat-square) `#FACC15` | → | ![#E6AF11](https://img.shields.io/badge/%20-%20-E6AF11?style=flat-square) `#E6AF11` |
+| ROI yellow fill (alpha) (1 use) | ![#FACC1522](https://img.shields.io/badge/%20-%20-FACC15?style=flat-square) `#FACC1522` | → | ![#E6AF1122](https://img.shields.io/badge/%20-%20-E6AF11?style=flat-square) `#E6AF1122` |
+| Reference label / pulp (3 uses) | ![#F59E0B](https://img.shields.io/badge/%20-%20-F59E0B?style=flat-square) `#F59E0B` | → | ![#F47721](https://img.shields.io/badge/%20-%20-F47721?style=flat-square) `#F47721` |
+| Lower Froth boundary (2 uses) | ![#FBBF24](https://img.shields.io/badge/%20-%20-FBBF24?style=flat-square) `#FBBF24` | → | ![#E6AF11](https://img.shields.io/badge/%20-%20-E6AF11?style=flat-square) `#E6AF11` |
+| Warning outline (2 uses) | ![#EFCE93](https://img.shields.io/badge/%20-%20-EFCE93?style=flat-square) `#EFCE93` | → | ![#E9CBA0](https://img.shields.io/badge/%20-%20-E9CBA0?style=flat-square) `#E9CBA0` |
+| Warning token (13 uses) | ![#C47A12](https://img.shields.io/badge/%20-%20-C47A12?style=flat-square) `#C47A12` | → | ![#D08A28](https://img.shields.io/badge/%20-%20-D08A28?style=flat-square) `#D08A28` |
+| Warning surface (1 use) | ![#F0D8AD](https://img.shields.io/badge/%20-%20-F0D8AD?style=flat-square) `#F0D8AD` | → | ![#E9CEA8](https://img.shields.io/badge/%20-%20-E9CEA8?style=flat-square) `#E9CEA8` |
+| Warning text (retained) (1 use) | ![#704300](https://img.shields.io/badge/%20-%20-704300?style=flat-square) `#704300` | → | ![#704300](https://img.shields.io/badge/%20-%20-704300?style=flat-square) `#704300` · keep |
+| Skipped-calibration border (1 use) | ![#EAD7AE](https://img.shields.io/badge/%20-%20-EAD7AE?style=flat-square) `#EAD7AE` | → | ![#E4CCA6](https://img.shields.io/badge/%20-%20-E4CCA6?style=flat-square) `#E4CCA6` |
 
 ### Success and danger
 
-| Current | Proposed | Occurrences |
-|---|---|---:|
-| `#18845B` | `#23865D`  | 13 |
-| `#CFE5DB` | `#C7E6D7`  | 8 |
-| `#C74242` | `#C94B3E`  | 13 |
-| `#F3CCCC` | `#EEC7C2`  | 8 |
-| `#A51F1F` | `#B73A30`  | 1 |
-| `#C43D3D` | `#BC493C`  | 3 |
+| Context | Color A · current | → | Color B · proposed |
+|---|---|:---:|---|
+| Success token (13 uses) | ![#18845B](https://img.shields.io/badge/%20-%20-18845B?style=flat-square) `#18845B` | → | ![#23865D](https://img.shields.io/badge/%20-%20-23865D?style=flat-square) `#23865D` |
+| Success outline (8 uses) | ![#CFE5DB](https://img.shields.io/badge/%20-%20-CFE5DB?style=flat-square) `#CFE5DB` | → | ![#C7E6D7](https://img.shields.io/badge/%20-%20-C7E6D7?style=flat-square) `#C7E6D7` |
+| Danger token (13 uses) | ![#C74242](https://img.shields.io/badge/%20-%20-C74242?style=flat-square) `#C74242` | → | ![#C94B3E](https://img.shields.io/badge/%20-%20-C94B3E?style=flat-square) `#C94B3E` |
+| Danger outline (8 uses) | ![#F3CCCC](https://img.shields.io/badge/%20-%20-F3CCCC?style=flat-square) `#F3CCCC` | → | ![#EEC7C2](https://img.shields.io/badge/%20-%20-EEC7C2?style=flat-square) `#EEC7C2` |
+| Danger text (1 use) | ![#A51F1F](https://img.shields.io/badge/%20-%20-A51F1F?style=flat-square) `#A51F1F` | → | ![#B73A30](https://img.shields.io/badge/%20-%20-B73A30?style=flat-square) `#B73A30` |
+| Destructive action (3 uses) | ![#C43D3D](https://img.shields.io/badge/%20-%20-C43D3D?style=flat-square) `#C43D3D` | → | ![#BC493C](https://img.shields.io/badge/%20-%20-BC493C?style=flat-square) `#BC493C` |
 
 ### Surfaces/text/borders/video
 
-| Current | Proposed | Occurrences |
-|---|---|---:|
-| `#435162` | `#44596B`  | 3 |
-| `#17212B` | `#172637`  | 3 |
-| `#728294` | `#748A9D`  | 3 |
-| `#FFF` | `#FFF` (keep) | 7 |
-| `#FFFFFF` | `#FFFFFF` (keep) | 6 |
-| `#000` | `#000` (keep) | 3 |
-| `#0003` | `#0003` (keep) | 1 |
-| `#CBD4DD` | `#C3D3DF`  | 1 |
-| `#243047` | `#22394D`  | 1 |
-| `#101827` | `#122131`  | 1 |
-| `#9CAEC8` | `#9DB7CF`  | 1 |
-| `#0F172A80` | `#0F2B4080`  | 1 |
-| `#AEB9C4` | `#A7BDCC`  | 2 |
-| `#D7DEE5` | `#D5E3EC`  | 1 |
-| `#BDC8D2` | `#B7CBD6`  | 1 |
-| `#AEBAC6` | `#B3C5D0`  | 1 |
-| `#3D4C5D` | `#40586B`  | 1 |
-| `#D1DAE3` | `#CCDCE7`  | 1 |
-| `#8FA0B0` | `#8FAABA`  | 1 |
-| `#A9B8C8` | `#AAC3D1`  | 1 |
-| `#F0F4F7` | `#F0F6FA`  | 1 |
-| `#607080` | `#607C8E`  | 1 |
-| `#F7FAFF` | `#F5FAFD`  | 1 |
-| `#657282` | `#607B8D`  | 1 |
-| `#263342` | `#24394A`  | 1 |
-| `#111920` | `#122331`  | 1 |
-| `#05090D` | `#0A161F`  | 1 |
-| `#0D1721` | `#122333`  | 1 |
-| `#17202A` | `#162B3A`  | 2 |
-| `#202832` | `#223340`  | 1 |
-| `#5E6975` | `#647D8C`  | 1 |
-| `#F3F6F8` | `#F2F7FA`  | 1 |
-| `#C6CDD5` | `#C7D8E2`  | 1 |
+| Context | Color A · current | → | Color B · proposed |
+|---|---|:---:|---|
+| Secondary label (3 uses) | ![#435162](https://img.shields.io/badge/%20-%20-435162?style=flat-square) `#435162` | → | ![#44596B](https://img.shields.io/badge/%20-%20-44596B?style=flat-square) `#44596B` |
+| Diagnostic background (3 uses) | ![#17212B](https://img.shields.io/badge/%20-%20-17212B?style=flat-square) `#17212B` | → | ![#172637](https://img.shields.io/badge/%20-%20-172637?style=flat-square) `#172637` |
+| Muted text (3 uses) | ![#728294](https://img.shields.io/badge/%20-%20-728294?style=flat-square) `#728294` | → | ![#748A9D](https://img.shields.io/badge/%20-%20-748A9D?style=flat-square) `#748A9D` |
+| White text (retained) (7 uses) | ![#FFF](https://img.shields.io/badge/%20-%20-FFF?style=flat-square) `#FFF` | → | ![#FFF](https://img.shields.io/badge/%20-%20-FFF?style=flat-square) `#FFF` · keep |
+| White overlay (retained) (6 uses) | ![#FFFFFF](https://img.shields.io/badge/%20-%20-FFFFFF?style=flat-square) `#FFFFFF` | → | ![#FFFFFF](https://img.shields.io/badge/%20-%20-FFFFFF?style=flat-square) `#FFFFFF` · keep |
+| Video black (retained) (3 uses) | ![#000](https://img.shields.io/badge/%20-%20-000?style=flat-square) `#000` | → | ![#000](https://img.shields.io/badge/%20-%20-000?style=flat-square) `#000` · keep |
+| Black shadow alpha (retained) (1 use) | ![#0003](https://img.shields.io/badge/%20-%20-0003?style=flat-square) `#0003` | → | ![#0003](https://img.shields.io/badge/%20-%20-0003?style=flat-square) `#0003` · keep |
+| Neutral outline (1 use) | ![#CBD4DD](https://img.shields.io/badge/%20-%20-CBD4DD?style=flat-square) `#CBD4DD` | → | ![#C3D3DF](https://img.shields.io/badge/%20-%20-C3D3DF?style=flat-square) `#C3D3DF` |
+| Cell image border (1 use) | ![#243047](https://img.shields.io/badge/%20-%20-243047?style=flat-square) `#243047` | → | ![#22394D](https://img.shields.io/badge/%20-%20-22394D?style=flat-square) `#22394D` |
+| Cell image background (1 use) | ![#101827](https://img.shields.io/badge/%20-%20-101827?style=flat-square) `#101827` | → | ![#122131](https://img.shields.io/badge/%20-%20-122131?style=flat-square) `#122131` |
+| Cell image hint (1 use) | ![#9CAEC8](https://img.shields.io/badge/%20-%20-9CAEC8?style=flat-square) `#9CAEC8` | → | ![#9DB7CF](https://img.shields.io/badge/%20-%20-9DB7CF?style=flat-square) `#9DB7CF` |
+| ROI shadow alpha (1 use) | ![#0F172A80](https://img.shields.io/badge/%20-%20-0F172A?style=flat-square) `#0F172A80` | → | ![#0F2B4080](https://img.shields.io/badge/%20-%20-0F2B40?style=flat-square) `#0F2B4080` |
+| Subtle outline (2 uses) | ![#AEB9C4](https://img.shields.io/badge/%20-%20-AEB9C4?style=flat-square) `#AEB9C4` | → | ![#A7BDCC](https://img.shields.io/badge/%20-%20-A7BDCC?style=flat-square) `#A7BDCC` |
+| Switch surface (1 use) | ![#D7DEE5](https://img.shields.io/badge/%20-%20-D7DEE5?style=flat-square) `#D7DEE5` | → | ![#D5E3EC](https://img.shields.io/badge/%20-%20-D5E3EC?style=flat-square) `#D5E3EC` |
+| Switch border (1 use) | ![#BDC8D2](https://img.shields.io/badge/%20-%20-BDC8D2?style=flat-square) `#BDC8D2` | → | ![#B7CBD6](https://img.shields.io/badge/%20-%20-B7CBD6?style=flat-square) `#B7CBD6` |
+| Input hover border (1 use) | ![#AEBAC6](https://img.shields.io/badge/%20-%20-AEBAC6?style=flat-square) `#AEBAC6` | → | ![#B3C5D0](https://img.shields.io/badge/%20-%20-B3C5D0?style=flat-square) `#B3C5D0` |
+| Secondary action text (1 use) | ![#3D4C5D](https://img.shields.io/badge/%20-%20-3D4C5D?style=flat-square) `#3D4C5D` | → | ![#40586B](https://img.shields.io/badge/%20-%20-40586B?style=flat-square) `#40586B` |
+| Camera placeholder text (1 use) | ![#D1DAE3](https://img.shields.io/badge/%20-%20-D1DAE3?style=flat-square) `#D1DAE3` | → | ![#CCDCE7](https://img.shields.io/badge/%20-%20-CCDCE7?style=flat-square) `#CCDCE7` |
+| Muted camera hint (1 use) | ![#8FA0B0](https://img.shields.io/badge/%20-%20-8FA0B0?style=flat-square) `#8FA0B0` | → | ![#8FAABA](https://img.shields.io/badge/%20-%20-8FAABA?style=flat-square) `#8FAABA` |
+| Information border (1 use) | ![#A9B8C8](https://img.shields.io/badge/%20-%20-A9B8C8?style=flat-square) `#A9B8C8` | → | ![#AAC3D1](https://img.shields.io/badge/%20-%20-AAC3D1?style=flat-square) `#AAC3D1` |
+| Information background (1 use) | ![#F0F4F7](https://img.shields.io/badge/%20-%20-F0F4F7?style=flat-square) `#F0F4F7` | → | ![#F0F6FA](https://img.shields.io/badge/%20-%20-F0F6FA?style=flat-square) `#F0F6FA` |
+| Information text (1 use) | ![#607080](https://img.shields.io/badge/%20-%20-607080?style=flat-square) `#607080` | → | ![#607C8E](https://img.shields.io/badge/%20-%20-607C8E?style=flat-square) `#607C8E` |
+| Light background (1 use) | ![#F7FAFF](https://img.shields.io/badge/%20-%20-F7FAFF?style=flat-square) `#F7FAFF` | → | ![#F5FAFD](https://img.shields.io/badge/%20-%20-F5FAFD?style=flat-square) `#F5FAFD` |
+| Calibration description (1 use) | ![#657282](https://img.shields.io/badge/%20-%20-657282?style=flat-square) `#657282` | → | ![#607B8D](https://img.shields.io/badge/%20-%20-607B8D?style=flat-square) `#607B8D` |
+| Preview frame (1 use) | ![#263342](https://img.shields.io/badge/%20-%20-263342?style=flat-square) `#263342` | → | ![#24394A](https://img.shields.io/badge/%20-%20-24394A?style=flat-square) `#24394A` |
+| Preview dark surface (1 use) | ![#111920](https://img.shields.io/badge/%20-%20-111920?style=flat-square) `#111920` | → | ![#122331](https://img.shields.io/badge/%20-%20-122331?style=flat-square) `#122331` |
+| Optical viewport (1 use) | ![#05090D](https://img.shields.io/badge/%20-%20-05090D?style=flat-square) `#05090D` | → | ![#0A161F](https://img.shields.io/badge/%20-%20-0A161F?style=flat-square) `#0A161F` |
+| Virtual preview surface (1 use) | ![#0D1721](https://img.shields.io/badge/%20-%20-0D1721?style=flat-square) `#0D1721` | → | ![#122333](https://img.shields.io/badge/%20-%20-122333?style=flat-square) `#122333` |
+| Toast surface (2 uses) | ![#17202A](https://img.shields.io/badge/%20-%20-17202A?style=flat-square) `#17202A` | → | ![#162B3A](https://img.shields.io/badge/%20-%20-162B3A?style=flat-square) `#162B3A` |
+| Plot text (light mode) (1 use) | ![#202832](https://img.shields.io/badge/%20-%20-202832?style=flat-square) `#202832` | → | ![#223340](https://img.shields.io/badge/%20-%20-223340?style=flat-square) `#223340` |
+| Plot muted (light mode) (1 use) | ![#5E6975](https://img.shields.io/badge/%20-%20-5E6975?style=flat-square) `#5E6975` | → | ![#647D8C](https://img.shields.io/badge/%20-%20-647D8C?style=flat-square) `#647D8C` |
+| Plot text (dark mode) (1 use) | ![#F3F6F8](https://img.shields.io/badge/%20-%20-F3F6F8?style=flat-square) `#F3F6F8` | → | ![#F2F7FA](https://img.shields.io/badge/%20-%20-F2F7FA?style=flat-square) `#F2F7FA` |
+| Plot muted (dark mode) (1 use) | ![#C6CDD5](https://img.shields.io/badge/%20-%20-C6CDD5?style=flat-square) `#C6CDD5` | → | ![#C7D8E2](https://img.shields.io/badge/%20-%20-C7D8E2?style=flat-square) `#C7D8E2` |
 
 ## 4. Exact occurrence ledger (every hex in CSS)
 
