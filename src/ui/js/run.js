@@ -550,12 +550,14 @@ function drawSensorPlot(canvas, sensorId) {
     ctx.clearRect(0, 0, width, height);
     if (history.length < 2) return;
     const virtual = history.at(-1).virtual;
-    const series = virtual ? [["upper","#0ea5e9"],["lower","#f59e0b"]] : [["value",null]];
+    const palette = getComputedStyle(document.documentElement);
+    const series = virtual ? [["upper",palette.getPropertyValue("--plot-froth-upper").trim() || "#29AEE4"],
+        ["lower",palette.getPropertyValue("--plot-pulp").trim() || "#F47721"]] : [["value",null]];
     const values = history.flatMap(item => series.map(([key]) => item[key])).filter(value => value != null);
     if (!values.length) return;
     let min = Math.min(...values), max = Math.max(...values);
     if (max === min) { const pad=Math.max(Math.abs(max)*.01,.1); min-=pad;max+=pad; }
-    const pad = 4 * ratio, fallback = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#2f6fed";
+    const pad = 4 * ratio, fallback = palette.getPropertyValue("--plot-froth").trim() || "#55BAE7";
     ctx.lineWidth = 1.6 * ratio; ctx.lineJoin = "round"; ctx.lineCap = "round";
     for (const [key,color] of series) {
         ctx.beginPath(); let started=false;
@@ -668,7 +670,9 @@ function drawRunMonitorOverlay(card, frame) {
     const canvas=card.querySelector(".run-virtual-overlay"), ctx=canvas.getContext("2d");
     const [w,h]=frame.source_size;
     canvas.width=w;canvas.height=h;ctx.clearRect(0,0,w,h);
-    for(const [key,color] of [["froth_row_px","#38bdf8"],["pulp_row_px","#fbbf24"]]){
+    const palette = getComputedStyle(document.documentElement);
+    for(const [key,color] of [["froth_row_px",palette.getPropertyValue("--plot-froth").trim() || "#55BAE7"],
+                              ["pulp_row_px",palette.getPropertyValue("--plot-pulp-secondary").trim() || "#E6AF11"]]){
         const y=frame[key];
         if(y==null||!Number.isFinite(Number(y)))continue;
         ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.lineWidth=Math.max(1.5,w/170);
