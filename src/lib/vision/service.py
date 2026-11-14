@@ -814,8 +814,9 @@ class VisionService:
         if last_preview is not None and last_reading:
             preview = (cv2.cvtColor(last_preview, cv2.COLOR_GRAY2BGR) if last_preview.ndim == 2
                        else last_preview.copy())
-            for key, color in [("froth_surface_row_px", (220, 220, 30)),
-                               ("pulp_froth_row_px", (10, 110, 255))]:
+            # OpenCV uses BGR; match the UI plot's RGB #29AEE4 / #F47721.
+            for key, color in [("froth_surface_row_px", (228, 174, 41)),
+                               ("pulp_froth_row_px", (33, 119, 244))]:
                 y = last_reading.get(key)
                 if y is not None:
                     cv2.line(preview, (0, int(y)), (preview.shape[1]-1, int(y)), color, 2)
