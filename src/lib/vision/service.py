@@ -111,6 +111,9 @@ class VisionService:
         self.digiflot = digiflot
         self.registry = VisionRegistry(storage_root)
         self._lock = threading.RLock()
+        # Serialize on-demand plane captures across canceled/reopened browser sessions.
+        # This lock is never held by acquisition or the periodic lores worker.
+        self._roi_snapshot_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = None
         self._pending = {}
@@ -252,7 +255,10 @@ class VisionService:
                 context, settings, interval = None, None, 1.0
             if context is None and self._diagnostic_preview_camera_id is not None:
                 with self.digiflot.lock:
-                    if self.digiflot.preview_camera_id == self._diagnostic_preview_camera_id:
+                    # Only close previews opened by the lores worker itself.
+                    # Never release another tab's active camera lease.
+                    if (self.digiflot.preview_camera_id == self._diagnostic_preview_camera_id
+                            and self.digiflot.preview_owner_id is None):
                         self.digiflot.stop_preview()
                     self._diagnostic_preview_camera_id = None
             if self._stop.wait(max(0, next_due - time.monotonic())):
@@ -1094,33 +1100,32 @@ class VisionService:
         return result
 
     def virtual_detection_roi_preview(self, owner_id=None):
-        """One configuration snapshot of the entire calibrated camera plane.
+        """Capture a single calibrated plane before live diagnostics take the camera.
 
-        No detector pass, no full-frame rectification in the acquisition loop.
-        Selection is saved to the virtual sensor profile, not to Cells.
+        Concurrent or canceled HTTP clients never cause two full-frame rectifies.
+        Only the brief camera acquisition holds DigiFlot.lock; processing does not.
         """
-        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
-            raise RuntimeError("Select the Detection ROI during sensor calibration")
-        camera, cell_id, association, _ = self._virtual_context()
-        with self.digiflot.lock:
-            if self._benchmarking or camera.state == camera.RECORDING:
-                raise RuntimeError("Camera is recording a benchmark; retry when the test has finished")
-            if self.digiflot.preview_camera_id not in (None, camera.id):
-                raise RuntimeError("Close the other camera preview before selecting the Detection ROI")
-            # Claim the preview through the same tab lease as physical camera calibration.
-            if camera.state in (camera.IDLE, camera.PREVIEW):
+        with self._roi_snapshot_lock:
+            with self.digiflot.lock:
+                if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
+                    raise RuntimeError("Select the Detection ROI during sensor calibration")
+                camera, cell_id, association, _ = self._virtual_context()
+                if self._benchmarking or camera.state == camera.RECORDING:
+                    raise RuntimeError("Camera is recording a benchmark; retry when the test has finished")
+                if self.digiflot.preview_camera_id not in (None, camera.id):
+                    raise RuntimeError("Close the other camera preview before selecting the Detection ROI")
+                if camera.state not in (camera.IDLE, camera.PREVIEW):
+                    raise RuntimeError("Camera is unavailable for the planar preview")
                 self.digiflot.start_preview(camera.id, owner_id=owner_id)
-            else:
-                raise RuntimeError("Camera is unavailable for the planar preview")
-            image, frame = self._capture(camera.id)
-            optics = self.registry.camera_profile(camera.id)
-            calibrated = deepcopy(association)
-        # The expensive full-plane remap must not hold the run controller lock.
-        # Once the lores request has been released it is safe to shut preview.
-        result = self._rectify_captured(image, frame, optics, calibrated)
-        config = self.registry.virtual_profile(camera.id, cell_id)["config"]
-        result["detection_roi_cm"] = config.get("detection_roi_cm")
-        return result
+                image, frame = self._capture(camera.id)
+                optics = self.registry.camera_profile(camera.id)
+                calibrated = deepcopy(association)
+
+            # Rectification can be expensive on a Pi; never block the run lock.
+            result = self._rectify_captured(image, frame, optics, calibrated)
+            config = self.registry.virtual_profile(camera.id, cell_id)["config"]
+            result["detection_roi_cm"] = config.get("detection_roi_cm")
+            return result
 
     def rectified_snapshot(self, camera_id, cell_id):
         association = self.registry.association(camera_id, cell_id)
