@@ -576,7 +576,7 @@ function ensureSensorCard(sensor) {
     if (card) return card;
     card = document.createElement("article");
     const virtual = sensor.type === "virtual_froth_interface";
-    card.className = "live-sensor-card" + (virtual ? " live-sensor-card-wide" : "");
+    card.className = "live-sensor-card" + (virtual ? " live-sensor-card-virtual live-sensor-card-wide" : "");
     card.dataset.liveSensor = key;
     card.innerHTML = virtual ? `
         <div class="live-sensor-head"><div><h3></h3><span class="live-sensor-status"></span></div>
