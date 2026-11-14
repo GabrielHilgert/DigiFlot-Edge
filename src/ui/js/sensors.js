@@ -370,7 +370,7 @@ function drawVirtualTestTimeline() {
 }
 
 async function pollVirtualDiagnostics() {
-    if(!virtualDiagnosticsActive||virtualDiagBusy||document.hidden||document.getElementById("virtual_panel").hidden)return;
+    if(!virtualDiagnosticsActive||virtualDiagBusy||document.hidden||!document.getElementById("virtual_panel").open)return;
     virtualDiagBusy=true;
     try {
         const payload=await requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
@@ -561,8 +561,7 @@ async function openVirtualCalibration() {
     const panel = document.getElementById("virtual_panel");
     const missing = document.getElementById("virtual_missing");
     const editor = document.getElementById("virtual_editor");
-    panel.hidden = false;
-    panel.scrollIntoView({behavior:"smooth",block:"start"});
+    if (!panel.open) panel.showModal();
     const cellId = state.digiflot?.cell_selection?.cell_id || "";
     const cameraId = state.digiflot?.cell_selection?.camera_id;
     document.getElementById("virtual_source").textContent = cameraId == null ? "No camera" : `Camera ${cameraId}`;
@@ -1068,10 +1067,9 @@ function renderCalibrationDrawer() {
     const id = state.activeCalibrationSensorId;
     const snapshot = id == null ? null : state.sensors.get(String(id));
     if (!snapshot || String(snapshot.type || "").toLowerCase() !== "ph") {
-        el.calibrationDrawer.hidden = true;
+        if (el.calibrationDrawer.open) el.calibrationDrawer.close();
         return;
     }
-    el.calibrationDrawer.hidden = false;
     el.calibrationDrawerTitle.textContent = `${snapshot.name || snapshot.id} · pH calibration`;
     el.calibrationDrawerBody.innerHTML = calibrationMarkup(snapshot);
     bindCalibrationControls(el.calibrationDrawerBody);
@@ -1089,7 +1087,7 @@ function bindCalibrationControls(root = document) {
         button.addEventListener("click", () => {
             state.activeCalibrationSensorId = String(button.dataset.sensorId);
             renderCalibrationDrawer();
-            el.calibrationDrawer.scrollIntoView({behavior:"smooth", block:"nearest"});
+            if (!el.calibrationDrawer.open) el.calibrationDrawer.showModal();
         });
     });
     root.querySelectorAll(".ph-mode-select").forEach(select => {
@@ -1280,10 +1278,12 @@ async function loadSensors() {
     for (const snapshot of state.sensors.values()) connectSensor(snapshot);
 }
 
-document.getElementById("virtual_close").addEventListener("click", () => {
-    stopVirtualDiagnostics();
-    document.getElementById("virtual_panel").hidden = true;
+const virtualDialog = document.getElementById("virtual_panel");
+virtualDialog.addEventListener("close", () => stopVirtualDiagnostics());
+virtualDialog.addEventListener("click", event => {
+    if (event.target === virtualDialog) virtualDialog.close();
 });
+document.getElementById("virtual_close").addEventListener("click", () => virtualDialog.close());
 document.getElementById("virtual_diagnostics_toggle").addEventListener("click", () => {
     if(virtualDiagnosticsActive)stopVirtualDiagnostics();
     else startVirtualDiagnostics().catch(error=>showToast(error.message));
@@ -1361,8 +1361,7 @@ document.getElementById("virtual_confirm").addEventListener("click", async () =>
         updateCalibrationProgress();
         renderCards();
         showToast("Virtual sensor calibration confirmed.");
-        stopVirtualDiagnostics();
-        document.getElementById("virtual_panel").hidden = true;
+        if (virtualDialog.open) virtualDialog.close();
     } catch (error) { showToast(error.message); }
 });
 
@@ -1418,4 +1417,8 @@ window.addEventListener("beforeunload", () => {
 
 initialise();
 
-if (el.calibrationDrawerClose) el.calibrationDrawerClose.addEventListener("click", () => { state.activeCalibrationSensorId = null; el.calibrationDrawer.hidden = true; });
+if (el.calibrationDrawerClose) el.calibrationDrawerClose.addEventListener("click", () => el.calibrationDrawer.close());
+el.calibrationDrawer.addEventListener("close", () => { state.activeCalibrationSensorId = null; });
+el.calibrationDrawer.addEventListener("click", event => {
+    if (event.target === el.calibrationDrawer) el.calibrationDrawer.close();
+});
