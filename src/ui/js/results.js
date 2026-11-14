@@ -656,7 +656,10 @@ function renderRangeLabel() {
 }
 
 function percentageForTime(time) {
-    return ((Number(time) - state.viewStart) / Math.max(state.viewEnd - state.viewStart, 1e-9)) * 100;
+    // HTML stage and axis tracks must use the same 48px/12px plot area
+    // as the canvas tracks, instead of stretching across the entire column.
+    const width = elements.analysisStageTrack.getBoundingClientRect().width || 600;
+    return 100 * xForTime(time, width) / width;
 }
 
 function renderStageTrack() {
@@ -682,7 +685,7 @@ function renderTimeAxis() {
     elements.analysisTimeAxis.innerHTML = Array.from({ length: ticks }, (_, index) => {
         const fraction = index / (ticks - 1);
         const time = state.viewStart + fraction * (state.viewEnd - state.viewStart);
-        return `<span style="left:${fraction * 100}%">${escapeHtml(formatAxisTime(time))}</span>`;
+        return `<span style="left:${percentageForTime(time)}%">${escapeHtml(formatAxisTime(time))}</span>`;
     }).join("");
 }
 
