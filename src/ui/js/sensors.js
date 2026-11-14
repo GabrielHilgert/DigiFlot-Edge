@@ -141,6 +141,11 @@ const virtualFieldGroups = [
 
 function virtualField(key) {
     const value = virtualDraft[key];
+    if (key === "sampling_interval_s") {
+        const rate = 1 / Number(value || 1);
+        return `<label>Sampling rate (Hz)<input id="virtual_sampling_rate" type="number" min="0.0166" max="5"
+            step="any" value="${Number(rate.toPrecision(7))}" required></label>`;
+    }
     const label = key.replaceAll("_"," ").replace(/\b\w/g, char => char.toUpperCase());
     if (virtualSelectOptions[key]) {
         return `<label>${escapeHtml(label)}<select data-virtual-param="${key}">${virtualSelectOptions[key]
@@ -155,6 +160,9 @@ function virtualCollectInputs() {
         const key = input.dataset.virtualParam;
         virtualDraft[key] = typeof virtualDraft[key] === "number" ? Number(input.value) : input.value;
     });
+    const rate = Number(document.getElementById("virtual_sampling_rate").value);
+    if (!Number.isFinite(rate) || rate < 1/60 || rate > 5) throw new Error("Sampling rate must be between 0.0167 and 5 Hz");
+    virtualDraft.sampling_interval_s = 1 / rate;
     const mode=document.getElementById("virtual_reference_mode").value;
     const custom=document.getElementById("virtual_reference_y").value.trim();
     virtualDraft.vertical_reference_mode=mode;
@@ -168,8 +176,40 @@ function renderVirtualFields() {
     const main = document.getElementById("virtual_main_fields");
     main.innerHTML = ["method","resolution_px","sampling_interval_s"].map(virtualField).join("");
     document.getElementById("virtual_advanced_fields").innerHTML = virtualFieldGroups.map(([name,keys]) =>
-        `<details ${name === "Entropy and profile" ? "open" : ""}><summary>${escapeHtml(name)}</summary>
+        `<details><summary>${escapeHtml(name)}</summary>
         <div class="virtual-field-grid">${keys.map(virtualField).join("")}</div></details>`).join("");
+    renderVirtualPresets();
+}
+
+
+function renderVirtualPresets() {
+    const presets = virtualProfileData?.successful_presets || [];
+    const host = document.getElementById("virtual_presets");
+    host.hidden = !presets.length;
+    if (!presets.length) return;
+    const picker = document.getElementById("virtual_preset_select"), old = picker.value;
+    picker.innerHTML = presets.map(item => {
+        const roi = item.context?.detection_roi_cm?.map(v => Number(v).toFixed(1)).join(", ") || "—";
+        const rate = Number(1 / item.config.sampling_interval_s).toPrecision(3);
+        const name = `${rate} Hz · ROI [${roi}] cm · ${item.tested_at?.slice(0,10) || "tested"}`;
+        return `<option value="${escapeHtml(item.id)}">${escapeHtml(name)}</option>`;
+    }).join("");
+    if (presets.some(item => item.id === old)) picker.value = old;
+}
+
+function restoreVirtualPreset() {
+    const selected = document.getElementById("virtual_preset_select").value;
+    const preset = (virtualProfileData?.successful_presets || []).find(item => item.id === selected);
+    if (!preset) return;
+    virtualDraft = {...preset.config};
+    virtualRoiDirty = true;
+    renderVirtualFields();
+    renderVerticalReference();
+    renderVirtualRoiCaption();
+    drawVirtualRoiOverlay();
+    virtualBenchmarkMarkup(null);
+    renderVirtualTestTimeline([]);
+    showToast("Previous passing settings restored. Save and run a new calibration test.");
 }
 
 
@@ -668,7 +708,7 @@ function calibrationMarkup(snapshot) {
             <span>Cell ${escapeHtml(snapshot.physical_cell_id)} · Geometry + live benchmark required</span></div>
             <div class="calibration-actions"><span class="calibration-pill ${escapeHtml(item.status || "pending")}">${escapeHtml(item.status || "Pending")}</span>
             <button class="button button-primary open-virtual-calibration" data-icon="scan" type="button">
-            ${item.status === "passed" ? "Review HIFIE calibration" : "Configure / test HIFIE"}</button>
+            ${item.status === "passed" ? "Review" : "Configure"}</button>
             ${item.status !== "passed" && item.status !== "skipped" ? '<button class="button button-secondary sensor-skip" data-icon="skip-forward" data-sensor-id="froth_interface" type="button">Skip HIFIE</button>' : ""}
             ${item.status === "passed" || item.status === "skipped" ? '<button class="button button-secondary sensor-reopen" data-icon="rotate-ccw" data-sensor-id="froth_interface" type="button">Reopen</button>' : ""}</div>
         </div>`;
@@ -812,7 +852,7 @@ function sensorCalibrationEntry(snapshot) {
         <div class="calibration-heading-actions">
             <span class="calibration-pill ${escapeHtml(status)}">${escapeHtml(label)}</span>
             <button class="button button-secondary open-calibration-drawer" data-icon="sliders"
-                data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Calibrate / review pH</button>
+                data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Calibrate</button>
         </div>
     </div>`;
 }
