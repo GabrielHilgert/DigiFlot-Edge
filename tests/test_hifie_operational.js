@@ -2,6 +2,7 @@
 const assert=require("node:assert/strict"), fs=require("node:fs"), path=require("node:path"), vm=require("node:vm");
 const read=file=>fs.readFileSync(path.join(__dirname,"..",file),"utf8");
 const run=read("src/ui/js/run.js"), runHtml=read("src/ui/html/run.html"), runCss=read("src/ui/css/run.css");
+const sensorJs=read("src/ui/js/sensors.js"), sensorHtml=read("src/ui/html/sensors.html");
 const expHtml=read("src/ui/html/experiments.html"), expCss=read("src/ui/css/experiments.css"), expJs=read("src/ui/js/experiments.js");
 const settingsHtml=read("src/ui/html/settings.html"), settingsCss=read("src/ui/css/settings.css");
 const digiflot=read("src/lib/digiflot.py"), vision=read("src/lib/vision/service.py");
@@ -36,9 +37,12 @@ assert.match(digiflot,/"id": "froth_interface", "name": "HIFIE \| Froth Interfac
 assert.match(digiflot,/self\.sensor_calibration\["froth_interface"\]\["name"\] = "HIFIE \| Froth Interface Detection"/);
 assert.match(vision,/"id": "froth_interface", "name": "HIFIE \| Froth Interface Detection"/);
 assert.match(runHtml,/data-step="froth"[^>]*>[\s\S]*?<strong>HIFIE<\/strong>/);
-assert.match(run,/data-skip-sensor/);
-assert.match(run,/api\/digiflot\/calibration\/sensors\//);
-assert.match(run,/Skip HIFIE calibration for this execution/);
+// The Sensors page owns skip, calibration, live plots and the HIFIE modal.
+assert.match(sensorJs,/class="button button-secondary sensor-skip"/);
+assert.match(sensorJs,/api\/digiflot\/calibration\/sensors\//);
+assert.match(sensorHtml,/id="virtual_panel"/);
+assert.doesNotMatch(runHtml,/id="sensor_list"/);
+assert.doesNotMatch(run,/renderSensorCalibration\(/);
 
 // Settings uses a real two-row grid and independent Disabled, Audio, GPIO signals.
 assert.match(settingsHtml,/class="settings-grid orchestration-grid"/);
