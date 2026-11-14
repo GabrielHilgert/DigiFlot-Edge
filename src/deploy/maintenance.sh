@@ -227,8 +227,16 @@ set -u
 URL="$URL"
 echo 'DigiFlot Edge'
 echo '-------------'
-systemctl --no-pager --full status digiflot.service 2>/dev/null | head -n 8 || true
-if curl --silent --max-time 3 --output /dev/null "\\$URL"; then echo 'HTTP: responding'; else echo 'HTTP: unavailable'; fi
+echo "Install:      $APP_DIR"
+printf 'Service:      '
+if systemctl is-active --quiet "$SERVICE"; then echo active; else systemctl is-active "$SERVICE" 2>/dev/null || true; fi
+printf 'Boot enabled: '
+if systemctl is-enabled --quiet "$SERVICE"; then echo yes; else echo no; fi
+printf 'Health timer: '
+if systemctl is-active --quiet "$HEALTH.timer"; then echo active; else echo inactive; fi
+printf 'HTTP:         '
+if curl --silent --max-time 3 --output /dev/null "\$URL" 2>/dev/null; then echo responding; else echo 'NOT RESPONDING'; fi
+echo "URL:          \$URL"
 EOF_STATUS
 
     # Unit files are installed as root-owned copies; never symlink systemd
