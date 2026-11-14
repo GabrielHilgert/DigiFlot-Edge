@@ -1486,12 +1486,15 @@ class DigiFlot:
             self.condition.notify_all()
             if self.state == self.CAMERA_CALIBRATION:
                 self._advance_from_camera_calibration_unlocked()
-            if self.state in {self.SENSOR_CALIBRATION, self.READY} and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and (self.vision is None or not self.vision.virtual_test_passed()):
+            # VisionService attaches after DigiFlot.start() during FastAPI startup.
+            # Defer validation instead of discarding a reusable passing
+            # calibration simply because the vision subsystem is not ready.
+            if self.state in {self.SENSOR_CALIBRATION, self.READY} and self.vision is not None and self.sensor_calibration.get("froth_interface", {}).get("status") == "passed" and not self.vision.virtual_test_passed():
                 self._invalidate_virtual_calibration_unlocked("Saved HIFIE validation no longer matches the current conditions")
             edit = self.calibration_edit
             if (edit and edit.get("kind") == "sensor" and edit.get("id") == "froth_interface"
                     and edit.get("previous", {}).get("status") == "passed"
-                    and (self.vision is None or not self.vision.virtual_test_passed())):
+                    and self.vision is not None and not self.vision.virtual_test_passed()):
                 edit["dirty"] = True
                 self._touch_unlocked("VIRTUAL_CALIBRATION_REVALIDATION_REQUIRED_AFTER_RESTART")
             return
@@ -1802,6 +1805,22 @@ class DigiFlot:
             self._advance_from_camera_calibration_unlocked()
 
             return self.status
+
+    def validate_restored_virtual_calibration(self):
+        """Check restored approvals after VisionService has been attached."""
+        with self.lock:
+            if self.state not in {self.SENSOR_CALIBRATION, self.READY}:
+                return
+            item = self.sensor_calibration.get("froth_interface") or {}
+            valid = self.vision is not None and self.vision.virtual_test_passed()
+            if item.get("status") == "passed" and not valid:
+                self._invalidate_virtual_calibration_unlocked(
+                    "Saved HIFIE calibration no longer matches verified conditions")
+            edit = self.calibration_edit
+            if (edit and edit.get("kind") == "sensor" and edit.get("id") == "froth_interface"
+                    and edit.get("previous", {}).get("status") == "passed" and not valid):
+                edit["dirty"] = True
+                self._touch_unlocked("VIRTUAL_CALIBRATION_REVALIDATION_REQUIRED_AFTER_RESTART")
 
     def _mark_calibration_changed_unlocked(self, kind=None, ident=None):
         """A physical/configuration change forbids restoring an older approval."""
