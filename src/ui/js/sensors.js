@@ -224,19 +224,19 @@ function renderVerticalReference() {
     if(!virtualDraft)return;
     const library=virtualProfileData?.named_references||{points:[],default_reference_id:null};
     const named=document.getElementById("virtual_named_reference");
-    named.innerHTML=library.points.map(point=>{
+    named.innerHTML='<option value="">Use cell reference (no named override)</option>'+library.points.map(point=>{
         const calibrated=point.position_cm||point.source==='automatic'||point.source==='derived';
         return '<option value="'+escapeHtml(point.id)+'">'+escapeHtml(point.name)+
             (calibrated?'':' · not calibrated')+'</option>';
     }).join("");
-    const chosen=virtualDraft.reference_id||library.default_reference_id||'';
+    const chosen=virtualDraft.reference_id||'';
     named.value=chosen;
     const point=library.points.find(item=>item.id===chosen);
     document.getElementById("virtual_named_reference_info").textContent=point?
         point.name+' · '+(point.position_cm?point.position_cm.map(Number).map(v=>v.toFixed(2)).join(', ')+' cm':
             point.source==='automatic'?'Automatic ArUco reference':'Position not calibrated')+
             ' · '+(point.direction==='down'?'Depth downward':'Height upward')+
-            ' · revision '+(library.revision||0):'Configure references in Cells first';
+            ' · revision '+(library.revision||0):'Using cell/ArUco reference; named points do not override it.';
     const mode=virtualDraft.vertical_reference_mode||"cell_default";
     const select=document.getElementById("virtual_reference_mode");
     select.value=mode==="historical_offset"?"cell_default":mode;
@@ -245,7 +245,9 @@ function renderVerticalReference() {
     override.disabled=select.value==="cell_default"||select.value==="aruco_bottom";
     document.getElementById("virtual_reference_confirm").checked=Boolean(virtualDraft.vertical_reference_confirmed);
     const cell=virtualProfileData?.cell_vertical_reference||{},resolved=virtualProfileData?.reference_resolved;
-    const source=select.value==="cell_default" ? "Cell default: "+(cell.mode||"aruco_bottom").replaceAll("_"," ") :
+    const source=chosen ? "Named reference: "+(point?.name||chosen)+" ("+
+        (point?.direction==="down"?"depth downward":"height upward")+")" :
+        select.value==="cell_default" ? "Cell default: "+(cell.mode||"aruco_bottom").replaceAll("_"," ") :
         "Sensor override: "+select.value.replaceAll("_"," ");
     let info=resolved?.y_cm!=null ? " · Saved reference Y = "+Number(resolved.y_cm).toFixed(2)+" cm" : "";
     if(select.value!=="cell_default" && select.value!=="aruco_bottom" && override.value.trim()==="")
