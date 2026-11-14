@@ -87,9 +87,10 @@
             '</select></div><label class="cv-named-coord">ΔY from reference (cm) <input data-ref-field="offset_y_cm" type="number" step="any" value="'+esc(p.offset_y_cm??0)+'"></label>' :
             '</select></div><div class="cv-named-coord"><label>X cm <input data-ref-field="x_cm" type="number" step="any" value="'+esc(p.position_cm?.[0]??'')+'" placeholder="0"></label>'+
             '<label>Y cm <input data-ref-field="y_cm" type="number" step="any" value="'+esc(p.position_cm?.[1]??'')+'" placeholder="Measured level"></label></div>')+
-        '</div><div class="cv-named-actions"><button class="button button-secondary" data-ref-action="place" type="button" '+(locked?'disabled':'')+'>'+
-        (state.activePoint===p.id?'Cancel':'Place')+'</button><button class="button button-secondary" data-ref-action="delete" type="button" '+(locked?'disabled':'')+'>Remove</button></div></div>';
+        '</div><div class="cv-named-actions"><button class="button button-secondary" data-icon="'+(state.activePoint===p.id?'x':'crosshair')+'" data-icon-only data-ref-action="place" type="button" '+(locked?'disabled':'')+'>'+
+        (state.activePoint===p.id?'Cancel':'Place')+'</button><button class="button button-secondary" data-icon="trash-2" data-icon-only data-ref-action="delete" type="button" '+(locked?'disabled':'')+'>Remove</button></div></div>';
     }).join('');
+    window.DigiFlotIcons?.decorate(list);
     text('reference_status',!state.cellId?'Save the cell first':state.activePoint?
       'Click the point on the rectified plane. Saved coordinates remain independent of camera crop.':
       'Default: '+(record.points.find(p=>p.id===record.default_reference_id)?.name||'—')+
