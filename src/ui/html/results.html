@@ -14,7 +14,7 @@
     <main id="results_root" class="page-shell results-page" data-storage-id="{{ storage_id }}">
         <header class="results-hero">
             <div class="results-hero-copy">
-                <a class="back-link" href="/">← Experiments</a>
+                <a class="back-link" href="/" data-icon="arrow-left">Experiments</a>
                 <div class="results-title-line">
                     <div>
                         <p class="eyebrow">DigiFlot / Experiment results</p>
@@ -25,9 +25,9 @@
                 <div id="result_meta" class="results-meta"></div>
             </div>
             <div class="results-hero-actions">
-                <button id="clear_video_cache" class="button button-secondary" type="button" title="Delete generated browser-compatible video proxies">Clear video cache</button>
-                <button id="refresh_results" class="button button-secondary" type="button">Refresh</button>
-                <a id="download_experiment" class="button button-secondary" href="#" hidden>Experiment JSON</a>
+                <button id="clear_video_cache" class="button button-secondary" type="button" title="Delete generated browser-compatible video proxies" data-icon="trash-2">Clear video cache</button>
+                <button id="refresh_results" class="button button-secondary" type="button" data-icon="refresh-cw" data-icon-only>Refresh</button>
+                <a id="download_experiment" class="button button-secondary" href="#" hidden data-icon="download">Experiment JSON</a>
             </div>
         </header>
 
@@ -84,9 +84,9 @@
                     <p>Add sensors, operator measurements, events, cameras, or system metrics. Every track uses the same experiment-time axis.</p>
                 </div>
                 <div class="analysis-range-controls" aria-label="Timeline zoom controls">
-                    <button id="analysis_zoom_out" class="button button-secondary button-small" type="button" title="Zoom out">−</button>
-                    <button id="analysis_zoom_in" class="button button-secondary button-small" type="button" title="Zoom in">+</button>
-                    <button id="analysis_fit" class="button button-secondary button-small" type="button">Fit experiment</button>
+                    <button id="analysis_zoom_out" class="button button-secondary button-small" type="button" title="Zoom out" data-icon="zoom-out" data-icon-only>−</button>
+                    <button id="analysis_zoom_in" class="button button-secondary button-small" type="button" title="Zoom in" data-icon="zoom-in" data-icon-only>+</button>
+                    <button id="analysis_fit" class="button button-secondary button-small" type="button" data-icon="maximize" data-icon-only>Fit experiment</button>
                 </div>
             </div>
 
@@ -163,7 +163,7 @@
                                 <h2 id="video_title">—</h2>
                                 <p id="video_meta">—</p>
                             </div>
-                            <button id="video_close" class="button button-secondary button-small" type="button">Close player</button>
+                            <button id="video_close" class="button button-secondary button-small" type="button" data-icon="x" data-icon-only>Close player</button>
                         </div>
                         <div class="video-player-wrap">
                             <video id="video_player" class="video-player" controls preload="metadata"></video>
@@ -187,7 +187,7 @@
                     <div><span id="detail_sensor_source" class="section-kicker">Sensor</span><h2 id="detail_sensor_title">—</h2><p id="detail_sensor_stats">—</p></div>
                 </div>
                 <div class="data-table-wrap">
-                    <div class="table-toolbar"><span id="detail_sensor_table_info">—</span><div><button id="detail_sensor_prev" class="button button-secondary button-small" type="button">Previous</button><button id="detail_sensor_next" class="button button-secondary button-small" type="button">Next</button></div></div>
+                    <div class="table-toolbar"><span id="detail_sensor_table_info">—</span><div><button id="detail_sensor_prev" class="button button-secondary button-small" type="button" data-icon="chevron-left" data-icon-only>Previous</button><button id="detail_sensor_next" class="button button-secondary button-small" type="button" data-icon="chevron-right" data-icon-only>Next</button></div></div>
                     <div class="table-scroll"><table class="data-table"><thead id="detail_sensor_table_head"></thead><tbody id="detail_sensor_table_body"></tbody></table></div>
                 </div>
             </article>
@@ -229,10 +229,10 @@
     <dialog id="file_dialog" class="file-dialog">
         <div class="file-dialog-header">
             <div><span class="section-kicker">File preview</span><h2 id="file_dialog_title">—</h2></div>
-            <button id="file_dialog_close" class="icon-button" type="button" aria-label="Close preview">×</button>
+            <button id="file_dialog_close" class="icon-button" type="button" aria-label="Close preview" data-icon="x" data-icon-only>×</button>
         </div>
         <div id="file_dialog_body" class="file-dialog-body"></div>
-        <div class="file-dialog-actions"><a id="file_dialog_download" class="button button-secondary" href="#">Download raw file</a></div>
+        <div class="file-dialog-actions"><a id="file_dialog_download" class="button button-secondary" href="#" data-icon="download">Download raw file</a></div>
     </dialog>
 </body>
 </html>
