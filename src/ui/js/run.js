@@ -675,7 +675,7 @@ function renderLiveSensors(state) {
         }
         card.querySelector(".live-sensor-age").textContent = sensorAgeText(sensor);
         const wrap = card.querySelector(".sensor-sparkline-wrap");
-        const toggle = card.querySelector(".plot-toggle");
+        const toggle = card.querySelector("[data-plot-toggle]");
         wrap.hidden = hidden;
         toggle.textContent = hidden ? "Show plot" : "Hide plot";
         if (!hidden) drawSensorPlot(card.querySelector(".sensor-sparkline"), sensor.id);
