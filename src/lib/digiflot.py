@@ -1449,6 +1449,9 @@ class DigiFlot:
             self.camera_calibration.update(saved_calibration["cameras"])
         if isinstance(saved_calibration.get("sensors"), dict):
             self.sensor_calibration.update(saved_calibration["sensors"])
+        # Saved calibrations from earlier versions retain the same stable ID.
+        if "froth_interface" in self.sensor_calibration:
+            self.sensor_calibration["froth_interface"]["name"] = "HFDS"
 
         self._restore_event_sequence_unlocked()
 
