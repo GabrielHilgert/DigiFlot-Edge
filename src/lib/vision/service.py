@@ -607,7 +607,6 @@ class VisionService:
             raise RuntimeError("Virtual sensor benchmark is only allowed during sensor calibration")
         camera, cell_id, association, profile = self._virtual_context()
         config = normalized_config(profile["config"])
-        initial_signature = self._virtual_signature()
         if not config["vertical_reference_confirmed"]:
             raise ValueError("Confirm the physical vertical reference before running the calibration test")
         datum = resolve_vertical_reference(config, association)
@@ -615,6 +614,7 @@ class VisionService:
             raise RuntimeError("Stop recording before testing this sensor")
         planned_size = self._desired_lores_size(camera, association, config)
         camera.analysis_target_size = planned_size
+        initial_signature = self._virtual_signature()
         # Reserve the camera before stopping preview to avoid the live worker
         # racing to restart Picamera2 while the main encoder is being prepared.
         self._benchmarking = True
@@ -1040,7 +1040,12 @@ class VisionService:
                 self.digiflot.start_preview(camera.id, owner_id=owner_id)
             else:
                 raise RuntimeError("Camera is unavailable for the planar preview")
-            result = self.rectified_snapshot(camera.id, cell_id)
+            image, frame = self._capture(camera.id)
+            optics = self.registry.camera_profile(camera.id)
+            calibrated = deepcopy(association)
+        # The expensive full-plane remap must not hold the run controller lock.
+        # Once the lores request has been released it is safe to shut preview.
+        result = self._rectify_captured(image, frame, optics, calibrated)
         config = self.registry.virtual_profile(camera.id, cell_id)["config"]
         result["detection_roi_cm"] = config.get("detection_roi_cm")
         return result
@@ -1051,6 +1056,10 @@ class VisionService:
             raise ValueError("Calibrate the camera-cell association first")
         image, frame = self._capture(camera_id)
         profile = self.camera_profile(camera_id)
+        return self._rectify_captured(image, frame, profile, association)
+
+    @staticmethod
+    def _rectify_captured(image, frame, profile, association):
         cal = association["calibration"]
         optics = association.get("camera_profile", profile)
         plane = full_plane_geometry(cal, optics, frame)
