@@ -231,20 +231,27 @@ class VirtualBenchmarkTests(unittest.TestCase):
             restarted.cameras[1].stop_preview()
             restarted.preview_camera_id = None
             restarted.sensor_calibration["froth_interface"]["status"] = "pending"
+            # Camera exposure, frame rate and software revisions are NOT the
+            # detector settings: they must not make a new experiment require a test.
             restarted.cameras[1].exposure_time_us += 100
-            self.assertFalse(new_vision.virtual_test_passed(), "Exposure change must require a new test")
-            restarted.cameras[1].exposure_time_us -= 100
             self.assertTrue(new_vision.virtual_test_passed())
+            restarted.cameras[1].exposure_time_us -= 100
+            restarted.cameras[1].frame_rate += 1
+            self.assertTrue(new_vision.virtual_test_passed())
+            restarted.cameras[1].frame_rate -= 1
+            with patch("lib.vision.service._virtual_implementation_fingerprint", return_value="new-algorithm"):
+                self.assertTrue(new_vision.virtual_test_passed())
+            # An ArUco recalibration that leaves sensor ROI/crop unchanged is reusable.
+            recalibrated = calibrate(restarted.cameras[1].image, DEFAULT_LAYOUT,
+                                     frame_geometry=source_geometry([900,920], [0,0,900,920]))
+            new_vision.registry.save_association(1, cell["id"], recalibrated)
+            self.assertTrue(new_vision.virtual_test_passed(), "New ArUco ID alone must not expire a passing sensor")
+            new_vision.registry.save_analysis_roi(1, cell["id"], [2,2,10,10])
+            self.assertTrue(new_vision.virtual_test_passed(), "An unchanged ROI revision must not expire validation")
             restarted.cameras[1].crop_region = (0, 2, 900, 918)
-            self.assertFalse(new_vision.virtual_test_passed(), "Crop change must require a new test")
+            self.assertFalse(new_vision.virtual_test_passed(), "Camera crop changes require a new test")
             restarted.cameras[1].crop_region = None
             self.assertTrue(new_vision.virtual_test_passed())
-            restarted.cameras[1].frame_rate += 1
-            self.assertFalse(new_vision.virtual_test_passed(), "Camera FPS change must require retesting")
-            restarted.cameras[1].frame_rate -= 1
-            self.assertTrue(new_vision.virtual_test_passed())
-            with patch("lib.vision.service._virtual_implementation_fingerprint", return_value="new-algorithm"):
-                self.assertFalse(new_vision.virtual_test_passed(), "Detector software changes must require retesting")
 
             newer = {**config, "entropy_radius":22}
             new_vision.save_virtual_profile(newer)
