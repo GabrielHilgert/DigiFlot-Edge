@@ -166,7 +166,10 @@ function virtualCollectInputs() {
     });
     const rate = Number(document.getElementById("virtual_sampling_rate").value);
     if (!Number.isFinite(rate) || rate < 1/60 || rate > 5) throw new Error("Sampling rate must be between 0.0167 and 5 Hz");
-    virtualDraft.sampling_interval_s = 1 / rate;
+    // Avoid corrupting an unchanged interval via a rounded Hz display:
+    // 0.3 s -> 3.333333 Hz -> 0.30000003 s must still match the saved proof.
+    const displayedRate = Number((1 / Number(virtualDraft.sampling_interval_s || 1)).toPrecision(7));
+    if (rate !== displayedRate) virtualDraft.sampling_interval_s = 1 / rate;
     const mode=document.getElementById("virtual_reference_mode").value;
     const custom=document.getElementById("virtual_reference_y").value.trim();
     virtualDraft.vertical_reference_mode=mode;
