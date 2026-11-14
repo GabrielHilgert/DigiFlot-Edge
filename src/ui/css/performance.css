@@ -27,13 +27,13 @@ input { min-height: 42px; padding: .55rem .7rem; font-size: 1rem; border: 1px so
 @media(max-width:760px){ .page-shell{padding:1rem}.summary-grid,.live-test{grid-template-columns:1fr 1fr}.result-row{grid-template-columns:1fr 1fr}.result-row p{grid-column:1/-1}.page-header{align-items:flex-start;flex-direction:column} }
 
 .result-pass {
-    border-color: color-mix(in srgb, #18845b 55%, transparent);
+    border-color: color-mix(in srgb, #23865D 55%, transparent);
 }
 .result-marginal {
-    border-color: color-mix(in srgb, #c47a12 60%, transparent);
+    border-color: color-mix(in srgb, #D08A28 60%, transparent);
 }
 .result-fail {
-    border-color: color-mix(in srgb, #c74242 65%, transparent);
+    border-color: color-mix(in srgb, #C94B3E 65%, transparent);
 }
 .result-not-tested {
     border-style: dashed;
