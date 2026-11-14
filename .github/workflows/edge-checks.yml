@@ -22,6 +22,7 @@ jobs:
           node tests/test_scraping_alert.js
           node --check src/ui/js/settings.js
           bash -n src/install.sh
+          bash tests/test_deployment_maintenance.sh
           node tests/test_run_layout.js
           node tests/test_hifie_operational.js
           node --check src/ui/js/experiments.js
