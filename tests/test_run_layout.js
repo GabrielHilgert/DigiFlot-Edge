@@ -17,8 +17,8 @@ assert.ok(index("run_panel") < index("abort_bar"));
 for (const id of ["run_workspace","live_sensor_panel","measurement_launcher","ready_panel","run_panel","abort_bar"]) {
     assert.equal((html.match(new RegExp('id="' + id + '"', "g")) || []).length, 1, id + " must not be duplicated");
 }
-assert.match(html,/data-run-layout="standard" aria-pressed="true"/);
-assert.match(html,/data-run-layout="compact" aria-pressed="false"/);
+assert.match(html,/data-run-layout="standard" aria-pressed="false"/);
+assert.match(html,/data-run-layout="compact" aria-pressed="true"/);
 assert.match(css,/\.run-health-row\s*\{\s*display:contents/);
 assert.match(css,/\.run-workspace\s*\{\s*display:flex;\s*flex-direction:column/);
 assert.match(css,/@media\(min-width:1101px\)/);
@@ -38,6 +38,16 @@ while ((match = tags.exec(main))) {
 }
 assert.equal(stack.length,0,"Main content tags must be balanced");
 
+// Compact is the default, while an existing Standard preference is respected.
+assert.match(html,/<body data-run-layout="compact">/);
+assert.match(html,/id="workflow_setup_toggle"[^>]*aria-expanded="false"/);
+assert.match(html,/id="toggle_calibration_review"[^>]*aria-expanded="true"/);
+assert.match(css,/#calibration_review_panel\[hidden\]\s*\{\s*display:none !important;/);
+assert.match(css,/\.live-sensor-card:not\(\.live-sensor-card-virtual\)\s*\{\s*height:166px/);
+const defaultContext = vm.createContext({document:{body:{dataset:{}},addEventListener(){}},
+    window:{localStorage:{getItem:()=>null,setItem(){}},sessionStorage:{getItem:()=>null}},console});
+vm.runInContext(js,defaultContext);
+assert.equal(vm.runInContext("runLayout",defaultContext),"compact");
 const storage = new Map([["digiflot-run-layout","compact"]]);
 const buttons = ["standard","compact"].map(value => ({
     dataset:{runLayout:value}, attributes:{},
