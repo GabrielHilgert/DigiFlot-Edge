@@ -5,6 +5,7 @@ FFmpeg stream-copy process; no preview files are created on disk.
 """
 import asyncio
 import os
+import signal
 import shutil
 import struct
 import subprocess
@@ -79,7 +80,10 @@ class ResultsMediaSession:
         process = self.process
         if process is not None and process.poll() is None:
             try:
-                process.kill()
+                if os.name == "posix":
+                    os.killpg(process.pid, signal.SIGKILL)
+                else:
+                    process.kill()
             except ProcessLookupError:
                 pass
 
@@ -123,13 +127,23 @@ class ResultsMediaSession:
         if one_frame:
             command += ["-frames:v", "1"]
         command += ["-f", "image2pipe", "pipe:1"]
+        # Lower disk I/O priority where supported. No extra worker is retained.
+        ionice = shutil.which("ionice") if os.name == "posix" else None
+        if ionice:
+            command = [ionice, "-c", "3", *command]
         # No await here: the lock protects process creation against the
         # Idle -> preparation transition in another FastAPI worker thread.
         with self.digiflot.lock:
             if not self.permitted():
                 raise MediaSessionRevoked()
             process = subprocess.Popen(command, stdout=subprocess.PIPE,
-                                       stderr=subprocess.DEVNULL, bufsize=0)
+                                       stderr=subprocess.DEVNULL, bufsize=0,
+                                       start_new_session=(os.name == "posix"))
+            if os.name == "posix" and hasattr(os, "setpriority"):
+                try:
+                    os.setpriority(os.PRIO_PROCESS, process.pid, 10)
+                except OSError:
+                    pass
             self.process = process
         return process
 
