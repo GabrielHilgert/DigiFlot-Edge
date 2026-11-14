@@ -789,6 +789,11 @@ function appendExperimentRow(rowData, level) {
             openButton.title = "Recipe is not cached locally and the Server is offline.";
         }
     }
+    if (window.DigiFlotIcons) {
+        const localRow=rowData.kind === "local", busy=state.loadingKey === rowData.key;
+        window.DigiFlotIcons.set(openButton, busy ? "refresh-cw" : localRow ? "folder-open" : "plus",
+            openButton.textContent, localRow && !busy);
+    }
     openButton.addEventListener("click", async event => {
         event.stopPropagation();
         if (rowData.kind === "local") await openExperiment(rowData.key);
@@ -801,6 +806,7 @@ function appendExperimentRow(rowData, level) {
         resultsButton.type = "button";
         resultsButton.className = "button button-secondary button-small results-button";
         resultsButton.textContent = "Results";
+        window.DigiFlotIcons?.set(resultsButton,"chart","View results",true);
         resultsButton.addEventListener("click", event => {
             event.stopPropagation();
             openResults(rowData.storageId);
@@ -813,6 +819,7 @@ function appendExperimentRow(rowData, level) {
         deleteButton.type = "button";
         deleteButton.className = "button button-danger button-small";
         deleteButton.textContent = "Delete";
+        window.DigiFlotIcons?.set(deleteButton,"trash-2","Delete execution",true);
         deleteButton.addEventListener("click", async event => {
             event.stopPropagation();
             await deleteLocalExperiment(rowData.storageId);
