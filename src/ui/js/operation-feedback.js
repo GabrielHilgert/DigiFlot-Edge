@@ -4,7 +4,7 @@
     if (window.DigiFlotOperations) return;
     const originalFetch = window.fetch.bind(window);
     const tabId = (window.crypto?.randomUUID?.() || "tab-" + Date.now() + "-" + Math.random().toString(36).slice(2));
-    const passive = /\/(?:monitor|stream|diagnostics|storage\/estimate|performance\/evaluate|performance\/virtual-workload)(?:\/|$)/;
+    const passive = /\/(?:monitor|stream|diagnostics|preview\/stop|storage\/estimate|performance\/evaluate|performance\/virtual-workload)(?:\/|$)/;
     const current = {count:0, exclusive:0, anchor:null, clickedAt:0, panel:null, text:null, timer:null, slow:null};
     let leaseTimer = null, ownedPreview = null;
 
@@ -108,7 +108,9 @@
         const foregroundRead = cameraRead || (!modifying && clicked &&
             /\/(?:snapshot|rectified|calibration|profile)(?:\/|$)/.test(url.pathname));
         const tracked = foreground || foregroundRead;
-        const exclusive = foreground || cameraRead;
+        // The ROI snapshot is cancellable and modal-local: never block the
+        // entire page or its Close button while a rectified image loads.
+        const exclusive = foreground;
         if (exclusive && current.exclusive) {
             notice("Finish the current operation before starting another.", false, true);
             throw new Error("Another operation is still running; wait for its result.");
@@ -122,7 +124,7 @@
             notice(label + "…");
             clearTimeout(current.slow);
             current.slow = setTimeout(() => {
-                if (current.count) notice(label + " is still processing. Please do not retry.", false, true);
+                if (current.count) notice(cameraRead ? "Loading the camera plane. You can close calibration at any time." : label + " is still processing. Please do not retry.", false, true);
             }, 4000);
         }
         try {
@@ -142,7 +144,7 @@
             }
             return response;
         } catch (error) {
-            if (tracked) notice("Request failed: " + error.message, true, true);
+            if (tracked && error.name !== "AbortError") notice("Request failed: " + error.message, true, true);
             throw error;
         } finally {
             if (tracked) {
