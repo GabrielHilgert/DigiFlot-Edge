@@ -782,6 +782,15 @@ function calibrationMarkup(snapshot) {
         </div>`;
 }
 
+function sensorCalibrationEntry(snapshot) {
+    const markup = calibrationMarkup(snapshot);
+    if (!markup) return "";
+    if (snapshot.type === "virtual_froth_interface") return markup;
+    return '<button class="button button-secondary open-calibration-drawer" data-sensor-id="' +
+        escapeHtml(snapshot.id) + '" type="button">Calibrate / review ' +
+        escapeHtml(snapshot.name || snapshot.type || "sensor") + '</button>';
+}
+
 function sensorCard(snapshot) {
     const status = snapshot.status || "stopped";
     const hasValue = snapshot.value != null && Number.isFinite(Number(snapshot.value));
@@ -824,7 +833,7 @@ function sensorCard(snapshot) {
             <div class="chart-footer"><span class="chart-min">Min —</span><span class="chart-span">Span —</span><span class="chart-max">Max —</span></div>
 
             <div class="sensor-message ${snapshot.error ? "visible" : ""}">${snapshot.error ? escapeHtml(snapshot.error) : ""}</div>
-            <div class="calibration-host">${String(snapshot.type || "").toLowerCase() === "ph" && calibrationMarkup(snapshot) ? `<button class="button button-secondary open-calibration-drawer" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Calibrate / review pH</button>` : calibrationMarkup(snapshot)}</div>
+            <div class="calibration-host">${sensorCalibrationEntry(snapshot)}</div>
         </article>`;
 }
 
@@ -896,9 +905,7 @@ function updateCard(snapshot) {
 
     const host = card.querySelector(".calibration-host");
     if (host) {
-        host.innerHTML = String(snapshot.type || "").toLowerCase() === "ph" && calibrationMarkup(snapshot)
-            ? `<button class="button button-secondary open-calibration-drawer" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Calibrate / review pH</button>`
-            : calibrationMarkup(snapshot);
+        host.innerHTML = sensorCalibrationEntry(snapshot);
         bindCalibrationControls(host);
     }
     if (String(state.activeCalibrationSensorId) === String(snapshot.id)) renderCalibrationDrawer();
@@ -1066,11 +1073,11 @@ async function refreshDigiFlotState() {
 function renderCalibrationDrawer() {
     const id = state.activeCalibrationSensorId;
     const snapshot = id == null ? null : state.sensors.get(String(id));
-    if (!snapshot || String(snapshot.type || "").toLowerCase() !== "ph") {
+    if (!snapshot || snapshot.type === "virtual_froth_interface") {
         if (el.calibrationDrawer.open) el.calibrationDrawer.close();
         return;
     }
-    el.calibrationDrawerTitle.textContent = `${snapshot.name || snapshot.id} · pH calibration`;
+    el.calibrationDrawerTitle.textContent = `${snapshot.name || snapshot.id} · calibration`;
     el.calibrationDrawerBody.innerHTML = calibrationMarkup(snapshot);
     bindCalibrationControls(el.calibrationDrawerBody);
 }
@@ -1374,7 +1381,7 @@ async function initialise() {
             const card = cardFor(requested);
             card?.scrollIntoView({behavior:"smooth",block:"center"});
             const sensor = state.sensors.get(String(requested));
-            if (sensor && String(sensor.type || "").toLowerCase() === "ph") {
+            if (sensor && sensor.type !== "virtual_froth_interface") {
                 state.activeCalibrationSensorId = String(requested);
                 renderCalibrationDrawer();
                 if (!el.calibrationDrawer.open) el.calibrationDrawer.showModal();
