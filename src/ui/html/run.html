@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114hif1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261114hif1-scraping1">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261114hif1-scraping1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261114hfds1">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261114hfds1"></script>
 </head>
 <body data-run-layout="compact">
     {% include "_navbar.html" %}
@@ -38,7 +38,7 @@
                 <button class="workflow-step" type="button" data-step="camera"><span>02</span><strong>Cameras</strong></button>
                 <button class="workflow-step" type="button" data-step="references"><span>03</span><strong>Cell &amp; References</strong></button>
                 <button class="workflow-step" type="button" data-step="sensor"><span>04</span><strong>Sensors</strong></button>
-                <button class="workflow-step" type="button" data-step="froth"><span>05</span><strong>Froth Interface</strong></button>
+                <button class="workflow-step" type="button" data-step="froth"><span>05</span><strong>HFDS</strong></button>
                 <button class="workflow-step" type="button" data-step="ready"><span>06</span><strong>Ready</strong></button>
                 <button class="workflow-step" type="button" data-step="run"><span>07</span><strong>Run</strong></button>
             </div>
@@ -51,7 +51,7 @@
                         <button type="button" data-step-target="camera">02 · Cameras</button>
                         <button type="button" data-step-target="references">03 · Cell &amp; References</button>
                         <button type="button" data-step-target="sensor">04 · Sensors</button>
-                        <button type="button" data-step-target="froth">05 · Froth Interface</button>
+                        <button type="button" data-step-target="froth">05 · HFDS</button>
                     </div>
                 </div>
                 <span class="workflow-quick-separator" aria-hidden="true">›</span>
@@ -153,6 +153,10 @@
         </section>
 
         <div id="run_workspace" class="run-workspace">
+        <section id="run_stage_overview" class="mini-stage-shell card" aria-label="Experiment stages" hidden>
+            <div class="mini-stage-heading"><span>Experiment stages</span><strong id="run_stage_position">—</strong></div>
+            <div id="run_stage_timeline" class="mini-stage-timeline" aria-label="Experiment stage timeline"></div>
+        </section>
         <section id="live_sensor_panel" class="card panel live-sensor-panel" hidden>
             <div class="card-header compact-card-header">
                 <div>
@@ -278,10 +282,6 @@
         </section>
 
         <section id="run_panel" class="card panel run-panel" hidden>
-            <div class="mini-stage-shell">
-                <div class="mini-stage-heading"><span>Experiment stages</span><strong id="run_stage_position">—</strong></div>
-                <div id="run_stage_timeline" class="mini-stage-timeline" aria-label="Experiment stage timeline"></div>
-            </div>
             <div class="run-topbar">
                 <div>
                     <span id="stage_type" class="stage-type">STAGE</span>
@@ -309,6 +309,10 @@
                 </div>
 
                 <div id="stage_parameters" class="parameter-grid"></div>
+                <details id="stage_technical_details" class="stage-technical-details">
+                    <summary>Technical details</summary>
+                    <div id="stage_technical_grid" class="parameter-grid"></div>
+                </details>
             </div>
 
             <div id="transition_view" class="transition-view" hidden>
