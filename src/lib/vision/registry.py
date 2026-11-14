@@ -266,9 +266,17 @@ class VisionRegistry:
             _write(path, value)
             return {**value, "source": "saved"}
 
-    def successful_virtual_profiles(self, camera_id, cell_id, crop_region, calibration_id,
+    @staticmethod
+    def _successful_virtual_context(camera_id, cell_id, crop_region, roi_cm, sampling_interval_s,
                                     sensor_id="froth_interface"):
-        """Historical passing detector settings for this calibrated camera/crop/cell."""
+        """Stable sensor identity across experiments and ArUco calibration revisions."""
+        return {"sensor_id": _safe_id(sensor_id), "camera_id": _safe_id(camera_id),
+                "cell_id": _safe_id(cell_id), "crop_region": list(crop_region or []),
+                "detection_roi_cm": [float(v) for v in roi_cm],
+                "sampling_interval_s": float(sampling_interval_s)}
+
+    def successful_virtual_profiles(self, camera_id, cell_id, crop_region, sensor_id="froth_interface"):
+        """Previous passing configurations across all experiments and camera calibrations."""
         from lib.virtual_sensors.interface import normalized_config
         with self.lock:
             folder = self.root / "virtual_sensors" / _safe_id(sensor_id) / "successful"
@@ -279,13 +287,16 @@ class VisionRegistry:
                 try:
                     item = _read(path, {})
                     context = item.get("context") or {}
-                    if (context.get("camera_id") != camera_id or context.get("cell_id") != cell_id
-                            or context.get("crop_region") != crop
-                            or context.get("calibration_id") != calibration_id):
+                    if (context.get("sensor_id") != _safe_id(sensor_id)
+                            or context.get("camera_id") != camera_id
+                            or context.get("cell_id") != cell_id
+                            or context.get("crop_region") != crop):
                         continue
+                    config = normalized_config(item.get("config"))
                     results.append({"id": path.stem, "tested_at": item.get("tested_at"),
-                                    "context": context, "config": normalized_config(item.get("config")),
-                                    "reusable": bool(item.get("signature") and (item.get("benchmark") or {}).get("passed"))})
+                                    "context": context, "config": config,
+                                    "reusable": bool(item.get("signature") and
+                                                     (item.get("benchmark") or {}).get("passed"))})
                 except (OSError, ValueError, TypeError, KeyError):
                     continue
             return sorted(results, key=lambda item: item.get("tested_at") or "", reverse=True)[:30]
@@ -293,48 +304,59 @@ class VisionRegistry:
     def remember_successful_virtual_profile(self, camera_id, cell_id, crop_region, calibration_id,
                                              roi_cm, sampling_interval_s, config,
                                              sensor_id="froth_interface", *, signature=None, benchmark=None):
-        """Persist only a passing benchmark, never a saved draft or failed test."""
+        """Keep the latest passing result PER actual sensor configuration, not per experiment."""
         from lib.virtual_sensors.interface import normalized_config
         with self.lock:
             normalized = normalized_config(config)
-            context = {"sensor_id": _safe_id(sensor_id), "camera_id": _safe_id(camera_id),
-                       "cell_id": _safe_id(cell_id), "crop_region": list(crop_region or []),
-                       "calibration_id": str(calibration_id), "detection_roi_cm": [float(v) for v in roi_cm],
-                       "sampling_interval_s": float(sampling_interval_s)}
-            payload = json.dumps(context, sort_keys=True, separators=(",", ":"))
+            identity = self._successful_virtual_context(camera_id, cell_id, crop_region, roi_cm,
+                                                        sampling_interval_s, sensor_id)
+            # Calibration ID is useful provenance, but is NOT part of validity:
+            # repeated ArUco confirmation does not change the sensor algorithm.
+            context = {**identity, "calibration_id": str(calibration_id)}
+            payload = json.dumps({"identity": identity, "config": normalized},
+                                 sort_keys=True, separators=(",", ":"))
             key = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-            value = {"schema_version": 2 if signature else 1, "context": context, "tested_at": _timestamp(),
-                     "config": normalized}
+            value = {"schema_version": 3 if signature else 1, "context": context,
+                     "tested_at": _timestamp(), "config": normalized}
             if signature:
-                value["signature"] = str(signature)
-                # Retain measured evidence, not pictures, a full time-series or a draft.
+                value["signature"] = str(signature)  # Provenance; no longer a reuse gate.
                 value["benchmark"] = deepcopy(benchmark or {})
             folder = self.root / "virtual_sensors" / context["sensor_id"] / "successful"
             _write(folder / f"{key}.json", value)
             return {"id": key, **value}
 
-    def matching_successful_virtual_profile(self, camera_id, cell_id, crop_region, calibration_id,
-                                           roi_cm, sampling_interval_s, config, signature,
-                                           sensor_id="froth_interface"):
-        """Return a signed, passing record for exactly these physical and algorithmic conditions."""
+    def matching_successful_virtual_profile(self, camera_id, cell_id, crop_region, roi_cm,
+                                           sampling_interval_s, config, sensor_id="froth_interface"):
+        """Reuse any passing record with the same camera, crop, ROI, rate and detector settings.
+
+        Old signed schema-v2 records are eligible. Their calibration ID and
+        strict runtime signature are deliberately not part of the global key.
+        Unsigned legacy records are not evidence of a successful benchmark.
+        """
         from lib.virtual_sensors.interface import normalized_config
         with self.lock:
-            context = {"sensor_id": _safe_id(sensor_id), "camera_id": _safe_id(camera_id),
-                       "cell_id": _safe_id(cell_id), "crop_region": list(crop_region or []),
-                       "calibration_id": str(calibration_id), "detection_roi_cm": [float(v) for v in roi_cm],
-                       "sampling_interval_s": float(sampling_interval_s)}
-            key = hashlib.sha256(json.dumps(context, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-            folder = self.root / "virtual_sensors" / context["sensor_id"] / "successful"
-            item = _read(folder / f"{key}.json", {})
-            if (item.get("schema_version") != 2 or item.get("signature") != signature
-                    or item.get("context") != context or not (item.get("benchmark") or {}).get("passed")):
-                return None
-            try:
-                if normalized_config(item.get("config")) != normalized_config(config):
-                    return None
-            except (TypeError, ValueError, KeyError):
-                return None
-            return {"id": key, **item}
+            identity = self._successful_virtual_context(camera_id, cell_id, crop_region, roi_cm,
+                                                        sampling_interval_s, sensor_id)
+            normalized = normalized_config(config)
+            folder = self.root / "virtual_sensors" / identity["sensor_id"] / "successful"
+            latest = None
+            for path in folder.glob("*.json"):
+                try:
+                    item = _read(path, {})
+                    context = item.get("context") or {}
+                    if (item.get("schema_version", 0) < 2 or not item.get("signature")
+                            or not (item.get("benchmark") or {}).get("passed")):
+                        continue
+                    if any(context.get(k) != expected for k, expected in identity.items()):
+                        continue
+                    if normalized_config(item.get("config")) != normalized:
+                        continue
+                    candidate = {"id": path.stem, **item}
+                    if latest is None or (candidate.get("tested_at") or "") > (latest.get("tested_at") or ""):
+                        latest = candidate
+                except (OSError, ValueError, TypeError, KeyError):
+                    continue
+            return latest
 
     def association(self, camera_id, cell_id):
         with self.lock:
