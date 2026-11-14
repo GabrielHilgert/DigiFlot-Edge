@@ -467,7 +467,9 @@ class VisionService:
         except ValueError as exc:
             resolved, error = None, str(exc)
         named = self.registry.reference_points(cell_id)
-        ref_selected = profile["config"].get("reference_id") or named.get("default_reference_id")
+        # An unset named reference means the explicit cell/ArUco datum, not the
+        # library default. Never visually select a different effective datum.
+        ref_selected = profile["config"].get("reference_id")
         lines = []
         for point in named.get("points", []):
             try:
