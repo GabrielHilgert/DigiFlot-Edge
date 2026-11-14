@@ -167,9 +167,20 @@
                         </div>
                         <div class="video-player-wrap">
                             <video id="video_player" class="video-player" controls preload="metadata"></video>
+                            <canvas id="mjpeg_canvas" class="mjpeg-canvas" role="img" aria-label="Recorded MJPEG frames" hidden></canvas>
                             <div id="video_loading" class="video-loading" hidden>
                                 <span class="loading-spinner"></span>
                                 <span id="video_loading_text">Loading video…</span>
+                            </div>
+                        </div>
+                        <div id="mjpeg_controls" class="mjpeg-controls" hidden>
+                            <div class="mjpeg-scrubber"><input id="mjpeg_seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="Video position"><span id="mjpeg_time">00:00 / 00:00</span></div>
+                            <div class="mjpeg-actions">
+                                <button id="mjpeg_prev" class="button button-secondary button-small" type="button" data-icon="chevron-left" data-icon-only title="Previous original frame">Previous frame</button>
+                                <button id="mjpeg_play" class="button button-primary button-small" type="button" data-icon="play" data-icon-only title="Play">Play</button>
+                                <button id="mjpeg_next" class="button button-secondary button-small" type="button" data-icon="chevron-right" data-icon-only title="Next original frame">Next frame</button>
+                                <label class="mjpeg-rate-label">Speed <select id="mjpeg_rate"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+                                <button id="mjpeg_fullscreen" class="button button-secondary button-small" type="button" data-icon="maximize" data-icon-only title="Fullscreen">Fullscreen</button>
                             </div>
                         </div>
                         <div id="video_error" class="video-error" hidden></div>
