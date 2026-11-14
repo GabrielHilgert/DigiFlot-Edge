@@ -124,12 +124,10 @@ class DigiFlot:
         self.transition_timeout_s = float(
             orchestration.get("transition_timeout_s", 30.0)
         )
-        self.scraping_interval_s = float(
-            orchestration.get(
-                "scraping_interval",
-                orchestration.get("scraping_interval_s", 5.0),
-            )
-        )
+        self.scraping_interval_s = max(1.0, float(
+            orchestration.get("scraping_interval",
+                              orchestration.get("scraping_interval_s", 5.0))
+        ))
         self.scraping_method = str(
             orchestration.get("scraping_method", "audio")
         ).lower()
@@ -198,6 +196,7 @@ class DigiFlot:
         self.next_scraping_deadline = None
         self.scraping_sequence = 0
         self.last_scraping_at = None
+        self.last_scraping_monotonic = None
 
         self.camera_calibration = {}
         self.sensor_calibration = {}
@@ -572,6 +571,8 @@ class DigiFlot:
                 "stage_attempt": self.stage_attempt,
                 "sequence": self.scraping_sequence,
                 "last_at": self.last_scraping_at,
+                "age_s": (max(0.0, now - self.last_scraping_monotonic)
+                          if self.last_scraping_monotonic is not None else None),
                 "next_in_s": next_scraping_in,
             },
             "stage_attempt": self.stage_attempt,
@@ -1560,6 +1561,7 @@ class DigiFlot:
         self.next_scraping_deadline = None
         self.scraping_sequence = 0
         self.last_scraping_at = None
+        self.last_scraping_monotonic = None
         self.camera_calibration = {}
         self.sensor_calibration = {}
         self.calibration_edit = None
@@ -2890,6 +2892,7 @@ class DigiFlot:
         delay = max(0.0, actual - scheduled_at)
         self.scraping_sequence += 1
         self.last_scraping_at = _utc_now()
+        self.last_scraping_monotonic = actual
         queued = None
         if self.scraping_method == "gpio":
             queued = self.scraping_gpio.schedule(scheduled_at,
@@ -3257,8 +3260,8 @@ class DigiFlot:
                 self.transition_timeout_s = value
             if "scraping_interval" in payload:
                 value = float(payload["scraping_interval"])
-                if value <= 0:
-                    raise ValueError("scraping_interval must be greater than zero.")
+                if not math.isfinite(value) or value < 1.0:
+                    raise ValueError("scraping_interval must be at least 1 second.")
                 self.scraping_interval_s = value
             if "scraping_method" in payload:
                 method = str(payload["scraping_method"]).strip().lower()
