@@ -1120,7 +1120,12 @@ class VisionService:
                 if camera.state not in (camera.IDLE, camera.PREVIEW):
                     raise RuntimeError("Camera is unavailable for the planar preview")
                 if camera.state == camera.IDLE:
-                    camera.analysis_target_size = self._desired_lores_size(camera, association, profile["config"])
+                    try:
+                        camera.analysis_target_size = self._desired_lores_size(camera, association, profile["config"])
+                    except ValueError:
+                        # The operator may be selecting the Detection ROI for the
+                        # first time. A full-plane preview must work without it.
+                        camera.analysis_target_size = tuple(getattr(camera, "preview_size", camera.frame_size))
                 self.digiflot.start_preview(camera.id, owner_id=owner_id)
                 image, frame = self._capture(camera.id)
                 optics = self.registry.camera_profile(camera.id)
