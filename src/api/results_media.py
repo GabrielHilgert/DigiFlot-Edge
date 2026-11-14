@@ -14,7 +14,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from api.local import get_local_directory
-from api.results import _probe_video, _safe_relative_path
+from api.results import _VIDEO_PROBE_CACHE, _safe_relative_path
 
 router = APIRouter(prefix="/api/results", tags=["results-media"])
 MAX_SESSIONS = 2
@@ -262,7 +262,12 @@ async def playback(websocket: WebSocket, storage_id: str, path: str = Query(...)
             try:
                 directory = get_local_directory(storage_id)
                 file_path = _safe_relative_path(directory, path)
-                probe = _probe_video(file_path)
+                # Results overview already ffprobes each recording. Reuse that
+                # metadata: never launch ffprobe while holding the run controller
+                # lock, which could otherwise delay experiment preparation.
+                stat = file_path.stat()
+                cache_key = (str(file_path.resolve()), stat.st_size, stat.st_mtime_ns)
+                probe = _VIDEO_PROBE_CACHE.get(cache_key) or {}
                 if probe.get("codec") == "mjpeg" and probe.get("ok"):
                     session = ResultsMediaSession(websocket, digiflot, manager, file_path, probe)
             except Exception:
@@ -271,7 +276,7 @@ async def playback(websocket: WebSocket, storage_id: str, path: str = Query(...)
                 session = None
     if session is None:
         await websocket.send_json({"type": "error", "message":
-            "Playback unavailable: DigiFlot must be Idle, the MJPEG recording must exist, and at most two viewers are supported."})
+            "Playback unavailable: DigiFlot must be Idle, the recording metadata must be loaded, and at most two viewers are supported. Refresh Results if necessary."})
         await websocket.close(code=4409)
         return
     await session.run()
