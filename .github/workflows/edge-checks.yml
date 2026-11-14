@@ -18,6 +18,8 @@ jobs:
           node --check src/ui/js/operation-feedback.js
           node tests/test_run_dom.js
           node tests/test_scraping_alert.js
+          node --check src/ui/js/settings.js
+          bash -n src/install.sh
           node tests/test_run_layout.js
           node tests/test_color_palette.js
           node --check src/ui/js/results.js
