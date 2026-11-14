@@ -1123,6 +1123,7 @@ function renderRun(state) {
         const scraping = state.scraping || {};
         const showScraping = Boolean(scraping.enabled) && String(stage?.type || "").toLowerCase() !== "conditioning";
         ui.scraping_box.hidden = !showScraping;
+        ui.active_view.classList.toggle("no-scraping", !showScraping);
         if (showScraping) {
             ui.scraping_timer.textContent = scraping.next_in_s == null ? "—" : `${Math.max(0, Number(scraping.next_in_s)).toFixed(1)} s`;
             const detail = ui.scraping_box.querySelector(".scraping-description");
