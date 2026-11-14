@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114calmodal1">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261114icons1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114hifie2">
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261114hifie2"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -50,69 +50,20 @@
         </dialog>
 
         <dialog id="virtual_panel" class="card virtual-panel calibration-modal" aria-labelledby="virtual_calibration_title">
-            <div class="virtual-panel-header"><div><span class="status-label">HIFIE | Froth Interface Detection</span>
-                <h2 id="virtual_calibration_title">Froth interface · <span id="virtual_source">Camera</span></h2>
-                <p id="virtual_geometry">Uses the physical cell and camera calibration selected for this experiment.</p>
-            </div><button class="button button-secondary" id="virtual_close" type="button" data-icon="x" data-icon-only>Close</button></div>
-            <div id="virtual_missing" class="virtual-message" hidden>
-                <strong>Camera-cell geometry is incomplete.</strong>
-                <p>Confirm ArUco markers and select a physical analysis ROI in Cells before testing.</p>
-                <a class="button button-secondary" id="virtual_open_cells" href="/cells" data-icon="external-link">Complete camera geometry</a>
+            <div class="virtual-panel-header">
+                <div class="virtual-panel-heading"><span class="status-label">Sensor calibration</span>
+                    <h2 id="virtual_calibration_title">HIFIE | Froth Interface Detection</h2>
+                    <p><span id="virtual_source">Camera</span> · <span id="virtual_geometry">Selected cell geometry</span></p>
+                </div>
+                <button class="button button-secondary" id="virtual_close" type="button" data-icon="x" data-icon-only data-operation-allow="true" aria-label="Close HIFIE calibration">Close</button>
             </div>
-            <div id="virtual_editor" hidden>
-                <div class="virtual-section"><h3>Method and acquisition</h3>
-                    <p>Changes to geometry, resolution, method or parameters invalidate the previous performance test.</p>
-                    <div id="virtual_main_fields" class="virtual-field-grid"></div>
+            <div id="virtual_panel_body" class="virtual-panel-body">
+                <div id="virtual_missing" class="virtual-message" hidden>
+                    <strong>Camera-cell geometry is incomplete.</strong>
+                    <p>Confirm ArUco markers and select a physical analysis ROI in Cells before testing.</p>
+                    <a class="button button-secondary" id="virtual_open_cells" href="/cells" data-icon="external-link">Complete camera geometry</a>
                 </div>
-                <section class="virtual-roi-config">
-                    <div class="virtual-roi-heading"><div><h3>Detection ROI</h3>
-                        <p>Select the area to be analyzed on the full rectified camera plane. This ROI belongs to the virtual sensor and does not change the Cells ROI.</p>
-                    </div><div class="virtual-roi-buttons">
-                        <button id="virtual_roi_refresh" type="button" class="button button-secondary" data-icon="refresh-cw" data-icon-only>Refresh plane</button>
-                        <button id="virtual_roi_reset" type="button" class="button button-secondary" data-icon="scan">Use Cells ROI</button>
-                    </div></div>
-                    <div id="virtual_roi_stage" class="virtual-roi-stage" hidden>
-                        <img id="virtual_roi_image" alt="Full calibrated camera plane for selecting the virtual sensor Detection ROI" draggable="false">
-                        <canvas id="virtual_roi_canvas" aria-label="Drag here to select Detection ROI on the calibrated plane"></canvas>
-                    </div>
-                    <div id="virtual_roi_label" class="virtual-roi-caption">Loading calibrated camera plane…</div>
-                    <div class="virtual-reference-levels"><strong>Cell reference levels</strong>
-                        <div id="virtual_roi_reference_levels" class="virtual-reference-level-list" aria-live="polite">Physical reference lines will appear after the rectified image is loaded.</div>
-                    </div>
-                </section>
-                <section class="virtual-reference-config">
-                  <div class="virtual-roi-heading"><div><h3>Vertical reference</h3>
-                    <p>Choose the physical datum before testing. Y increases downward in the calibrated ArUco plane. References can lie outside the camera view.</p></div></div>
-                  <div class="virtual-named-reference">
-                    <label>Physical reference <select id="virtual_named_reference"></select></label>
-                    <div id="virtual_named_reference_info" class="virtual-roi-caption">References are managed in Cells.</div>
-                    <a class="button button-secondary" id="virtual_edit_named" href="/cells" data-icon="external-link">Edit named references in Cells</a>
-                  </div>
-                  <div class="virtual-reference-fields" hidden>
-                    <label>Position reference <select id="virtual_reference_mode">
-                      <option value="cell_default">Use cell reference (default: lowest ArUco marker)</option>
-                      <option value="aruco_bottom">ArUco reference — lowest marker</option>
-                      <option value="cell_bottom">Cell bottom — height above base</option>
-                      <option value="cell_top">Cell top — depth below rim</option>
-                    </select></label>
-                    <label>Reference Y override (cm) <input id="virtual_reference_y" type="number" step="any" placeholder="Use cell reference if blank"></label>
-                  </div>
-                  <div id="virtual_reference_description" class="virtual-roi-caption"></div>
-                  <label class="virtual-reference-confirm"><input id="virtual_reference_confirm" type="checkbox">
-                    I confirm the physical reference and its coordinate</label>
-                  <div class="virtual-reference-geometry">
-                    <a id="virtual_recalibrate_camera" class="button button-secondary" target="_blank" rel="noopener noreferrer" href="/cells" data-icon="external-link">Recalibrate optics / ArUco</a>
-                    <button id="virtual_refresh_geometry" class="button button-secondary" type="button" data-icon="refresh-cw">Reload camera / cell calibration</button>
-                  </div>
-                  <p class="virtual-reference-help">Camera optics and ArUco geometry can be updated in Cells. Afterwards return here, reload the geometry and test again. Changing only the cell vertical reference does not require an ArUco recalibration.</p>
-                </section>
-                <div id="virtual_advanced_fields" class="virtual-advanced"></div>
-                <div class="virtual-actions">
-                    <button id="virtual_save" type="button" class="button button-secondary" data-icon="save">Save settings</button>
-                    <button id="virtual_test" type="button" class="button button-primary" data-icon="play">Run calibration test</button>
-                    <button id="virtual_confirm" type="button" class="button button-primary" disabled data-icon="badge-check">Confirm tested calibration</button>
-                </div>
-                <div id="virtual_benchmark" class="virtual-message" role="status">A live detection and performance test is required for this execution.</div>
+                <div id="virtual_editor" hidden>
                 <section class="virtual-diagnostics">
                     <div class="virtual-diagnostics-heading">
                         <div><h3>Detection diagnostics</h3><p>Same processed frame and row profiles used by the sensor. Diagnostic images are sampled less frequently than measurements.</p></div>
@@ -139,11 +90,82 @@
                     </div>
                     <div id="virtual_diagnostic_positions" class="virtual-diagnostic-positions" hidden></div>
                 </section>
+
+                <section class="virtual-roi-config">
+                    <div class="virtual-roi-heading"><div><h3>Detection ROI</h3>
+                        <p>Select the area to be analyzed on the full rectified camera plane. This ROI belongs to the virtual sensor and does not change the Cells ROI.</p>
+                    </div><div class="virtual-roi-buttons">
+                        <button id="virtual_roi_refresh" type="button" class="button button-secondary" data-icon="refresh-cw" data-icon-only>Refresh plane</button>
+                        <button id="virtual_roi_reset" type="button" class="button button-secondary" data-icon="scan">Use Cells ROI</button>
+                    </div></div>
+                    <div id="virtual_roi_stage" class="virtual-roi-stage" hidden>
+                        <img id="virtual_roi_image" alt="Full calibrated camera plane for selecting the virtual sensor Detection ROI" draggable="false">
+                        <canvas id="virtual_roi_canvas" aria-label="Drag here to select Detection ROI on the calibrated plane"></canvas>
+                    </div>
+                    <div id="virtual_roi_label" class="virtual-roi-caption">Loading calibrated camera plane…</div>
+                    <div class="virtual-reference-levels"><strong>Cell reference levels</strong>
+                        <div id="virtual_roi_reference_levels" class="virtual-reference-level-list" aria-live="polite">Physical reference lines will appear after the rectified image is loaded.</div>
+                    </div>
+                                <section class="virtual-reference-config">
+                  <div class="virtual-roi-heading"><div><h3>Vertical reference</h3>
+                    <p>Choose the physical datum before testing. Y increases downward in the calibrated ArUco plane. References can lie outside the camera view.</p></div></div>
+                  <div class="virtual-named-reference">
+                    <label>Physical reference <select id="virtual_named_reference"></select></label>
+                    <div id="virtual_named_reference_info" class="virtual-roi-caption">References are managed in Cells.</div>
+                    <a class="button button-secondary" id="virtual_edit_named" href="/cells" data-icon="external-link">Edit named references in Cells</a>
+                  </div>
+                  <div class="virtual-reference-fields" hidden>
+                    <label>Position reference <select id="virtual_reference_mode">
+                      <option value="cell_default">Use cell reference (default: lowest ArUco marker)</option>
+                      <option value="aruco_bottom">ArUco reference — lowest marker</option>
+                      <option value="cell_bottom">Cell bottom — height above base</option>
+                      <option value="cell_top">Cell top — depth below rim</option>
+                    </select></label>
+                    <label>Reference Y override (cm) <input id="virtual_reference_y" type="number" step="any" placeholder="Use cell reference if blank"></label>
+                  </div>
+                  <div id="virtual_reference_description" class="virtual-roi-caption"></div>
+                  <label class="virtual-reference-confirm"><input id="virtual_reference_confirm" type="checkbox">
+                    I confirm the physical reference and its coordinate</label>
+                  <div class="virtual-reference-geometry">
+                    <a id="virtual_recalibrate_camera" class="button button-secondary" target="_blank" rel="noopener noreferrer" href="/cells" data-icon="external-link">Recalibrate optics / ArUco</a>
+                    <button id="virtual_refresh_geometry" class="button button-secondary" type="button" data-icon="refresh-cw">Reload camera / cell calibration</button>
+                  </div>
+                  <p class="virtual-reference-help">Camera optics and ArUco geometry can be updated in Cells. Afterwards return here, reload the geometry and test again. Changing only the cell vertical reference does not require an ArUco recalibration.</p>
+                </section>
+
+                </section>
+
+                    <details id="virtual_method_section" class="virtual-method-section">
+                        <summary><span><strong>Method &amp; acquisition</strong><small>Detector method, sampling rate and advanced parameters</small></span></summary>
+                        <div class="virtual-method-body">
+                            <p>Changes to geometry, acquisition or detector settings require another calibration test.</p>
+                            <div id="virtual_presets" class="virtual-presets" hidden>
+                                <label for="virtual_preset_select">Previously passed configuration</label>
+                                <div class="virtual-preset-actions">
+                                    <select id="virtual_preset_select"></select>
+                                    <button id="virtual_preset_restore" type="button" class="button button-secondary" data-icon="history">Restore</button>
+                                </div>
+                                <small>Restores settings only. A new calibration test is still required for this execution.</small>
+                            </div>
+                            <div id="virtual_main_fields" class="virtual-field-grid"></div>
+                            <div class="virtual-advanced-heading">Advanced parameters</div>
+                            <div id="virtual_advanced_fields" class="virtual-advanced"></div>
+                        </div>
+                    </details>
+                <div id="virtual_benchmark" class="virtual-message" role="status">A live detection and performance test is required for this execution.</div>
+
                 <section id="virtual_test_history" class="virtual-test-history" hidden>
                     <div class="virtual-test-history-heading"><div><h3>Calibration test · temporal results</h3><p>Individual measurements from the benchmark; invalid detections appear as gaps.</p></div><span id="virtual_test_history_count"></span></div>
                     <canvas id="virtual_test_chart" aria-label="Temporal froth and pulp boundary positions during benchmark"></canvas>
                     <div class="virtual-chart-key"><span class="virtual-upper-key">Froth surface</span><span class="virtual-lower-key">Pulp–froth interface</span><small>cm · test data, not experimental data</small></div>
                 </section>
+
+                </div>
+            </div>
+            <div id="virtual_modal_footer" class="virtual-modal-footer" hidden>
+                <button id="virtual_save" type="button" class="button button-secondary" data-icon="save">Save</button>
+                <button id="virtual_test" type="button" class="button button-primary" data-icon="play">Run test</button>
+                <button id="virtual_confirm" type="button" class="button button-primary" disabled data-icon="badge-check">Confirm</button>
             </div>
         </dialog>
 
