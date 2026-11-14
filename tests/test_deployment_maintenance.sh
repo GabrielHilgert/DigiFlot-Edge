@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-bash -n "$ROOT/src/install.sh" "$ROOT/src/launch.sh" \
+for script in "$ROOT/src/install.sh" "$ROOT/src/launch.sh" \
     "$ROOT/src/deploy/maintenance.sh" "$ROOT/src/deploy/migrate.sh" \
-    "$ROOT/src/deploy/browser-open.sh" "$ROOT/src/deploy/browser-autostart.sh"
+    "$ROOT/src/deploy/browser-open.sh" "$ROOT/src/deploy/browser-autostart.sh"; do
+    bash -n "$script"
+done
 
 # Browser duplicates must be prevented without relying on any external
 # running Chromium or backend, so this test uses a fake browser executable.
@@ -47,4 +49,5 @@ bash "$ROOT/src/deploy/browser-autostart.sh" status | grep -q enabled
 bash "$ROOT/src/deploy/browser-autostart.sh" disable > "$TMP/autostart-disable.log"
 [[ ! -e "$TMP/config/autostart/digiflot-edge.desktop" ]] || { echo "Autostart was not removed." >&2; exit 1; }
 grep -q 'export DIGIFLOT_PORT=' "$ROOT/src/deploy/maintenance.sh"
+grep -q 'mv -f "$temporary" "$target"' "$ROOT/src/deploy/maintenance.sh"
 echo "DigiFlot deployment migration, Chromium deduplication and restart wiring passed"
