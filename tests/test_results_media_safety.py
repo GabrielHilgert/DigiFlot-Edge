@@ -1,6 +1,11 @@
 """Hardware-free safety tests for idle-only MJPEG playback."""
 import ast
+import asyncio
+import os
+import shutil
+import struct
 import subprocess
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -16,12 +21,11 @@ def media_classes():
     names = {"ResultsMediaManager", "ResultsMediaSession", "MediaSessionRevoked"}
     nodes = [item for item in source.body if isinstance(item, ast.ClassDef) and item.name in names]
     assert len(nodes) == len(names)
-    import asyncio
-    import shutil
     import time
     namespace = {"threading": threading, "asyncio": asyncio, "shutil": shutil, "subprocess": subprocess,
                  "Path": Path, "MAX_SESSIONS": 2, "MAX_FRAME_BYTES": 12 * 1024 * 1024,
-                 "MAX_DISPLAY_FPS": 12.0, "time": time}
+                 "MAX_DISPLAY_FPS": 12.0, "time": time, "os": os, "struct": struct,
+                 "WebSocketDisconnect": type("WebSocketDisconnect", (Exception,), {})}
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(SOURCE), "exec"), namespace)
     return namespace
 
@@ -75,6 +79,46 @@ class MediaSafetyTest(unittest.TestCase):
             with self.assertRaises(classes["MediaSessionRevoked"]):
                 session._start_process(12)
             self.assertEqual(create.call_count, 1)
+
+
+    def test_actual_mjpeg_frame_streams_without_extra_files(self):
+        if not shutil.which("ffmpeg"):
+            self.skipTest("ffmpeg is not installed")
+        with tempfile.TemporaryDirectory() as directory:
+            recording = Path(directory) / "recording.avi"
+            command = ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+                       "testsrc2=size=160x120:rate=10", "-frames:v", "6", "-c:v", "mjpeg", str(recording)]
+            subprocess.run(command, capture_output=True, check=True, timeout=20)
+
+            class FakeWebSocket:
+                def __init__(self):
+                    self.frames = []
+                    self.messages = []
+
+                async def send_bytes(self, data):
+                    self.frames.append(data)
+
+                async def send_json(self, data):
+                    self.messages.append(data)
+
+            async def run():
+                classes = media_classes()
+                manager = classes["ResultsMediaManager"]()
+                digiflot = SimpleNamespace(IDLE="Idle", state="Idle", lock=threading.RLock())
+                websocket = FakeWebSocket()
+                session = classes["ResultsMediaSession"](websocket, digiflot, manager, recording,
+                                                         {"fps": 10.0, "duration_s": 0.6})
+                self.assertTrue(manager.register(session))
+                await session.stream(0, 1, single=True)
+                self.assertEqual(len(websocket.frames), 1)
+                self.assertEqual(websocket.frames[0][8:10], bytes.fromhex("ffd8"))
+                self.assertEqual(websocket.frames[0][-2:], bytes.fromhex("ffd9"))
+                self.assertIsNone(session.process)
+                manager.discard(session)
+
+            asyncio.run(run())
+            self.assertEqual(list(Path(directory).iterdir()), [recording],
+                             "Direct MJPEG playback must not generate preview files")
 
     def test_state_machine_revokes_before_preparation(self):
         digiflot = (SOURCE.parents[2] / "src/lib/digiflot.py").read_text(encoding="utf-8")
