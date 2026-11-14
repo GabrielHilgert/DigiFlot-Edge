@@ -20,7 +20,7 @@ def preview_functions():
         "Path": Path, "hashlib": hashlib, "shutil": shutil, "subprocess": subprocess, "HTTPException": RuntimeError,
         "_relative": lambda directory, path: path.relative_to(directory).as_posix(),
         "_results_cache_directory": lambda directory: directory.parent / ".results_cache" / directory.name,
-        "_video_media_type": lambda path: "video/x-msvideo", "_parse_number": float,
+        "_video_media_type": lambda path: "video/mp4" if path.suffix == ".mp4" else "video/x-msvideo", "_parse_number": float,
         "_probe_video": lambda path: {"browser_compatible": False, "fps": 30.0},
     }
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(source), "exec"), namespace)
@@ -64,7 +64,7 @@ class ResultsVideoPreviewTest(unittest.TestCase):
             original = Path(temporary) / "recording.mp4"
             original.write_bytes(b"compatible")
             self.assertEqual(namespace["_ensure_browser_video"](original.parent, original),
-                             (original, "video/x-msvideo", False))
+                             (original, "video/mp4", False))
 
 
 if __name__ == "__main__":
