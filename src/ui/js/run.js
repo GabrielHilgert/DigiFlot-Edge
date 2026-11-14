@@ -350,6 +350,9 @@ function renderSensorCalibration(state) {
                     <span class="connection-state ${escapeHtml(connection)}">${escapeHtml(connection === "connected" && virtual ? "Camera connected" : connection)}</span>
                     <span class="calibration-status ${escapeHtml(calibration)}">${escapeHtml(calibrationLabel)}</span>
                 </div>
+                ${virtual && calibration !== "passed" && calibration !== "skipped"
+                    ? '<button type="button" class="button button-secondary button-small" data-skip-sensor="' +
+                        escapeHtml(sensor.id) + '">Skip HFDS</button>' : ''}
             </div>`;
     }).join("") || "<p>No sensors configured.</p>";
 }
@@ -1391,6 +1394,17 @@ function bindActions() {
             await action("/api/digiflot/abort", {reason:"Operator aborted from recovery",return_to_idle:true});
             window.location.replace("/");
         }
+    });
+    ui.sensor_list.addEventListener("click", async event => {
+        const button=event.target.closest("[data-skip-sensor]");
+        if (!button) return;
+        if (!window.confirm("Skip HFDS calibration for this execution? The sensor will not block Ready.")) return;
+        button.disabled=true;
+        try {
+            await action("/api/digiflot/calibration/sensors/" +
+                encodeURIComponent(button.dataset.skipSensor) + "/skip",
+                {reason:"Operator skipped HFDS calibration"});
+        } catch (_) {button.disabled=false;}
     });
     ui.camera_list.addEventListener("click", async (event) => {
         const button = event.target.closest("[data-skip-camera]");
