@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 import time
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -24,6 +26,21 @@ from .reference import resolve_vertical_reference
 
 def _utc():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+@lru_cache(maxsize=1)
+def _virtual_implementation_fingerprint():
+    """Invalidate old performance evidence when detector, geometry or recording code changes."""
+    root = Path(__file__).resolve().parents[1]
+    sources = [root / "virtual_sensors" / "interface.py",
+               root / "virtual_sensors" / "interface_detection.py",
+               root / "vision" / "roi.py", root / "vision" / "aruco.py",
+               root / "camera.py"]
+    digest = hashlib.sha256()
+    for path in sources:
+        digest.update(path.name.encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def _jpeg_base64(image, quality=85):
@@ -472,6 +489,9 @@ class VisionService:
         proposed = normalized_config(values)
         if proposed["vertical_reference_confirmed"]:
             resolve_vertical_reference(proposed, association)
+        current = self.registry.virtual_profile(camera.id, cell_id)
+        if current["config"] == proposed:
+            return current
         result = self.registry.save_virtual_profile(camera.id, cell_id, proposed)
         self.clear_virtual_test()
         with self.digiflot.lock:
@@ -501,23 +521,58 @@ class VisionService:
             "format": camera.format, "fps": camera.frame_rate,
             "exposure_time_us": camera.exposure_time_us,
             "analogue_gain": camera.analogue_gain,
-            "target_size": list(camera.analysis_target_size or []),
+            # The target size is determined from current crop/ROI, not from a
+            # mutable Picamera2 preview that may be stopped after benchmark.
+            "target_size": list(self._desired_lores_size(camera, assoc, profile["config"])),
+            "implementation": _virtual_implementation_fingerprint(),
         }
         return config_signature(profile["config"], assoc, camera_geometry)
 
+    def _matching_saved_virtual_test(self, signature=None):
+        """Read the last passing benchmark only when ALL captured conditions match."""
+        camera, cell_id, assoc, profile = self._virtual_context()
+        config = normalized_config(profile["config"])
+        if not config["vertical_reference_confirmed"]:
+            return None
+        resolve_vertical_reference(config, assoc)
+        roi = detection_roi(config, assoc)
+        signature = signature or self._virtual_signature()
+        crop = list(camera.crop_region or camera.full_sensor_crop())
+        saved = self.registry.matching_successful_virtual_profile(
+            camera.id, cell_id, crop, assoc["calibration_id"], roi,
+            config["sampling_interval_s"], config, signature)
+        if saved is None:
+            return None
+        summary = deepcopy(saved["benchmark"])
+        summary.update({"passed": True, "signature": signature,
+                        "source": "saved", "reused": True,
+                        "successful_profile_id": saved["id"],
+                        "tested_at": saved["tested_at"]})
+        return summary
+
+    def _current_virtual_evidence(self):
+        signature = self._virtual_signature()
+        active = self._virtual_test
+        if active and active.get("signature") == signature:
+            return active
+        return self._matching_saved_virtual_test(signature)
+
     def virtual_test_passed(self):
         try:
-            result = self._virtual_test
-            return bool(result and result.get("passed") and result["signature"] == self._virtual_signature())
-        except (ValueError, KeyError, RuntimeError):
+            result = self._current_virtual_evidence()
+            return bool(result and result.get("passed"))
+        except (ValueError, KeyError, RuntimeError, OSError):
             return False
 
     def virtual_test_result(self, include_series=False):
-        result = deepcopy(self._virtual_test) if self._virtual_test else None
+        try:
+            result = deepcopy(self._current_virtual_evidence())
+        except (ValueError, KeyError, RuntimeError, OSError):
+            result = deepcopy(self._virtual_test)
         if result is not None:
             result.pop("signature", None)
             result["current"] = self.virtual_test_passed()
-            if include_series and result["current"]:
+            if include_series and result["current"] and not result.get("reused"):
                 result["series"] = deepcopy(self._benchmark_series)
         return result
 
@@ -740,9 +795,12 @@ class VisionService:
             result["errors"].append("Camera geometry or detector configuration changed during the test")
         elif result["passed"]:
             crop = list(camera.crop_region or camera.full_sensor_crop())
+            summary = {key: deepcopy(value) for key, value in result.items()
+                       if key not in {"signature", "series", "diagnostic", "preview_jpeg_base64", "last_reading"}}
             saved = self.registry.remember_successful_virtual_profile(
                 camera.id, cell_id, crop, association["calibration_id"],
-                detection_roi(config, association), config["sampling_interval_s"], config)
+                detection_roi(config, association), config["sampling_interval_s"], config,
+                signature=result["signature"], benchmark=summary)
             result["successful_profile_id"] = saved["id"]
         self._benchmark_series = test_series
         result["series"] = deepcopy(test_series)
@@ -772,7 +830,7 @@ class VisionService:
     def freeze_run_config(self, directory):
         """Write the validated sensor + geometry snapshot before acquisition."""
         if not self.virtual_test_passed():
-            raise RuntimeError("Virtual sensor test expired; recalibrate before starting")
+            raise RuntimeError("HIFIE conditions differ from the last verified configuration; run a new test before starting")
         camera, cell_id, association, profile = self._virtual_context()
         config = deepcopy(profile["config"])
         camera.analysis_target_size = self._desired_lores_size(camera, association, config)
