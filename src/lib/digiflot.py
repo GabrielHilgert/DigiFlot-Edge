@@ -18,7 +18,7 @@ from lib.camera import Camera
 from lib.scale import Scale
 from lib.pulp_preparation import planned_inputs, derived_metrics
 from lib.storage_estimator import StorageEstimator
-from lib.scraping_gpio import ScrapingGPIO, validate_gpio_pin
+from lib.scraping_gpio import ScrapingGPIO, ALLOWED_GPIO_PINS, validate_gpio_pin
 try:
     from lib.performance import PerformanceManager
 except Exception:
@@ -2245,7 +2245,6 @@ class DigiFlot:
         elif self.stage_attempt < 1:
             self.stage_attempt = 1
 
-        now = time.monotonic()
         duration = float(stage["duration"])
 
         self.stage_state = self.STAGE_ACTIVE
@@ -3220,7 +3219,7 @@ class DigiFlot:
                     "scraping_alerts_enabled": self.scraping_alerts_enabled,
                     "scraping_alert_style": self.scraping_alert_style,
                     "scraping_gpio_pin": self.scraping_gpio_pin,
-                    "scraping_gpio_options": list(range(4, 28)),
+                    "scraping_gpio_options": list(ALLOWED_GPIO_PINS),
                 },
                 "performance": {
                     "telemetry_interval_s": self.performance.telemetry_interval_s if self.performance else 10.0,
