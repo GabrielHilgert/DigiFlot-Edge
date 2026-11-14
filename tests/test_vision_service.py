@@ -62,7 +62,10 @@ class VisionServiceTests(unittest.TestCase):
             self.assertLessEqual(compiled['size'][0] * compiled['size'][1], 1_000_000)
             self.assertIs(compiled, service._compiled_roi(system.cameras[1], cell['id'], assoc, frame))
             service.save_settings({'camera_id':1,'cell_id':cell['id'],'enabled':True,'sampling_interval_s':1})
-            self.assertTrue(system.cameras[1].analysis_enabled)
+            # Persisted settings are only preferences. A new run must not
+            # arm the HIFIE recording stream until calibration was confirmed
+            # and its run configuration was frozen.
+            self.assertFalse(system.cameras[1].analysis_enabled)
             system.recording=True
             with self.assertRaises(RuntimeError): service.save_camera_profile(1,{'roi_norm':[0,0,1,1]})
 
