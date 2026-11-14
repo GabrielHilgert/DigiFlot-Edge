@@ -436,7 +436,10 @@ class VisionService:
             lines.append({"id": point["id"], "name": point["name"], "type": point["type"],
                           "y_cm": physical_y, "selected": point["id"] == ref_selected,
                           "error": warning})
-        return {**profile, "cell_vertical_reference": self.registry.cell_vertical_reference(cell_id),
+        crop = list(camera.crop_region or camera.full_sensor_crop())
+        presets = self.registry.successful_virtual_profiles(camera.id, cell_id, crop, assoc["calibration_id"])
+        return {**profile, "successful_presets": presets,
+                "cell_vertical_reference": self.registry.cell_vertical_reference(cell_id),
                 "named_references": named, "reference_lines": lines,
                 "reference_resolved": resolved, "reference_error": error,
                 "geometry": {"calibration_id": assoc["calibration_id"],
@@ -604,6 +607,7 @@ class VisionService:
             raise RuntimeError("Virtual sensor benchmark is only allowed during sensor calibration")
         camera, cell_id, association, profile = self._virtual_context()
         config = normalized_config(profile["config"])
+        initial_signature = self._virtual_signature()
         if not config["vertical_reference_confirmed"]:
             raise ValueError("Confirm the physical vertical reference before running the calibration test")
         datum = resolve_vertical_reference(config, association)
@@ -717,6 +721,15 @@ class VisionService:
             "mode": "paced_main_encoder_and_lores",
         }
         result["signature"] = self._virtual_signature()
+        if result["signature"] != initial_signature:
+            result["passed"] = False
+            result["errors"].append("Camera geometry or detector configuration changed during the test")
+        elif result["passed"]:
+            crop = list(camera.crop_region or camera.full_sensor_crop())
+            saved = self.registry.remember_successful_virtual_profile(
+                camera.id, cell_id, crop, association["calibration_id"],
+                detection_roi(config, association), config["sampling_interval_s"], config)
+            result["successful_profile_id"] = saved["id"]
         self._benchmark_series = test_series
         result["series"] = deepcopy(test_series)
         if last_diag is not None and last_preview is not None and last_reading is not None:
