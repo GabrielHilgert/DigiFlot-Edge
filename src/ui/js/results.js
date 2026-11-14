@@ -1404,10 +1404,11 @@ function bindEvents() {
         try {
             const result = await requestJson(`/api/results/${encodeURIComponent(storageId)}/cache`, { method: "DELETE" });
             elements.clearVideoCache.textContent = `Cleared ${formatBytes(result.removed_bytes || 0)}`;
-            window.setTimeout(() => { elements.clearVideoCache.textContent = previous; }, 1800);
+            window.setTimeout(() => { elements.clearVideoCache.textContent = previous; window.DigiFlotIcons?.enhance(elements.clearVideoCache); }, 1800);
         } catch (error) {
             showError(`Could not clear video cache: ${error.message}`);
             elements.clearVideoCache.textContent = previous;
+            window.DigiFlotIcons?.enhance(elements.clearVideoCache);
         } finally { elements.clearVideoCache.disabled = false; }
     });
     document.querySelectorAll(".results-tab").forEach(button => button.addEventListener("click", () => activateTab(button.dataset.tab)));
