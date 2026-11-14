@@ -11,7 +11,8 @@ const edit = run.slice(run.indexOf('const sensorButton = event.target.closest("[
     run.indexOf('ui.select_physical_cell.addEventListener'));
 assert.match(edit,/window\.location\.href = "\/sensors\?review="/);
 assert.doesNotMatch(edit,/\/calibration\/sensors\/[^\n]*\/reopen/, "Review cannot reopen calibration");
-assert.match(run,/data-edit-camera[^\n]*Recalibrate/, "Camera state change must be explicit");
+assert.match(run,/kind==="Camera"\?"Recalibrate":"Review"/, "Camera recalibration must remain an explicit action with an accessible name");
+assert.match(run,/aria-label="\${label} \${escapeHtml\(name\)}"/, "Icon-only review actions need an accessible label");
 assert.match(sensorHtml,/id="cancel_calibration_edit"/);
 assert.match(cameraHtml,/id="cancel_camera_recalibration"/);
 assert.match(sensors,/\/api\/digiflot\/calibration\/cancel/);
