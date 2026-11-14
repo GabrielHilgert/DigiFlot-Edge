@@ -12,6 +12,7 @@ from api.local import router as local_router
 from api.sensors import router as sensor_router
 from api.server import router as server_router
 from api.results import router as results_router
+from api.results_media import router as results_media_router, ResultsMediaManager
 from api.vision import router as vision_router
 from lib.vision.service import VisionService
 from lib.digiflot import DigiFlot, load_config
@@ -45,6 +46,8 @@ async def lifespan(app: FastAPI):
     app.state.vision.start()
 
     app.state.digiflot = digiflot
+    app.state.results_media_manager = ResultsMediaManager()
+    digiflot.results_media_manager = app.state.results_media_manager
 
     # Compatibility aliases for existing sensor API routes.
     app.state.scales = digiflot.scales
@@ -71,6 +74,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        app.state.results_media_manager.revoke()
         app.state.vision.stop()
         app.state.server_sync.stop()
         digiflot.close()
@@ -90,6 +94,7 @@ app.include_router(camera_router)
 app.include_router(sensor_router)
 app.include_router(digiflot_router)
 app.include_router(results_router)
+app.include_router(results_media_router)
 app.include_router(vision_router)
 
 
