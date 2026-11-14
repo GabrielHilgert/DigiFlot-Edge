@@ -1099,6 +1099,15 @@ async function refreshDigiFlotState() {
     updateCalibrationProgress();
 }
 
+function closeResolvedPhDialog(sensorId) {
+    if (!el.calibrationDrawer.open || String(state.activeCalibrationSensorId) !== String(sensorId)) return;
+    const calibration = calibrationItem(sensorId);
+    const standalone = state.standaloneCalibration.get(String(sensorId));
+    const standaloneDone = !state.calibrationMode && standalone &&
+        ["mid","low","high"].slice(0,Number(standalone.requested_points || 3)).every(point => standalone[point]);
+    if (["passed","skipped"].includes(calibration?.status) || standaloneDone) el.calibrationDrawer.close();
+}
+
 function renderCalibrationDrawer() {
     const id = state.activeCalibrationSensorId;
     const snapshot = id == null ? null : state.sensors.get(String(id));
@@ -1198,6 +1207,7 @@ function bindCalibrationControls(root = document) {
                     body: JSON.stringify({ reason: "Operator skipped calibration" }),
                 });
                 renderCards();
+                closeResolvedPhDialog(button.dataset.sensorId);
                 showToast("Calibration skipped.");
             } catch (error) {
                 button.disabled = false;
@@ -1227,6 +1237,7 @@ function bindCalibrationControls(root = document) {
                     body: JSON.stringify({ point, value, requested_points: Number(host.querySelector(".ph-mode-select")?.value || 3) }),
                 });
                 renderCards();
+                closeResolvedPhDialog(button.dataset.sensorId);
             } catch (error) {
                 button.disabled = false;
                 button.textContent = point === "mid" ? "Calibrate midpoint" : point === "low" ? "Calibrate low point" : "Calibrate high point";
@@ -1255,6 +1266,7 @@ function bindCalibrationControls(root = document) {
                 progress[point] = true;
                 state.standaloneCalibration.set(String(button.dataset.sensorId), progress);
                 renderCards();
+                closeResolvedPhDialog(button.dataset.sensorId);
                 showToast(`${point === "mid" ? "Midpoint" : point === "low" ? "Low point" : "High point"} calibration completed.`);
             } catch (error) {
                 button.disabled = false;
