@@ -27,7 +27,8 @@ const context = {document:{getElementById:id=>elements[id]}, virtualRoiPlane:{
     size:[460,500], plane:{min_xy_cm:[0,-12],max_xy_cm:[20,20]}},
     virtualProfileData:{reference_lines:refs,named_references:{default_reference_id:"cell_bottom"}},
     virtualDraft:{reference_id:"cell_bottom"}, virtualRoiDrag:null,
-    virtualEffectiveRoi:()=>null, escapeHtml:value=>String(value)};
+    virtualEffectiveRoi:()=>null, paletteColor:(name,fallback)=>fallback,
+    escapeHtml:value=>String(value)};
 vm.runInNewContext(source.slice(start,end)+"\ndrawVirtualRoiOverlay();", context);
 
 assert.deepEqual(labels.map(item=>item.text.split(" · ")[0]),
