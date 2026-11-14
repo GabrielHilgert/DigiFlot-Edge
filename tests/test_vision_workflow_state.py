@@ -39,6 +39,7 @@ class FakeFlow:
     reset=extract("reset")
     def __init__(self):
         self.lock=threading.RLock()
+        self.scraping_gpio=SimpleNamespace(cancel_pending=lambda:None)
         self.state=self.READY; self.stage_state=self.STAGE_WAITING
         self.calibration_edit=None; self.preview_camera_id=None; self.virtual_camera_id=1
         self.cell_profile={"physical_cell_id":"cell-a"}
