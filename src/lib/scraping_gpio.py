@@ -45,6 +45,7 @@ class ScrapingGPIO:
         self._stop = threading.Event()
         self._thread = None
         self._lock = threading.Lock()
+        self._epoch = 0
         self.last_error = None
         self.last_delay_s = None
         self.dropped = 0
@@ -58,7 +59,7 @@ class ScrapingGPIO:
                 self._thread = threading.Thread(target=self._run, daemon=True, name="digiflot-scraping-gpio")
                 self._thread.start()
             try:
-                self._queue.put_nowait((float(scheduled_at), stage_id, stage_attempt))
+                self._queue.put_nowait((float(scheduled_at), stage_id, stage_attempt, self._epoch))
                 return True
             except queue.Full:
                 self.dropped += 1
@@ -68,7 +69,7 @@ class ScrapingGPIO:
         device = None
         while not self._stop.is_set():
             try:
-                scheduled_at, stage_id, stage_attempt = self._queue.get(timeout=0.2)
+                scheduled_at, stage_id, stage_attempt, epoch = self._queue.get(timeout=0.2)
             except queue.Empty:
                 continue
             result = {"pin": self.pin, "scheduled_monotonic_s": scheduled_at,
@@ -82,11 +83,19 @@ class ScrapingGPIO:
                 if delay > self.max_age_s:
                     result["status"] = "expired"
                 else:
-                    device.on()
-                    self._stop.wait(self.pulse_s)
-                    device.off()
-                    result["status"] = "sent"
-                    self.last_error = None
+                    # Atomic with cancellation: the worker cannot start an old
+                    # pulse after a stage has ended or the operator has paused.
+                    with self._lock:
+                        cancelled = epoch != self._epoch or self._stop.is_set()
+                        if not cancelled:
+                            device.on()
+                    if cancelled:
+                        result["status"] = "cancelled"
+                    else:
+                        self._stop.wait(self.pulse_s)
+                        device.off()
+                        result["status"] = "sent"
+                        self.last_error = None
                 self.last_delay_s = delay
             except Exception as error:
                 self.last_error = str(error)
@@ -107,13 +116,15 @@ class ScrapingGPIO:
             finally: device.close()
 
     def cancel_pending(self):
-        """Discard scheduled pulses when a stage pauses, ends or aborts."""
-        while True:
-            try:
-                self._queue.get_nowait()
-                self._queue.task_done()
-            except queue.Empty:
-                break
+        """Invalidate queued/in-flight-but-not-started pulses after stage exit."""
+        with self._lock:
+            self._epoch += 1
+            while True:
+                try:
+                    self._queue.get_nowait()
+                    self._queue.task_done()
+                except queue.Empty:
+                    break
 
     def close(self):
         self.cancel_pending()
