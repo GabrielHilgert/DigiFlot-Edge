@@ -570,6 +570,18 @@ a { color: inherit; }
 .event-description { color:var(--text-soft); font-size:.75rem; }
 .events-table .event-time { white-space:nowrap; }
 
+/* On-demand MJPEG playback never creates a video proxy; JPEGs are rendered in Canvas. */
+.mjpeg-canvas { display:block; width:100%; max-height:720px; min-height:180px; object-fit:contain; background:#000; }
+.mjpeg-canvas[hidden], .mjpeg-controls[hidden], #video_player[hidden] { display:none !important; }
+.mjpeg-controls { padding:12px 16px; display:grid; gap:10px; background:var(--surface-soft); border-bottom:1px solid var(--border); }
+.mjpeg-scrubber { display:flex; align-items:center; gap:12px; }
+.mjpeg-scrubber input { flex:1; min-width:0; accent-color:var(--accent); }
+.mjpeg-scrubber span { font-size:.76rem; font-variant-numeric:tabular-nums; color:var(--text-soft); white-space:nowrap; }
+.mjpeg-actions { display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+.mjpeg-rate-label { display:inline-flex; align-items:center; gap:7px; margin-left:auto; font-size:.75rem; color:var(--text-soft); }
+.mjpeg-rate-label select { min-height:34px; padding:0 8px; border:1px solid var(--border-strong); border-radius:var(--radius-sm); background:var(--surface); color:var(--text); }
+@media(max-width:620px) { .mjpeg-actions { justify-content:center; } .mjpeg-rate-label { margin-left:0; } .mjpeg-scrubber { flex-wrap:wrap; } .mjpeg-scrubber span { width:100%; text-align:right; } }
+
 /* Fullscreen must resize the media area, not just the surrounding Results card. */
 .analysis-video-viewer:fullscreen {
     display:flex; flex-direction:column; box-sizing:border-box;
