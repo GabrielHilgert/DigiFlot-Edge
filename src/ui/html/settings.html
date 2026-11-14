@@ -23,7 +23,7 @@
         <section class="card">
             <div class="card-head">
                 <div><p class="eyebrow">Orchestration</p><h2>Experiment behavior</h2></div>
-                <button id="save_settings" class="button button-primary" type="button">Save settings</button>
+                <button id="save_settings" class="button button-primary" type="button" data-icon="save">Save settings</button>
             </div>
             <div class="settings-grid orchestration-grid">
                 <label class="switch-field orchestration-advance">
@@ -68,7 +68,7 @@
                     <p class="eyebrow">Monitoring</p><h2>System Telemetry &amp; Storage</h2>
                     <p>Sampling runs independently of the cameras. Storage estimates are automatically adjusted after completed experiments.</p>
                 </div>
-                <button id="save_performance" class="button button-primary" type="button">Save telemetry settings</button>
+                <button id="save_performance" class="button button-primary" type="button" data-icon="save">Save telemetry settings</button>
             </div>
             <div class="settings-grid">
                 <label>Experiment telemetry interval
@@ -96,7 +96,7 @@
                 </div>
                 <div class="button-group">
                     <span id="server_status" class="state-badge">Unknown</span>
-                    <button id="save_server" class="button button-primary" type="button">Save server</button>
+                    <button id="save_server" class="button button-primary" type="button" data-icon="save">Save server</button>
                 </div>
             </div>
             <div class="server-grid">
@@ -126,8 +126,8 @@
                     <p>Configured sensors are shown immediately. Disable or re-enable them here. Auto-detect only scans for additional hardware and never changes the configuration by itself.</p>
                 </div>
                 <div class="button-group">
-                    <button id="autodetect" class="button button-secondary" type="button">Auto-detect devices</button>
-                    <button id="save_devices" class="button button-primary" type="button" disabled>Save hardware</button>
+                    <button id="autodetect" class="button button-secondary" type="button" data-icon="scan-search">Auto-detect devices</button>
+                    <button id="save_devices" class="button button-primary" type="button" disabled data-icon="save">Save hardware</button>
                 </div>
             </div>
             <div id="discovery_errors" class="warning-box" hidden></div>
@@ -146,7 +146,7 @@
                     <h2>Restart DigiFlot</h2>
                     <p>Restart the local FastAPI process through systemd. Restart is blocked while an experiment or calibration state is active.</p>
                 </div>
-                <button id="restart_program" class="button button-danger" type="button">Restart DigiFlot</button>
+                <button id="restart_program" class="button button-danger" type="button" data-icon="power">Restart DigiFlot</button>
             </div>
             <p id="restart_status" class="field-help"></p>
         </section>
