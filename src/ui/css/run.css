@@ -628,3 +628,5 @@ body[data-run-layout="compact"] .live-sensor-card:not(.live-sensor-card-virtual)
 @media(max-width:520px) {
   body[data-run-layout="compact"] .live-sensor-card:not(.live-sensor-card-virtual) { height:auto; min-height:166px; }
 }
+
+#calibration_review_panel[hidden] { display:none !important; }
