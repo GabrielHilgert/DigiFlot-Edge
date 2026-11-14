@@ -1154,6 +1154,7 @@ function seekMjpeg(position, resume = mjpegState.playing) {
     mjpegState.playing = Boolean(resume);
     mjpegState.awaitingSeek = time;
     updateMjpegControls();
+    if (!resume) { elements.videoLoading.hidden = false; elements.videoLoadingText.textContent = "Loading MJPEG frame…"; }
     sendMjpeg({type:resume ? "play" : "seek", time, rate:mjpegState.rate});
 }
 
@@ -1544,6 +1545,7 @@ async function previewFile(file) {
 }
 
 async function activateTab(name) {
+    if (name !== "analysis" && isMjpegVideo(state.selectedVideo)) closeVideoPlayer();
     document.querySelectorAll(".results-tab").forEach(button => button.classList.toggle("active", button.dataset.tab === name));
     document.querySelectorAll(".results-panel").forEach(panel => {
         const active = panel.dataset.panel === name;
