@@ -753,7 +753,7 @@ function drawStageBands(ctx, width, height, left = 48, right = 12) {
         if (end < state.viewStart || start > state.viewEnd || end <= start) return;
         const x1 = xForTime(start, width, left, right);
         const x2 = xForTime(end, width, left, right);
-        ctx.fillStyle = index % 2 === 0 ? "rgba(47,111,237,0.055)" : "rgba(114,84,216,0.045)";
+        ctx.fillStyle = index % 2 === 0 ? "rgba(23,111,166,0.055)" : "rgba(0,162,224,0.045)";
         ctx.fillRect(x1, 0, Math.max(1, x2 - x1), height);
         ctx.strokeStyle = "rgba(127,127,127,0.13)";
         ctx.beginPath();
@@ -768,7 +768,7 @@ function drawSharedCursor(ctx, width, height, left = 48, right = 12) {
     if (!Number.isFinite(Number(state.cursorTime)) || state.cursorTime < state.viewStart || state.cursorTime > state.viewEnd) return;
     const x = xForTime(state.cursorTime, width, left, right);
     ctx.save();
-    ctx.strokeStyle = cssVar("--plot-text", "#f3f6f8");
+    ctx.strokeStyle = cssVar("--plot-text", "#F2F7FA");
     ctx.globalAlpha = 0.42;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
@@ -786,8 +786,8 @@ function drawDragSelection(ctx, width, height, left = 48, right = 12) {
     const x1 = xForTime(a, width, left, right);
     const x2 = xForTime(b, width, left, right);
     ctx.save();
-    ctx.fillStyle = "rgba(47,111,237,0.13)";
-    ctx.strokeStyle = "rgba(47,111,237,0.7)";
+    ctx.fillStyle = "rgba(23,111,166,0.13)";
+    ctx.strokeStyle = "rgba(23,111,166,0.7)";
     ctx.fillRect(x1, 0, x2 - x1, height);
     ctx.strokeRect(x1, 0, x2 - x1, height);
     ctx.restore();
@@ -822,10 +822,10 @@ function drawNumericTrack(track, canvas, points, mode = "line") {
         maxY += pad;
     }
     const yFor = value => top + (1 - (Number(value) - minY) / (maxY - minY)) * (height - top - bottom);
-    const plotColor = mode === "points" ? cssVar("--success", "#18845b") : track.kind === "system" ? cssVar("--preview", "#7254d8") : cssVar("--accent", "#2f6fed");
+    const plotColor = mode === "points" ? cssVar("--success", "#23865D") : track.kind === "system" ? cssVar("--plot-froth-upper", "#29AEE4") : cssVar("--plot-froth", "#55BAE7");
     ctx.save();
     ctx.strokeStyle = cssVar("--plot-grid", "rgba(255,255,255,.16)");
-    ctx.fillStyle = cssVar("--plot-muted", "#c6cdd5");
+    ctx.fillStyle = cssVar("--plot-muted", "#C7D8E2");
     ctx.font = "11px system-ui, sans-serif";
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
@@ -868,7 +868,7 @@ function drawNumericTrack(track, canvas, points, mode = "line") {
 
 function eventColor(category) {
     return {
-        warning: cssVar("--warning", "#c47a12"),
+        warning: cssVar("--warning", "#D08A28"),
         stage: cssVar("--accent", "#2f6fed"),
         camera: cssVar("--preview", "#7254d8"),
         sensor: cssVar("--success", "#18845b"),
@@ -920,7 +920,7 @@ function drawVideoTrack(track, canvas) {
         visible += 1;
         const x1 = xForTime(Math.max(start, state.viewStart), width, left, right);
         const x2 = xForTime(Math.min(Math.max(end, start + 0.1), state.viewEnd), width, left, right);
-        ctx.fillStyle = video.needs_proxy ? "rgba(196,122,18,.32)" : "rgba(114,84,216,.33)";
+        ctx.fillStyle = video.needs_proxy ? "rgba(208,138,40,.32)" : "rgba(0,162,224,.33)";
         ctx.strokeStyle = video.needs_proxy ? cssVar("--warning", "#c47a12") : cssVar("--preview", "#7254d8");
         ctx.fillRect(x1, top, Math.max(2, x2 - x1), barHeight);
         ctx.strokeRect(x1, top, Math.max(2, x2 - x1), barHeight);
