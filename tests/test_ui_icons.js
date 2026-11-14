@@ -62,7 +62,7 @@ assert.match(run,/DigiFlotIcons\.set\(toggle/);
 assert.match(run,/data-image-toggle="1" data-icon="image-off" data-icon-only/);
 assert.match(run,/data-plot-toggle="\$\{escapeHtml\(key\)\}" data-icon="eye-off" data-icon-only/);
 for(const [page,file,needle] of [
-    ["experiments","src/ui/js/experiments.js","DigiFlotIcons.set(resultsButton"],
+    ["experiments","src/ui/js/experiments.js","DigiFlotIcons?.set(resultsButton"],
     ["results","src/ui/js/results.js","DigiFlotIcons?.set(download"],
     ["cells","src/ui/js/cells.js","DigiFlotIcons?.decorate(list)"],
     ["sensors","src/ui/js/sensors.js","DigiFlotIcons?.decorate(el.sensorGrid)"]
