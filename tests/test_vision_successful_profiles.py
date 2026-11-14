@@ -44,6 +44,33 @@ class SuccessfulHifieProfilesTest(unittest.TestCase):
             self.assertEqual(len(recovered), 3)
             self.assertEqual(next(x for x in recovered if x["id"] == item["id"])["config"]["entropy_radius"], 18)
 
+
+    def test_legacy_record_is_not_reusable_without_verified_signature(self):
+        with tempfile.TemporaryDirectory() as root:
+            registry = VisionRegistry(root)
+            crop, roi = [0, 0, 1920, 1080], [1., 2., 8., 10.]
+            config = normalized_config({"sampling_interval_s": .5, "detection_roi_cm": roi})
+            registry.remember_successful_virtual_profile(0, "cell_1", crop, "cal_1", roi, .5, config)
+            self.assertIsNone(registry.matching_successful_virtual_profile(
+                0, "cell_1", crop, "cal_1", roi, .5, config, "signature-123"))
+            registry.remember_successful_virtual_profile(
+                0, "cell_1", crop, "cal_1", roi, .5, config,
+                signature="signature-123", benchmark={"passed": True, "p95_ms": 25.})
+            record = registry.matching_successful_virtual_profile(
+                0, "cell_1", crop, "cal_1", roi, .5, config, "signature-123")
+            self.assertIsNotNone(record)
+            self.assertEqual(record["benchmark"]["p95_ms"], 25.)
+            self.assertIsNone(registry.matching_successful_virtual_profile(
+                0, "cell_1", crop, "cal_1", roi, .5, config, "signature-456"))
+            self.assertIsNone(registry.matching_successful_virtual_profile(
+                0, "cell_1", crop, "cal_1", roi, .5,
+                normalized_config({**config, "entropy_radius": 21}), "signature-123"))
+            self.assertIsNone(registry.matching_successful_virtual_profile(
+                0, "cell_1", crop, "cal_1", roi, .25, config, "signature-123"))
+            fresh = VisionRegistry(root)
+            self.assertIsNotNone(fresh.matching_successful_virtual_profile(
+                0, "cell_1", crop, "cal_1", roi, .5, config, "signature-123"))
+
     def test_draft_is_not_a_successful_profile(self):
         with tempfile.TemporaryDirectory() as root:
             registry = VisionRegistry(root)
