@@ -1103,7 +1103,8 @@ function videoTechnicalSummary(video) {
     if (video.width && video.height) parts.push(`${video.width}×${video.height}`);
     if (Number.isFinite(Number(video.fps))) parts.push(`${formatNumber(video.fps, 2)} fps`);
     if (Number.isFinite(Number(video.duration_s))) parts.push(formatSeconds(video.duration_s));
-    if (video.needs_proxy) parts.push("browser proxy required");
+    if (isMjpegVideo(video)) parts.push("direct JPEG playback");
+    else if (video.needs_proxy) parts.push("browser proxy required");
     return parts.join(" · ") || "Video metadata unavailable";
 }
 
@@ -1309,6 +1310,9 @@ function selectVideo(video, runTime = null, trackKey = null) {
 }
 
 function closeVideoPlayer() {
+    if (document.fullscreenElement === elements.videoViewer) {
+        document.exitFullscreen?.().catch(() => {});
+    }
     stopMjpegSession();
     elements.mjpegCanvas.hidden = true;
     elements.mjpegControls.hidden = true;
@@ -1651,7 +1655,17 @@ function bindEvents() {
         mjpegState.rate = Number(elements.mjpegRate.value) || 1;
         if (mjpegState.playing) seekMjpeg(mjpegState.position, true);
     });
-    elements.mjpegFullscreen.addEventListener("click", () => elements.videoViewer.requestFullscreen?.());
+    elements.mjpegFullscreen.addEventListener("click", async () => {
+        try {
+            if (document.fullscreenElement === elements.videoViewer) await document.exitFullscreen();
+            else await elements.videoViewer.requestFullscreen();
+        } catch (error) { console.warn("Could not toggle video fullscreen:", error); }
+    });
+    document.addEventListener("fullscreenchange", () => {
+        const fullscreen = document.fullscreenElement === elements.videoViewer;
+        window.DigiFlotIcons?.set(elements.mjpegFullscreen, fullscreen ? "minimize" : "maximize",
+            fullscreen ? "Exit fullscreen" : "Fullscreen", true);
+    });
     document.addEventListener("visibilitychange", () => {
         if (document.hidden && mjpegState.playing) {
             mjpegState.playing = false;
