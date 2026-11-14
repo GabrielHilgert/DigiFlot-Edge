@@ -702,6 +702,7 @@ async function virtualSaveConfiguration() {
         method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(config)
     });
     virtualProfileData.config={...config};
+    virtualSavedConfig=JSON.parse(JSON.stringify(config));
     virtualRoiDirty=false;
     renderVirtualRoiCaption();
     virtualBenchmarkMarkup(null);
@@ -715,30 +716,51 @@ async function virtualSaveConfiguration() {
 }
 
 async function virtualRunTest() {
-    const button = document.getElementById("virtual_test");
-    button.disabled = true; button.textContent = "Running calibration test…";
+    const panel=document.getElementById("virtual_panel"),generation=virtualSessionGeneration;
+    const button=document.getElementById("virtual_test"),resumeDiagnostics=virtualDiagnosticsDesired;
+    virtualTestBusy=true;
+    button.disabled=true;button.textContent="Running test…";
+    // The main camera encoder and diagnostic preview must never run concurrently.
+    virtualRoiController?.abort();
     try {
+        if(virtualDiagnosticsActive)await stopVirtualDiagnostics();
         if(!document.getElementById("virtual_reference_confirm").checked)
             throw new Error("Select and confirm a physical vertical reference before the calibration test");
         await virtualSaveConfiguration();
-        const result = await requestJson("/api/vision/virtual-sensors/froth-interface/benchmark", {
-            method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({samples:20})
+        const result=await requestJson("/api/vision/virtual-sensors/froth-interface/benchmark",{
+            method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({samples:20})
         });
-        virtualBenchmarkMarkup({...result, current:true});
-        renderVirtualTestTimeline(result.series || []);
+        if(generation!==virtualSessionGeneration || !panel.open)return;
+        virtualBenchmarkMarkup({...result,current:true});
+        renderVirtualTestTimeline(result.series||[]);
         if(result.diagnostic)renderVirtualDiagnostic(result.diagnostic,"Calibration test");
         else document.getElementById("virtual_diagnostics_status").textContent=
-            result.diagnostic_error || "The test ran, but no diagnostic entropy map was produced.";
-        state.digiflot = await requestJson("/api/digiflot/state");
-        updateCalibrationProgress();
-        showToast(result.passed ? "Live test passed. Inspect the preview before confirming." :
-            "Detection or timing criteria failed. Adjust the settings and test again.");
-    } catch (error) {
-        virtualBenchmarkMarkup(null);
-        showToast(error.message);
+            result.diagnostic_error||"The test ran, but no diagnostic entropy map was produced.";
+        state.digiflot=await requestJson("/api/digiflot/state");
+        if(result.passed) {
+            try {
+                const fresh=await requestJson("/api/vision/virtual-sensors/froth-interface/profile");
+                if(generation===virtualSessionGeneration && panel.open) {
+                    virtualProfileData.successful_presets=fresh.successful_presets||[];
+                    renderVirtualPresets();
+                }
+            } catch(error) {console.warn("Could not refresh successful HIFIE profiles:",error);}
+        }
+        if(generation===virtualSessionGeneration && panel.open) {
+            updateCalibrationProgress();
+            showToast(result.passed?"Live test passed. Inspect diagnostics before confirming.":
+                "Detection or timing criteria failed. Adjust settings and test again.");
+        }
+    } catch(error) {
+        if(generation===virtualSessionGeneration && panel.open) {
+            virtualBenchmarkMarkup(null);showToast(error.message);
+        }
     } finally {
-        button.disabled = false; button.textContent = "Run calibration test";
+        virtualTestBusy=false;
+        button.disabled=false;button.textContent="Run test";
         window.DigiFlotIcons?.enhance(button);
+        if(resumeDiagnostics && virtualDiagnosticsDesired && generation===virtualSessionGeneration && panel.open)
+            await startVirtualDiagnostics().catch(error=>showToast(error.message));
     }
 }
 
