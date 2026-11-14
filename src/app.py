@@ -156,12 +156,15 @@ def results(request: Request, storage_id: str):
 
 @app.get("/run", response_class=HTMLResponse)
 def run(request: Request):
+    digiflot = request.app.state.digiflot
+    # Sensors is the canonical calibration workspace: one set of live
+    # subscriptions, charts and modals, never a duplicate summary or iframe.
+    if digiflot.state == digiflot.SENSOR_CALIBRATION:
+        return RedirectResponse(url="/sensors?calibration=1", status_code=303)
     return templates.TemplateResponse(
         request=request,
         name="run.html",
-        context={
-            "digiflot_state": request.app.state.digiflot.state,
-        },
+        context={"digiflot_state": digiflot.state},
     )
 
 
