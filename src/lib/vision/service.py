@@ -521,7 +521,7 @@ class VisionService:
         valid = bool(reading.get("valid")) if current else None
         live_mode = ("experiment" if self.digiflot.state in (self.digiflot.RUNNING, self.digiflot.PAUSED)
                      else "preview")
-        return {"id": "froth_interface", "name": "HFDS",
+        return {"id": "froth_interface", "name": "HIFD",
                 "type": "virtual_froth_interface", "virtual": True,
                 "source_camera_id": camera_id, "physical_cell_id": cell_id,
                 "status": "connected" if camera else "offline",
