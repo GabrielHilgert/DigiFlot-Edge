@@ -170,6 +170,7 @@ class DigiFlot:
         self._storage_abort_requested = False
 
         self.state = self.IDLE
+        self.results_media_manager = None  # Created lazily by FastAPI, never a background worker.
         self.stage_state = self.STAGE_NONE
         self.preview_camera_id = None
         self.preview_owner_id = None
@@ -1302,6 +1303,11 @@ class DigiFlot:
                     f"Another experiment is already active ({self.storage_id})."
                 )
 
+            # Before any experiment preparation, synchronously invalidate every
+            # Results MJPEG session and kill its playback process. New sessions
+            # cannot spawn while this controller lock is held.
+            if self.results_media_manager is not None:
+                self.results_media_manager.revoke()
             self._reset_run_state_unlocked()
             directory = self._validate_storage_id(storage_id)
             experiment = self._read_json(directory / "experiment.json")
