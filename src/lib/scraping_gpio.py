@@ -71,17 +71,17 @@ class ScrapingGPIO:
                 scheduled_at, stage_id, stage_attempt = self._queue.get(timeout=0.2)
             except queue.Empty:
                 continue
-            triggered_at = time.monotonic()
-            delay = max(0.0, triggered_at - scheduled_at)
             result = {"pin": self.pin, "scheduled_monotonic_s": scheduled_at,
-                      "actual_monotonic_s": triggered_at, "delay_s": delay,
                       "stage_id": stage_id, "stage_attempt": stage_attempt}
             try:
+                if time.monotonic() - scheduled_at <= self.max_age_s and device is None:
+                    device = self.factory(self.pin)
+                triggered_at = time.monotonic()
+                delay = max(0.0, triggered_at - scheduled_at)
+                result.update(actual_monotonic_s=triggered_at, delay_s=delay)
                 if delay > self.max_age_s:
                     result["status"] = "expired"
                 else:
-                    if device is None:
-                        device = self.factory(self.pin)
                     device.on()
                     self._stop.wait(self.pulse_s)
                     device.off()
