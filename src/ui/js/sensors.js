@@ -429,6 +429,10 @@ async function pollVirtualDiagnostics() {
             "Waiting for the next lores diagnostic frame. Measurements continue independently.";
     } catch(error){
         document.getElementById("virtual_diagnostics_status").textContent="Live preview: "+error.message;
+        if(/another browser tab|another calibration tab|belong to another/i.test(error.message)){
+            virtualDiagnosticsDesired=false;
+            void stopVirtualDiagnostics();
+        }
     } finally {virtualDiagBusy=false;}
 }
 
