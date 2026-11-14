@@ -6,7 +6,7 @@
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
     <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114hifie2">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261114sharedlores2"></script>
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261114axisref"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -157,7 +157,7 @@
                 <section id="virtual_test_history" class="virtual-test-history" hidden>
                     <div class="virtual-test-history-heading"><div><h3>Calibration test · temporal results</h3><p>Individual measurements from the benchmark; invalid detections appear as gaps.</p></div><span id="virtual_test_history_count"></span></div>
                     <canvas id="virtual_test_chart" aria-label="Temporal froth and pulp boundary positions during benchmark"></canvas>
-                    <div class="virtual-chart-key"><span class="virtual-upper-key">Froth surface</span><span class="virtual-lower-key">Pulp–froth interface</span><small>cm · test data, not experimental data</small></div>
+                    <div class="virtual-chart-key"><span class="virtual-upper-key">Froth surface</span><span class="virtual-lower-key">Pulp–froth interface</span><small id="virtual_test_axis">Physical position · cm · benchmark only</small></div>
                 </section>
 
                 </div>
