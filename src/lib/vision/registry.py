@@ -5,6 +5,7 @@ All data is local and does not require the central Server or an online connectio
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -264,6 +265,48 @@ class VisionRegistry:
             path = self.root / "virtual_sensors" / sensor_id / f"{camera_id}__{cell_id}.json"
             _write(path, value)
             return {**value, "source": "saved"}
+
+    def successful_virtual_profiles(self, camera_id, cell_id, crop_region, calibration_id,
+                                    sensor_id="froth_interface"):
+        """Historical passing detector settings for this calibrated camera/crop/cell."""
+        from lib.virtual_sensors.interface import normalized_config
+        with self.lock:
+            folder = self.root / "virtual_sensors" / _safe_id(sensor_id) / "successful"
+            camera_id, cell_id = _safe_id(camera_id), _safe_id(cell_id)
+            crop = list(crop_region or [])
+            results = []
+            for path in folder.glob("*.json"):
+                try:
+                    item = _read(path, {})
+                    context = item.get("context") or {}
+                    if (context.get("camera_id") != camera_id or context.get("cell_id") != cell_id
+                            or context.get("crop_region") != crop
+                            or context.get("calibration_id") != calibration_id):
+                        continue
+                    results.append({"id": path.stem, "tested_at": item.get("tested_at"),
+                                    "context": context, "config": normalized_config(item.get("config"))})
+                except (OSError, ValueError, TypeError, KeyError):
+                    continue
+            return sorted(results, key=lambda item: item.get("tested_at") or "", reverse=True)[:30]
+
+    def remember_successful_virtual_profile(self, camera_id, cell_id, crop_region, calibration_id,
+                                             roi_cm, sampling_interval_s, config,
+                                             sensor_id="froth_interface"):
+        """Persist only a passing benchmark, never a saved draft or failed test."""
+        from lib.virtual_sensors.interface import normalized_config
+        with self.lock:
+            normalized = normalized_config(config)
+            context = {"sensor_id": _safe_id(sensor_id), "camera_id": _safe_id(camera_id),
+                       "cell_id": _safe_id(cell_id), "crop_region": list(crop_region or []),
+                       "calibration_id": str(calibration_id), "detection_roi_cm": [float(v) for v in roi_cm],
+                       "sampling_interval_s": float(sampling_interval_s)}
+            payload = json.dumps(context, sort_keys=True, separators=(",", ":"))
+            key = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            value = {"schema_version": 1, "context": context, "tested_at": _timestamp(),
+                     "config": normalized}
+            folder = self.root / "virtual_sensors" / context["sensor_id"] / "successful"
+            _write(folder / f"{key}.json", value)
+            return {"id": key, **value}
 
     def association(self, camera_id, cell_id):
         with self.lock:
