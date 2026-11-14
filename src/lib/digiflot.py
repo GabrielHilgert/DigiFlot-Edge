@@ -18,6 +18,7 @@ from lib.camera import Camera
 from lib.scale import Scale
 from lib.pulp_preparation import planned_inputs, derived_metrics
 from lib.storage_estimator import StorageEstimator
+from lib.scraping_gpio import ScrapingGPIO, validate_gpio_pin
 try:
     from lib.performance import PerformanceManager
 except Exception:
@@ -132,8 +133,15 @@ class DigiFlot:
         self.scraping_method = str(
             orchestration.get("scraping_method", "audio")
         ).lower()
-        # Operator notification is independent of the scheduled scraping signal.
+        # Hardware output and browser presentation are independent settings.
         self.scraping_alerts_enabled = bool(orchestration.get("scraping_alerts_enabled", True))
+        self.scraping_alert_style = str(orchestration.get("scraping_alert_style", "fullscreen")).lower()
+        if self.scraping_alert_style not in {"fullscreen", "banner"}:
+            self.scraping_alert_style = "fullscreen"
+        self.scraping_gpio_pin = validate_gpio_pin(orchestration.get("scraping_gpio_pin", 17))
+        self.scraping_gpio_pulse_s = 0.2
+        self.scraping_gpio = ScrapingGPIO(self.scraping_gpio_pin, self.scraping_gpio_pulse_s,
+                                         report=self._on_gpio_pulse_completed)
 
         self.lock = RLock()
         self.condition = Condition(self.lock)
@@ -322,6 +330,7 @@ class DigiFlot:
         if self.control_thread is not None:
             self.control_thread.join(timeout=3.0)
         self.control_thread = None
+        self.scraping_gpio.close()
 
         errors = []
         with self.lock:
@@ -511,6 +520,8 @@ class DigiFlot:
                 "scraping_interval": self.scraping_interval_s,
                 "scraping_method": self.scraping_method,
                 "scraping_alerts_enabled": self.scraping_alerts_enabled,
+                "scraping_alert_style": self.scraping_alert_style,
+                "scraping_gpio_pin": self.scraping_gpio_pin,
             },
             "storage_id": self.storage_id,
             "run_directory": str(self.run_directory) if self.run_directory else None,
@@ -554,6 +565,11 @@ class DigiFlot:
                 "interval_s": self._scraping_interval(self.current_stage),
                 "method": self.scraping_method,
                 "alerts_enabled": self.scraping_alerts_enabled,
+                "alert_style": self.scraping_alert_style,
+                "gpio_pin": self.scraping_gpio_pin,
+                "gpio": self.scraping_gpio.status(),
+                "stage_id": self.current_stage.get("id") if self.current_stage else None,
+                "stage_attempt": self.stage_attempt,
                 "sequence": self.scraping_sequence,
                 "last_at": self.last_scraping_at,
                 "next_in_s": next_scraping_in,
@@ -2233,9 +2249,6 @@ class DigiFlot:
         duration = float(stage["duration"])
 
         self.stage_state = self.STAGE_ACTIVE
-        self.stage_started_monotonic = now
-        self.stage_started_at = _utc_now()
-        self.stage_deadline = now + duration
         self.transition_started_monotonic = None
         self.transition_started_at = None
         self.transition_deadline = None
@@ -2258,6 +2271,12 @@ class DigiFlot:
         elif self.recording:
             self._stop_camera_recording_unlocked(ignore_errors=True)
 
+        # Only start stage timers once camera configuration, encoders and
+        # setpoints have finished. Startup latency must not create past-due pulses.
+        now = time.monotonic()
+        self.stage_started_monotonic = now
+        self.stage_started_at = _utc_now()
+        self.stage_deadline = now + duration
         if self._scraping_required(stage):
             self.next_scraping_deadline = now + self._scraping_interval(stage)
         else:
@@ -2750,24 +2769,24 @@ class DigiFlot:
                     if self.state == self.RUNNING:
                         now = time.monotonic()
 
-                        if (
-                            self.stage_state == self.STAGE_ACTIVE
-                            and self.next_scraping_deadline is not None
-                            and now >= self.next_scraping_deadline
-                        ):
-                            interval = self._scraping_interval(self.current_stage)
-                            scheduled = self.next_scraping_deadline
-                            self._trigger_scraping_unlocked()
-                            missed = max(1, int((now - scheduled) // interval) + 1)
-                            self.next_scraping_deadline = scheduled + missed * interval
-
-                        if (
-                            self.stage_state == self.STAGE_ACTIVE
-                            and self.stage_deadline is not None
-                            and now >= self.stage_deadline
-                        ):
+                        # Stage completion always outranks overdue scraping.
+                        if (self.stage_state == self.STAGE_ACTIVE and self.stage_deadline is not None
+                                and now >= self.stage_deadline):
                             self._complete_stage_unlocked()
                             continue
+
+                        if (self.stage_state == self.STAGE_ACTIVE and self.next_scraping_deadline is not None
+                                and now >= self.next_scraping_deadline):
+                            interval = self._scraping_interval(self.current_stage)
+                            scheduled = self.next_scraping_deadline
+                            self._trigger_scraping_unlocked(scheduled)
+                            # Recompute after GPIO dispatch and synchronous event I/O.
+                            # Skip missed periods rather than issuing catch-up pulses.
+                            after = time.monotonic()
+                            missed = max(1, int((after - scheduled) // interval) + 1)
+                            self.next_scraping_deadline = scheduled + missed * interval
+                            if self.stage_deadline is not None and self.next_scraping_deadline >= self.stage_deadline:
+                                self.next_scraping_deadline = None
 
                         if (
                             self.stage_state == self.STAGE_TRANSITION
@@ -2830,7 +2849,7 @@ class DigiFlot:
             interval = float(stage["scraping_interval"])
         else:
             interval = self.scraping_interval_s
-        return max(0.1, interval)
+        return max(1.0, interval)
 
     def apply_stage_setpoints(self, stage: dict):
         """Hardware control extension point for airflow, rotor speed, pH, etc."""
@@ -2853,27 +2872,38 @@ class DigiFlot:
             self._touch_unlocked("SCRAPING_ALERTS_CHANGED", {"enabled": enabled})
             return self._status_unlocked()
 
-    def _trigger_scraping_unlocked(self):
+    def _on_gpio_pulse_completed(self, result):
+        """Persist GPIO delivery diagnostics outside the control-loop thread."""
+        with self.lock:
+            if self.run_directory is None:
+                return
+            if result.get("status") == "error":
+                self._add_warning_once_unlocked(
+                    f"scraping-gpio-{result.get('pin')}-{result.get('error')}", "scraping",
+                    "GPIO scraping output failed: " + str(result.get("error")), result)
+            self._touch_unlocked("SCRAPING_GPIO_PULSE", result, persist=False)
+
+    def _trigger_scraping_unlocked(self, scheduled_at=None):
         if not self._scraping_required(self.current_stage):
             return
-
+        scheduled_at = float(scheduled_at if scheduled_at is not None else time.monotonic())
+        actual = time.monotonic()
+        delay = max(0.0, actual - scheduled_at)
         self.scraping_sequence += 1
         self.last_scraping_at = _utc_now()
-
+        queued = None
         if self.scraping_method == "gpio":
-            self._trigger_scraping_hardware()
-
-        self._touch_unlocked(
-            "SCRAPING_SIGNAL",
-            {
-                "method": self.scraping_method,
-                "scraping_sequence": self.scraping_sequence,
-            },
-        )
+            queued = self.scraping_gpio.schedule(scheduled_at,
+                self.current_stage.get("id") if self.current_stage else None, self.stage_attempt)
+        self._touch_unlocked("SCRAPING_SIGNAL", {
+            "method": self.scraping_method, "scraping_sequence": self.scraping_sequence,
+            "scheduled_monotonic_s": scheduled_at, "actual_monotonic_s": actual,
+            "delay_s": delay, "gpio_queued": queued,
+        }, persist=(self.scraping_sequence % 5 == 0))
 
     def _trigger_scraping_hardware(self):
-        """Future GPIO/TTL scraping pulse implementation."""
-        return None
+        """Backward-compatible, nonblocking GPIO request."""
+        return self.scraping_gpio.schedule(time.monotonic())
 
     # ------------------------------------------------------------------
     # Sensors
@@ -3187,6 +3217,10 @@ class DigiFlot:
                     "transition_timeout_s": self.transition_timeout_s,
                     "scraping_interval": self.scraping_interval_s,
                     "scraping_method": self.scraping_method,
+                    "scraping_alerts_enabled": self.scraping_alerts_enabled,
+                    "scraping_alert_style": self.scraping_alert_style,
+                    "scraping_gpio_pin": self.scraping_gpio_pin,
+                    "scraping_gpio_options": list(range(4, 28)),
                 },
                 "performance": {
                     "telemetry_interval_s": self.performance.telemetry_interval_s if self.performance else 10.0,
@@ -3232,11 +3266,30 @@ class DigiFlot:
                 if method not in {"audio", "gpio"}:
                     raise ValueError("scraping_method must be 'audio' or 'gpio'.")
                 self.scraping_method = method
+            if "scraping_alerts_enabled" in payload:
+                if type(payload["scraping_alerts_enabled"]) is not bool:
+                    raise ValueError("scraping_alerts_enabled must be a boolean.")
+                self.scraping_alerts_enabled = payload["scraping_alerts_enabled"]
+            if "scraping_alert_style" in payload:
+                style = str(payload["scraping_alert_style"]).strip().lower()
+                if style not in {"fullscreen", "banner"}:
+                    raise ValueError("scraping_alert_style must be fullscreen or banner.")
+                self.scraping_alert_style = style
+            if "scraping_gpio_pin" in payload:
+                pin = validate_gpio_pin(payload["scraping_gpio_pin"])
+                if pin != self.scraping_gpio_pin:
+                    self.scraping_gpio.close()
+                    self.scraping_gpio_pin = pin
+                    self.scraping_gpio = ScrapingGPIO(pin, self.scraping_gpio_pulse_s,
+                                                    report=self._on_gpio_pulse_completed)
 
             orchestration["auto_advance_enabled"] = self.auto_advance_enabled
             orchestration["transition_timeout_s"] = self.transition_timeout_s
             orchestration["scraping_interval"] = self.scraping_interval_s
             orchestration["scraping_method"] = self.scraping_method
+            orchestration["scraping_alerts_enabled"] = self.scraping_alerts_enabled
+            orchestration["scraping_alert_style"] = self.scraping_alert_style
+            orchestration["scraping_gpio_pin"] = self.scraping_gpio_pin
 
             performance_settings = None
             if "performance" in payload:
