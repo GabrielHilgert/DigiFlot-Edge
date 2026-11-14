@@ -28,7 +28,7 @@ function cacheUi() {
     [
         "experiment_name", "experiment_meta", "state_badge", "state_text",
         "cell_panel", "select_physical_cell_form", "select_physical_cell", "select_virtual_camera",
-        "camera_panel", "camera_list", "sensor_panel", "sensor_list",
+        "camera_panel", "camera_list",
         "ready_panel", "ready_stage", "start_first_stage", "run_panel",
         "stage_type", "stage_name", "camera_indicator", "sensor_indicator",
         "active_view", "stage_timer", "stage_elapsed", "scraping_box", "scraping_alerts_enabled",
@@ -239,7 +239,7 @@ function setWorkflow(data) {
 }
 
 function hidePanels() {
-    [ui.cell_panel, ui.camera_panel, ui.sensor_panel, ui.ready_panel, ui.run_stage_overview, ui.run_panel, ui.completed_panel, ui.error_panel]
+    [ui.cell_panel, ui.camera_panel, ui.ready_panel, ui.run_stage_overview, ui.run_panel, ui.completed_panel, ui.error_panel]
         .forEach((panel) => { panel.hidden = true; });
 }
 
@@ -310,51 +310,6 @@ function renderCameraCalibration(state) {
                 </div>
             </article>`;
     }).join("") || "<p>No cameras configured.</p>";
-}
-
-function findSensorSnapshot(state, id) {
-    const scale = (state.scales || []).find((item) => String(item.id) === String(id));
-    if (scale) return scale;
-    return (state.atlas || []).find((item) => String(item.id) === String(id)) ||
-        (state.virtual_sensors || []).find((item) => String(item.id) === String(id));
-}
-
-function renderSensorCalibration(state) {
-    ui.sensor_panel.hidden = false;
-    const refs=state.cell_selection?.references;
-    const cellId=state.cell_selection?.cell_id||"";
-    const cameraId=state.cell_selection?.camera_id??"";
-    const anchor=document.getElementById("open_cell_references");
-    anchor.href="/cells?cell="+encodeURIComponent(cellId)+"&camera="+encodeURIComponent(cameraId);
-    document.getElementById("run_reference_state").textContent=refs?
-        (refs.ready?"Default: "+refs.default_name+" · "+refs.count+" named references · revision "+refs.revision:
-        "Default reference "+refs.default_name+" is not calibrated. Open Cells and place it before the HIFIE test.") :
-        "Select a physical cell and calibrate its named references first.";
-    const sensors = Object.values(state.calibration?.sensors || {});
-    ui.sensor_list.innerHTML = sensors.map((sensor) => {
-        const snapshot = findSensorSnapshot(state, sensor.id) || {};
-        const connection = snapshot.status || "unknown";
-        const calibration = sensor.status || "pending";
-        const virtual = sensor.type === "virtual_froth_interface";
-        const type = virtual ? "HIFIE | Froth Interface Detection" : (sensor.type || "Sensor").replaceAll("_", " ");
-        const origin = virtual ? `Camera ${sensor.source_camera_id ?? snapshot.source_camera_id ?? "—"} · ${state.cell_selection?.cell_name || state.execution_inputs?.cell_profile?.cell_name || "Selected cell"}` : "";
-        const calibrationLabel = calibration === "passed" ? "Calibrated" : calibration === "pending" && virtual ? "Test required" : calibration.replaceAll("_", " ");
-        return `
-            <div class="sensor-summary-item ${virtual ? "virtual-sensor-summary" : ""}">
-                <div>
-                    <strong>${escapeHtml(sensor.name)}</strong>
-                    <span class="sensor-kind">${escapeHtml(type)}</span>
-                    ${origin ? `<span class="sensor-origin">${escapeHtml(origin)}</span>` : ""}
-                </div>
-                <div class="sensor-summary-states">
-                    <span class="connection-state ${escapeHtml(connection)}">${escapeHtml(connection === "connected" && virtual ? "Camera connected" : connection)}</span>
-                    <span class="calibration-status ${escapeHtml(calibration)}">${escapeHtml(calibrationLabel)}</span>
-                </div>
-                ${virtual && calibration !== "passed" && calibration !== "skipped"
-                    ? '<button type="button" class="button button-secondary button-small" data-skip-sensor="' +
-                        escapeHtml(sensor.id) + '">Skip HIFIE</button>' : ''}
-            </div>`;
-    }).join("") || "<p>No sensors configured.</p>";
 }
 
 function humanizeStageKey(key) {
@@ -1188,7 +1143,18 @@ function renderError(state) {
     }
 }
 
+let sensorCalibrationNavigationPending = false;
+
 function render(state) {
+    if (state.state === "SensorCalibration") {
+        // The complete Sensors screen owns calibration, streams and dialogs.
+        // Never create parallel calibration UI or subscriptions in Run.
+        if (!sensorCalibrationNavigationPending) {
+            sensorCalibrationNavigationPending = true;
+            window.location.replace("/sensors?calibration=1");
+        }
+        return;
+    }
     if(monitorRunId!==state.storage_id){
         monitorRunId=state.storage_id;monitorFrame=null;monitorFrameRevision=0;
         lastScrapingSequence=null;
@@ -1209,7 +1175,6 @@ function render(state) {
     hidePanels();
     if (state.state === "CellSelection") renderCellSelection(state);
     else if (state.state === "CameraCalibration") renderCameraCalibration(state);
-    else if (state.state === "SensorCalibration") renderSensorCalibration(state);
     else if (state.state === "Ready") renderReady(state);
     else if (["Running", "Paused"].includes(state.state)) renderRun(state);
     else if (["Completed", "Aborted"].includes(state.state)) renderCompleted(state);
@@ -1405,17 +1370,6 @@ function bindActions() {
             await action("/api/digiflot/abort", {reason:"Operator aborted from recovery",return_to_idle:true});
             window.location.replace("/");
         }
-    });
-    ui.sensor_list.addEventListener("click", async event => {
-        const button=event.target.closest("[data-skip-sensor]");
-        if (!button) return;
-        if (!window.confirm("Skip HIFIE calibration for this execution? The sensor will not block Ready.")) return;
-        button.disabled=true;
-        try {
-            await action("/api/digiflot/calibration/sensors/" +
-                encodeURIComponent(button.dataset.skipSensor) + "/skip",
-                {reason:"Operator skipped HIFIE calibration"});
-        } catch (_) {button.disabled=false;}
     });
     ui.camera_list.addEventListener("click", async (event) => {
         const button = event.target.closest("[data-skip-camera]");
@@ -1641,6 +1595,7 @@ async function initialise() {
     bindActions();
     try {
         render(await requestJson("/api/digiflot/state"));
+        if (sensorCalibrationNavigationPending) return;
         await Promise.all([loadPhysicalCells(), loadMeasurements()]);
     } catch (error) {
         showToast(error.message);
