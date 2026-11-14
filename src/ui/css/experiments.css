@@ -1156,10 +1156,10 @@ button:disabled {
   position:fixed; inset:0; width:min(1080px,calc(100vw - 36px)); max-width:100%;
   max-height:min(88vh,960px); margin:auto; padding:0; border:1px solid var(--border-strong);
   border-radius:var(--radius-lg); background:var(--surface); color:var(--text);
-  box-shadow:0 25px 95px color-mix(in srgb,CanvasText 40%,transparent);
+  box-shadow:0 10px 32px rgba(0,0,0,.16);
   overflow:auto; overscroll-behavior:contain; scrollbar-width:thin;
 }
-.experiment-detail-dialog::backdrop { background:color-mix(in srgb,#05090D 74%,transparent); backdrop-filter:blur(3px); }
+.experiment-detail-dialog::backdrop { background:rgba(8,16,24,.32); }
 .experiment-detail-dialog .detail-card { position:relative; top:auto; border:0; border-radius:0; box-shadow:none; margin:0; overflow:visible; }
 .experiment-detail-dialog .detail-card > .card-header {
   position:sticky; top:0; z-index:4; background:var(--surface); border-bottom:1px solid var(--border);
