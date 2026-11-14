@@ -655,6 +655,7 @@ function calibrationMarkup(snapshot) {
             <div><strong>Calibration review (read-only)</strong>
                 <span>Status: ${escapeHtml(status)}${escapeHtml(details)}. Review does not change experiment readiness.</span></div>
             <div class="calibration-actions">
+                <span class="calibration-pill ${escapeHtml(status)}">${escapeHtml(status)}</span>
                 <button class="button button-secondary sensor-reopen" data-icon="rotate-ccw" data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Recalibrate</button>
             </div>
         </div>`;
@@ -665,7 +666,8 @@ function calibrationMarkup(snapshot) {
         return `<div class="calibration-block">
             <div><strong>HIFIE · Camera ${escapeHtml(snapshot.source_camera_id)}</strong>
             <span>Cell ${escapeHtml(snapshot.physical_cell_id)} · Geometry + live benchmark required</span></div>
-            <div class="calibration-actions"><button class="button button-primary open-virtual-calibration" data-icon="scan" type="button">
+            <div class="calibration-actions"><span class="calibration-pill ${escapeHtml(item.status || "pending")}">${escapeHtml(item.status || "Pending")}</span>
+            <button class="button button-primary open-virtual-calibration" data-icon="scan" type="button">
             ${item.status === "passed" ? "Review HIFIE calibration" : "Configure / test HIFIE"}</button>
             ${item.status !== "passed" && item.status !== "skipped" ? '<button class="button button-secondary sensor-skip" data-icon="skip-forward" data-sensor-id="froth_interface" type="button">Skip HIFIE</button>' : ""}
             ${item.status === "passed" || item.status === "skipped" ? '<button class="button button-secondary sensor-reopen" data-icon="rotate-ccw" data-sensor-id="froth_interface" type="button">Reopen</button>' : ""}</div>
@@ -788,10 +790,31 @@ function calibrationMarkup(snapshot) {
 function sensorCalibrationEntry(snapshot) {
     const markup = calibrationMarkup(snapshot);
     if (!markup) return "";
-    if (snapshot.type === "virtual_froth_interface") return markup;
-    return '<button class="button button-secondary open-calibration-drawer" data-icon="sliders" data-sensor-id="' +
-        escapeHtml(snapshot.id) + '" type="button">Calibrate / review ' +
-        escapeHtml(snapshot.name || snapshot.type || "sensor") + '</button>';
+    // Only pH and HIFIE need full editors. Other sensors keep their original
+    // inline checks, including Passed/Skipped badges and completion actions.
+    if (String(snapshot.type || "").toLowerCase() !== "ph") return markup;
+    const calibration = calibrationItem(snapshot.id);
+    const standalone = state.standaloneCalibration.get(String(snapshot.id));
+    const completed = calibration?.points
+        ? Object.values(calibration.points).filter(point => point?.status === "passed").length
+        : ["mid","low","high"].filter(point => standalone?.[point]).length;
+    const requested = Number(calibration?.requested_points || standalone?.requested_points || 3);
+    const rawStatus = String(calibration?.status ||
+        (completed >= requested ? "passed" : completed ? "in_progress" : "pending")).toLowerCase();
+    const status = ["passed","skipped","pending","in_progress","unavailable","failed"].includes(rawStatus)
+        ? rawStatus : "pending";
+    const label = {passed:"Passed",skipped:"Skipped",pending:"Pending",in_progress:"In progress",
+        unavailable:"Unavailable",failed:"Failed"}[status];
+    const progress = status === "skipped" ? (calibration?.skip_reason || "Skipped by operator")
+        : Number.isFinite(requested) && requested > 0 ? `${completed}/${requested} calibration points completed` : "";
+    return `<div class="calibration-block calibration-modal-entry">
+        <div><strong>pH calibration</strong><span>${escapeHtml(progress)}</span></div>
+        <div class="calibration-heading-actions">
+            <span class="calibration-pill ${escapeHtml(status)}">${escapeHtml(label)}</span>
+            <button class="button button-secondary open-calibration-drawer" data-icon="sliders"
+                data-sensor-id="${escapeHtml(snapshot.id)}" type="button">Calibrate / review pH</button>
+        </div>
+    </div>`;
 }
 
 function sensorCard(snapshot) {
@@ -1079,7 +1102,7 @@ async function refreshDigiFlotState() {
 function renderCalibrationDrawer() {
     const id = state.activeCalibrationSensorId;
     const snapshot = id == null ? null : state.sensors.get(String(id));
-    if (!snapshot || snapshot.type === "virtual_froth_interface") {
+    if (!snapshot || String(snapshot.type || "").toLowerCase() !== "ph") {
         if (el.calibrationDrawer.open) el.calibrationDrawer.close();
         return;
     }
@@ -1388,7 +1411,7 @@ async function initialise() {
             const card = cardFor(requested);
             card?.scrollIntoView({behavior:"smooth",block:"center"});
             const sensor = state.sensors.get(String(requested));
-            if (sensor && sensor.type !== "virtual_froth_interface") {
+            if (sensor && String(sensor.type || "").toLowerCase() === "ph") {
                 state.activeCalibrationSensorId = String(requested);
                 renderCalibrationDrawer();
                 if (!el.calibrationDrawer.open) el.calibrationDrawer.showModal();
