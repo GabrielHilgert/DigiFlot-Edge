@@ -45,7 +45,7 @@
             <div class="card-body">
                 <strong>Experiment camera calibration</strong>
                 <p>Opening a pending camera starts preview and calibrates exposure automatically. Adjust crop and controls, then save and confirm this camera.</p>
-                <button id="cancel_camera_recalibration" class="button button-secondary" type="button" hidden>Cancel recalibration</button>
+                <button id="cancel_camera_recalibration" class="button button-secondary" type="button" hidden data-icon="x">Cancel recalibration</button>
                 <a class="button button-secondary" href="/run">Back to experiment</a>
             </div>
         </section>
@@ -219,7 +219,7 @@
                         <strong id="performance_guard_status">Checking…</strong>
                         <p id="performance_guard_message">The saved benchmark profile will be checked against both camera configurations.</p>
                     </div>
-                    <button id="use_recommended_fps" class="button button-secondary button-small" type="button" hidden>Use recommended</button>
+                    <button id="use_recommended_fps" class="button button-secondary button-small" type="button" hidden data-icon="check">Use recommended</button>
                 </div>
 
                 <div class="crop-summary-bar">
@@ -266,7 +266,7 @@
                         class="button button-primary"
                         type="button"
                         disabled
-                    >
+                     data-icon="play" data-icon-only>
                         Start preview
                     </button>
                     <button
@@ -274,7 +274,7 @@
                         class="button button-secondary"
                         type="button"
                         disabled
-                    >
+                     data-icon="square" data-icon-only>
                         Stop preview
                     </button>
                 </div>
@@ -416,7 +416,7 @@
                                 class="button button-primary button-small"
                                 type="button"
                                 disabled
-                            >
+                             data-icon="crop" data-icon-only>
                                 Select crop
                             </button>
 
@@ -425,7 +425,7 @@
                                 class="button button-secondary button-small"
                                 type="button"
                                 disabled
-                            >
+                             data-icon="maximize" data-icon-only>
                                 Use full sensor
                             </button>
                         </div>
@@ -536,7 +536,7 @@
                             class="button button-secondary"
                             type="button"
                             disabled
-                        >
+                         data-icon="sliders">
                             Apply manual exposure
                         </button>
 
@@ -545,7 +545,7 @@
                             class="button button-primary"
                             type="button"
                             disabled
-                        >
+                         data-icon="wand">
                             Calibrate exposure
                         </button>
                     </div>
@@ -604,7 +604,7 @@
                     class="button button-secondary"
                     type="button"
                     disabled
-                >
+                 data-icon="rotate-ccw">
                     Reset changes
                 </button>
 
@@ -614,7 +614,7 @@
                     class="button button-primary"
                     type="button"
                     disabled
-                >
+                 data-icon="badge-check">
                     Save & confirm calibration
                 </button>
                 {% endif %}
@@ -624,7 +624,7 @@
                     class="button button-primary"
                     type="button"
                     disabled
-                >
+                 data-icon="save">
                     Save configuration
                 </button>
             </div>
