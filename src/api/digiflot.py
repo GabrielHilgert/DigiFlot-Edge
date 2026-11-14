@@ -91,7 +91,7 @@ def state_event_stream(digiflot):
     yield "event: state\n" f"data: {json.dumps(status)}\n\n"
 
     while True:
-        status = digiflot.wait_for_update(last_revision, timeout=0.5)
+        status = digiflot.wait_for_update(last_revision, timeout=1.0)
         last_revision = status["revision"]
         yield "event: state\n" f"data: {json.dumps(status)}\n\n"
 
