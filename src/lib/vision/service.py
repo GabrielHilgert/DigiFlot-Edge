@@ -611,6 +611,7 @@ class VisionService:
                 "unit": "cm", "decimals": 2,
                 "channels": {key: reading.get(key) for key in
                              ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm")} if current else None,
+                "reference": deepcopy(reading.get("vertical_reference")) if current else None,
                 "reading_valid": valid,
                 "measurement_mode": live_mode if current else "waiting",
                 "timestamp_ms": int(timestamp / 1e6) if current else None,
