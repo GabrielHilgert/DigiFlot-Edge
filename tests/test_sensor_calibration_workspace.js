@@ -53,4 +53,8 @@ assert.match(sensors,/\["froth_row_px",markerColors\.surface\]/);
 assert.match(sensors,/\["pulp_row_px",markerColors\.pulp\]/);
 assert.match(sensors,/\["upper",markerColors\.surface\]/);
 assert.match(sensors,/\["lower",markerColors\.pulp\]/);
+const runOverlay=run.slice(run.indexOf("function drawRunMonitorOverlay("),run.indexOf("function updateRunMonitorFrame("));
+assert.match(runOverlay,/\["froth_row_px",palette\.getPropertyValue\("--plot-froth-upper"\)/);
+assert.match(runOverlay,/\["pulp_row_px",palette\.getPropertyValue\("--plot-pulp"\)/);
+assert.doesNotMatch(runOverlay,/--plot-pulp-secondary|--plot-froth"\)/);
 console.log("Single-page sensor calibration and serialized HIFIE camera startup passed");
