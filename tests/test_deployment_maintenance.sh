@@ -3,7 +3,7 @@ set -Eeuo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 bash -n "$ROOT/src/install.sh" "$ROOT/src/launch.sh" \
     "$ROOT/src/deploy/maintenance.sh" "$ROOT/src/deploy/migrate.sh" \
-    "$ROOT/src/deploy/browser-open.sh"
+    "$ROOT/src/deploy/browser-open.sh" "$ROOT/src/deploy/browser-autostart.sh"
 
 # Browser duplicates must be prevented without relying on any external
 # running Chromium or backend, so this test uses a fake browser executable.
@@ -40,4 +40,11 @@ grep -q 'Refusing to interrupt DigiFlot' "$ROOT/src/deploy/maintenance.sh"
 grep -q 'write_if_changed "$tmp/digiflot-restart"' "$ROOT/src/deploy/maintenance.sh"
 grep -q 'write_if_changed "$DEPLOY_DIR/maintenance.sh"' "$ROOT/src/deploy/maintenance.sh"
 grep -q 'bash "$SRC_DIR/deploy/maintenance.sh" bootstrap' "$ROOT/src/install.sh"
+# Desktop-login autostart must be opt-in and reversible for the current user.
+bash "$ROOT/src/deploy/browser-autostart.sh" enable > "$TMP/autostart-enable.log"
+grep -q 'X-DigiFlot-Managed=true' "$TMP/config/autostart/digiflot-edge.desktop"
+bash "$ROOT/src/deploy/browser-autostart.sh" status | grep -q enabled
+bash "$ROOT/src/deploy/browser-autostart.sh" disable > "$TMP/autostart-disable.log"
+[[ ! -e "$TMP/config/autostart/digiflot-edge.desktop" ]] || { echo "Autostart was not removed." >&2; exit 1; }
+grep -q 'export DIGIFLOT_PORT=' "$ROOT/src/deploy/maintenance.sh"
 echo "DigiFlot deployment migration, Chromium deduplication and restart wiring passed"
