@@ -433,6 +433,7 @@ el.autodetect.addEventListener("click", async () => {
     } finally {
         el.autodetect.disabled = false;
         el.autodetect.textContent = "Auto-detect devices";
+        window.DigiFlotIcons?.enhance(el.autodetect);
     }
 });
 
@@ -489,7 +490,7 @@ async function waitForRestart() {
         }
     }
     el.restart_program.disabled = false;
-    el.restart_program.textContent = "Restart DigiFlot";
+    el.restart_program.textContent = "Restart DigiFlot"; window.DigiFlotIcons?.enhance(el.restart_program);
     toast("Restart was requested, but the local server did not return in time.", 6000);
 }
 
@@ -503,7 +504,7 @@ el.restart_program.addEventListener("click", async () => {
         await waitForRestart();
     } catch (error) {
         el.restart_program.disabled = false;
-        el.restart_program.textContent = "Restart DigiFlot";
+        el.restart_program.textContent = "Restart DigiFlot"; window.DigiFlotIcons?.enhance(el.restart_program);
         toast(error.message, 5000);
     }
 });
