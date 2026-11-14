@@ -257,6 +257,39 @@ class VirtualBenchmarkTests(unittest.TestCase):
             new_vision.save_virtual_profile(config)
             self.assertTrue(new_vision.virtual_test_passed())
 
+    def test_parallel_roi_requests_share_one_camera_plane_queue(self):
+        from concurrent.futures import ThreadPoolExecutor
+        with tempfile.TemporaryDirectory() as root:
+            run = FakeRun()
+            vision = VisionService(run, root)
+            cell = vision.registry.save_cell({"name": "ROI request serialization"})
+            run.cell_profile = {"physical_cell_id": cell["id"]}
+            geom = source_geometry([900,920], [0,0,900,920])
+            cal = calibrate(run.cameras[1].image, DEFAULT_LAYOUT, frame_geometry=geom)
+            vision.registry.save_association(1, cell["id"], cal)
+            active, peak, calls = 0, 0, 0
+            guard = threading.Lock()
+
+            def slow_rectification(*args):
+                nonlocal active, peak, calls
+                with guard:
+                    active += 1
+                    peak = max(peak, active)
+                    calls += 1
+                time.sleep(0.04)
+                with guard:
+                    active -= 1
+                return {"jpeg_base64": "fake", "size": [100, 100], "plane": {}}
+
+            with patch.object(vision, "_rectify_captured", side_effect=slow_rectification):
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    futures = [executor.submit(vision.virtual_detection_roi_preview, "tab-a") for _ in range(2)]
+                    frames = [future.result(timeout=10) for future in futures]
+            self.assertEqual(len(frames), 2)
+            self.assertEqual(calls, 2)
+            self.assertEqual(peak, 1, "Parallel ROI requests must never rectify simultaneously")
+            self.assertEqual(run.preview_owner_id, "tab-a")
+
     def test_diagnostic_lease_is_owned_and_full_plane_remap_releases_run_lock(self):
         with tempfile.TemporaryDirectory() as root:
             run = FakeRun()
