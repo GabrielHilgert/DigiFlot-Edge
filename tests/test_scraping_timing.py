@@ -27,6 +27,7 @@ class FakeStage:
 
     def __init__(self):
         self.stage_attempt = 1; self.recording = False; self.camera_ready_at = None
+        self.scraping_gpio=SimpleNamespace(cancel_pending=lambda:None)
         self.current_stage = {"id": "flot", "name": "Flotation", "type": "flotation", "duration": 5}
         self.stage_state = self.STAGE_TRANSITION
         self.events = []
