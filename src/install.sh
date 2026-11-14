@@ -155,6 +155,8 @@ as_root apt-get install -y \
     python3-pip \
     python3-picamera2 \
     python3-libcamera \
+    python3-gpiozero \
+    python3-lgpio \
     libcamera-tools
 
 # -----------------------------------------------------------------------------
@@ -181,7 +183,7 @@ fi
 as_root install -d -m 0750 -o "$SERVICE_USER" -g "$SERVICE_GROUP" "$SERVICE_HOME"
 
 # Hardware access for the process that owns cameras, I2C and serial ports.
-for group in video i2c dialout; do
+for group in video i2c dialout gpio; do
     if getent group "$group" >/dev/null 2>&1; then
         if id -nG "$SERVICE_USER" | tr ' ' '\n' | grep -qx "$group"; then
             log "Service user already belongs to '$group'."
