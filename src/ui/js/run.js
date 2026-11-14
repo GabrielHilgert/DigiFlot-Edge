@@ -658,6 +658,7 @@ function renderLiveSensors(state) {
             card.classList.toggle("virtual-image-hidden", imageHidden);
             card.querySelector(".run-virtual-image-frame").hidden = imageHidden;
             const imageControl = card.querySelector("[data-image-toggle]");
+            imageControl.setAttribute("aria-pressed", String(!imageHidden));
             const imageLabel = imageHidden ? "Show image" : "Hide image";
             if (window.DigiFlotIcons) window.DigiFlotIcons.set(imageControl,
                 imageHidden ? "image" : "image-off", imageLabel, true);
@@ -681,6 +682,7 @@ function renderLiveSensors(state) {
         card.querySelector(".live-sensor-age").textContent = sensorAgeText(sensor);
         const wrap = card.querySelector(".sensor-sparkline-wrap");
         const toggle = card.querySelector("[data-plot-toggle]");
+        toggle.setAttribute("aria-pressed", String(!hidden));
         wrap.hidden = hidden;
         const plotLabel = hidden ? "Show plot" : "Hide plot";
         if (window.DigiFlotIcons) window.DigiFlotIcons.set(toggle,
