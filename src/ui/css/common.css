@@ -1,8 +1,24 @@
 
 :root {
     color-scheme: light dark;
-    --bg: Canvas;
-    --surface: Canvas;
+    /* Brand references: historical Helmholtz blue; HIF orange approximated from logo. */
+    --hif-blue: #00589C; --hif-dark-blue: #003E6E;
+    --hif-light-blue: #00A2E0; --hif-orange: #F47721;
+    --hif-energy-yellow: #E6AF11;
+    /* Contrast-aware semantic roles for light and dark UI. */
+    --action-background: light-dark(var(--hif-blue), #176FA6);
+    --action-hover: light-dark(var(--hif-dark-blue), #105C90);
+    --interactive-text: light-dark(var(--hif-blue), #69B9E8);
+    --success-text: light-dark(#196544, #5FC796);
+    --warning-text: light-dark(#986012, #F1BE69);
+    --danger-text: light-dark(#AB332B, #F28A7C);
+    --preview-text: light-dark(#006B98, #66CFEF);
+    /* Measurement overlays intentionally preserve the blue/orange distinction. */
+    --plot-froth: #55BAE7; --plot-froth-upper: #29AEE4;
+    --plot-pulp: #F47721; --plot-pulp-secondary: #E6AF11;
+    --roi-cyan: #28BEE8; --roi-yellow: #E6AF11;
+    /* Backwards-compatible component aliases, defined centrally. */
+    --bg: Canvas; --surface: Canvas;
     --surface-soft: color-mix(in srgb, CanvasText 5%, Canvas);
     --surface-strong: color-mix(in srgb, CanvasText 9%, Canvas);
     --border: color-mix(in srgb, CanvasText 18%, transparent);
@@ -10,18 +26,21 @@
     --text: CanvasText;
     --text-soft: color-mix(in srgb, CanvasText 68%, transparent);
     --text-faint: color-mix(in srgb, CanvasText 50%, transparent);
-    --accent: #2f6fed;
-    --accent-hover: #255ed0;
-    --accent-soft: color-mix(in srgb, #2f6fed 18%, Canvas);
-    --success: #18845b;
-    --success-soft: color-mix(in srgb, #18845b 16%, Canvas);
-    --warning: #c47a12;
-    --warning-soft: color-mix(in srgb, #c47a12 17%, Canvas);
-    --danger: #c74242;
-    --danger-soft: color-mix(in srgb, #c74242 16%, Canvas);
-    --radius-lg: 18px;
-    --radius-md: 12px;
-    --radius-sm: 8px;
+    --accent: var(--action-background);
+    --accent-hover: var(--action-hover);
+    --accent-soft: color-mix(in srgb, var(--accent) 18%, Canvas);
+    --success: #23865D;
+    --success-soft: color-mix(in srgb, var(--success) 16%, Canvas);
+    --warning: #D08A28;
+    --warning-soft: color-mix(in srgb, var(--warning) 17%, Canvas);
+    --danger: #C94B3E;
+    --danger-soft: color-mix(in srgb, var(--danger) 16%, Canvas);
+    --preview: var(--hif-light-blue);
+    --preview-soft: color-mix(in srgb, var(--preview) 18%, Canvas);
+    --chart-grid: color-mix(in srgb, CanvasText 12%, transparent);
+    --shadow: 0 14px 42px color-mix(in srgb, CanvasText 8%, transparent);
+    --shadow-soft: 0 6px 20px color-mix(in srgb, CanvasText 6%, transparent);
+    --radius-lg: 18px; --radius-md: 12px; --radius-sm: 8px;
 }
 
 .app-navbar {
@@ -46,12 +65,12 @@
 .app-nav-links a:hover, .app-nav-links a.active { color:var(--text); background:var(--surface-strong); }
 .app-nav-links .run-link { display:none; }
 .app-nav-links.execution-locked a { display:none; }
-.app-nav-links.execution-locked .run-link { display:inline-flex; color:#fff; background:var(--accent); }
+.app-nav-links.execution-locked .run-link { display:inline-flex; color:#FFF; background:var(--accent); }
 .app-runtime-status { display:inline-flex; justify-self:end; align-items:center; gap:8px; border:1px solid var(--border); border-radius:999px; padding:7px 11px; color:var(--text-soft); background:var(--surface-soft); text-decoration:none; font-size:.76rem; font-weight:760; white-space:nowrap; }
 .app-runtime-dot { width:8px; height:8px; border-radius:50%; background:currentColor; }
-.app-runtime-status[data-state="running"], .app-runtime-status[data-state="paused"] { color:var(--success); background:var(--success-soft); }
-.app-runtime-status[data-state="recoveryrequired"], .app-runtime-status[data-state="error"] { color:var(--danger); background:var(--danger-soft); }
-.app-runtime-status[data-state="cameracalibration"], .app-runtime-status[data-state="sensorcalibration"], .app-runtime-status[data-state="ready"] { color:var(--accent); background:var(--accent-soft); }
+.app-runtime-status[data-state="running"], .app-runtime-status[data-state="paused"] { color:var(--success-text); background:var(--success-soft); }
+.app-runtime-status[data-state="recoveryrequired"], .app-runtime-status[data-state="error"] { color:var(--danger-text); background:var(--danger-soft); }
+.app-runtime-status[data-state="cameracalibration"], .app-runtime-status[data-state="sensorcalibration"], .app-runtime-status[data-state="ready"] { color:var(--interactive-text); background:var(--accent-soft); }
 @media (max-width: 980px) {
     .app-navbar { grid-template-columns:1fr auto; gap:10px; }
     .app-logo { height:3.5em; }
@@ -61,7 +80,7 @@
 /* One lightweight feedback layer for all API-backed operations. */
 .app-operation-feedback { position:fixed; z-index:3000; right:22px; bottom:20px; max-width:min(500px,calc(100vw - 32px)); min-width:260px; display:flex; align-items:center; gap:11px; padding:11px 14px; border:1px solid var(--border-strong); border-radius:12px; background:var(--surface); box-shadow:0 8px 30px #0003; opacity:0; transform:translateY(10px); pointer-events:none; transition:opacity .18s ease,transform .18s ease; font-size:.83rem; line-height:1.35; }
 .app-operation-feedback.visible { opacity:1; transform:translateY(0); pointer-events:auto; }
-.app-operation-feedback.error { border-color:var(--danger); color:var(--danger); }
+.app-operation-feedback.error { border-color:var(--danger); color:var(--danger-text); }
 .app-operation-feedback .operation-message { flex:1; min-width:0; overflow-wrap:anywhere; }
 .app-operation-feedback .operation-spinner { flex:0 0 18px; width:18px; height:18px; border:2px solid var(--border-strong); border-top-color:var(--accent); border-radius:50%; animation:digiflot-spin .75s linear infinite; }
 .app-operation-feedback.error .operation-spinner { animation:none; border:2px solid var(--danger); position:relative; }
