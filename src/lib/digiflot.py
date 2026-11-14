@@ -1549,8 +1549,9 @@ class DigiFlot:
         self._stop_camera_recording_unlocked(ignore_errors=True)
         self._stop_sensor_recording_unlocked()
         if self.vision is not None:
-            # Do not carry virtual profiles, live readings, or a passed test
-            # from one experiment into another without a new calibration.
+            # Clear only the experiment-local preview/readings and in-memory test.
+            # Global passing HIFIE configurations remain in VisionRegistry and
+            # can be confirmed for the next experiment without retesting.
             self.vision.disable_run_sensor()
             self.vision.clear_virtual_test()
 
