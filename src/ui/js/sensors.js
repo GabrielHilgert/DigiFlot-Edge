@@ -817,6 +817,26 @@ function sensorCalibrationEntry(snapshot) {
     </div>`;
 }
 
+function calibrationIndicator(snapshot) {
+    // Checklist status is independent from the live connection status.
+    // Keep the indicator on the card, never inside the pH or HIFIE dialog.
+    if (!state.calibrationMode && state.digiflot?.state !== "Ready") return "";
+    const calibration = calibrationItem(snapshot.id);
+    if (!calibration) return "";
+    const status = String(calibration.status || "pending").toLowerCase();
+    const indicator = {
+        passed: ["checked", "badge-check", "Checked", "Calibration or sensor check completed"],
+        skipped: ["skipped", "skip-forward", "Skipped", "Calibration explicitly skipped"],
+        unavailable: ["unavailable", "circle-dashed", "Unavailable", "Sensor unavailable during calibration"],
+        in_progress: ["pending", "circle-dashed", "In progress", "Calibration not yet completed"],
+        failed: ["pending", "circle-dashed", "Not checked", "Calibration not yet completed"],
+        pending: ["pending", "circle-dashed", "Not checked", "Sensor has not been checked or calibrated"]
+    }[status] || ["pending", "circle-dashed", "Not checked", "Sensor has not been checked or calibrated"];
+    const [kind, icon, label, title] = indicator;
+    return `<span class="calibration-indicator calibration-indicator-${kind}" data-calibration-status="${kind}"
+        data-icon="${icon}" title="${title}">${label}</span>`;
+}
+
 function sensorCard(snapshot) {
     const status = snapshot.status || "stopped";
     const hasValue = snapshot.value != null && Number.isFinite(Number(snapshot.value));
@@ -830,7 +850,10 @@ function sensorCard(snapshot) {
                     <h2>${escapeHtml(snapshot.name || snapshot.id)}</h2>
                     <span class="sensor-device">${virtual ? escapeHtml(source) : `${escapeHtml(snapshot.interface || "")} · ${escapeHtml(snapshot.device || "—")}`}</span>
                 </div>
-                <span class="sensor-status status-${escapeHtml(status)}"><span></span>${escapeHtml(statusLabel(status))}</span>
+                <div class="sensor-card-badges">
+                    <span class="sensor-status status-${escapeHtml(status)}"><span></span>${escapeHtml(statusLabel(status))}</span>
+                    ${calibrationIndicator(snapshot)}
+                </div>
             </header>
 
             <div class="sensor-reading-row">
