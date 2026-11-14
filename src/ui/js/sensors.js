@@ -579,6 +579,8 @@ function drawVirtualRoiOverlay() {
 async function loadVirtualRoiPlane() {
     if(virtualRoiTask)return virtualRoiTask;
     const generation=virtualSessionGeneration, controller=new AbortController();
+    let timedOut=false;
+    const timeout=window.setTimeout(()=>{timedOut=true;controller.abort();},25000);
     virtualRoiController=controller;
     const label=document.getElementById("virtual_roi_label");
     label.textContent="Loading the rectified camera plane…";
@@ -609,10 +611,16 @@ async function loadVirtualRoiPlane() {
     })();
     virtualRoiTask=task;
     try {return await task;}
-    catch(error){if(error.name!=="AbortError" && generation===virtualSessionGeneration && !controller.signal.aborted)
-        label.textContent="Unable to load calibrated plane: "+error.message;
-        return false;}
-    finally {if(virtualRoiTask===task)virtualRoiTask=null;
+    catch(error){
+        if(generation===virtualSessionGeneration && document.getElementById("virtual_panel").open) {
+            if(timedOut) label.textContent="Camera plane timed out. Use Refresh to retry; calibration remains available.";
+            else if(error.name!=="AbortError" && !controller.signal.aborted)
+                label.textContent="Unable to load calibrated plane: "+error.message;
+        }
+        return false;
+    }
+    finally {window.clearTimeout(timeout);
+        if(virtualRoiTask===task)virtualRoiTask=null;
         if(virtualRoiController===controller)virtualRoiController=null;}
 }
 
@@ -729,9 +737,9 @@ async function openVirtualCalibration() {
         if(profile.test_diagnostic)renderVirtualDiagnostic(profile.test_diagnostic,"Last calibration test");
         // First capture the calibrated plane, then start the background lores
         // diagnostics. Simultaneous Picamera2 acquisition broke some sessions.
-        await loadVirtualRoiPlane();
+        const planeReady=await loadVirtualRoiPlane();
         if(generation!==virtualSessionGeneration || !panel.open)return;
-        if(virtualEffectiveRoi()) {
+        if(planeReady && virtualEffectiveRoi()) {
             virtualDiagnosticsDesired=true;
             await startVirtualDiagnostics().catch(error=>{if(panel.open)showToast(error.message);});
         }
