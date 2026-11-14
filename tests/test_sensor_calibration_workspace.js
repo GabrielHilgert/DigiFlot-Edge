@@ -31,12 +31,14 @@ assert.ok(refresh.indexOf("await loadVirtualRoiPlane()") < refresh.indexOf("awai
 assert.match(sensors,/const pending=virtualDiagRequest;[\s\S]*?if\(pending\)await pending\.catch/);
 assert.match(sensors,/virtualRoiController\?\.abort\(\)/);
 
-// Server serializes canceled/reopened ROI requests; camera configuration is
-// completed before a preview is started on either API route.
+// Camera owns one stable lores stream; modal and sensor never resize it.
 assert.match(vision,/self\._roi_snapshot_lock = threading\.Lock\(\)/);
 assert.match(vision,/with self\._roi_snapshot_lock:/);
 const plane=vision.slice(vision.indexOf("def virtual_detection_roi_preview("),vision.indexOf("def rectified_snapshot("));
-assert.ok(plane.indexOf("camera.analysis_target_size = self._desired_lores_size") < plane.indexOf("self.digiflot.start_preview"));
 const live=vision.slice(vision.indexOf("def diagnostic_preview("),vision.indexOf("def _virtual_context(",vision.indexOf("def diagnostic_preview(")));
-assert.ok(live.indexOf("camera.analysis_target_size = self._desired_lores_size") < live.indexOf("self.digiflot.start_preview"));
+for (const entry of [plane,live]) {
+    assert.match(entry,/self\.digiflot\.start_preview\(camera\.id, owner_id=owner_id\)/);
+    assert.doesNotMatch(entry,/camera\.analysis_target_size\s*=/);
+}
+assert.doesNotMatch(vision.slice(vision.indexOf("def ensure_live_preview("),vision.indexOf("def _loop(")),/camera\.analysis_target_size\s*=/);
 console.log("Single-page sensor calibration and serialized HIFIE camera startup passed");
