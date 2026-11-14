@@ -908,7 +908,8 @@ function updateCard(snapshot) {
         host.innerHTML = sensorCalibrationEntry(snapshot);
         bindCalibrationControls(host);
     }
-    if (String(state.activeCalibrationSensorId) === String(snapshot.id)) renderCalibrationDrawer();
+    // Live samples must not rebuild an open modal form; that would erase draft
+    // calibration values and interrupt the operator's focus on every reading.
     updateCalibrationProgress();
 }
 
