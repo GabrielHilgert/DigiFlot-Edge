@@ -1402,7 +1402,7 @@ class DigiFlot:
         self.sensor_calibration.pop("froth_interface", None)
         if self.virtual_camera_id is not None:
             self.sensor_calibration["froth_interface"] = {
-                "id": "froth_interface", "name": "HFDS",
+                "id": "froth_interface", "name": "HIFD",
                 "type": "virtual_froth_interface", "mode": "virtual_interface",
                 "source_camera_id": self.virtual_camera_id,
                 "physical_cell_id": (self.cell_profile or {}).get("physical_cell_id"),
@@ -1451,7 +1451,7 @@ class DigiFlot:
             self.sensor_calibration.update(saved_calibration["sensors"])
         # Saved calibrations from earlier versions retain the same stable ID.
         if "froth_interface" in self.sensor_calibration:
-            self.sensor_calibration["froth_interface"]["name"] = "HFDS"
+            self.sensor_calibration["froth_interface"]["name"] = "HIFD"
 
         self._restore_event_sequence_unlocked()
 
