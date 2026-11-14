@@ -17,7 +17,7 @@
             <h1>Performance</h1>
             <p>Validate sustainable camera frame rates and inspect system health.</p>
         </div>
-        <a class="button secondary" href="/">Experiments</a>
+        <a class="button secondary" href="/" data-icon="arrow-left">Experiments</a>
     </header>
 
     <section class="summary-grid">
@@ -48,8 +48,8 @@
             </label>
             <label class="benchmark-virtual-choice"><input id="include_virtual" type="checkbox" checked>
                 Include Froth Interface detector</label>
-            <button id="start_benchmark" class="button primary" type="button">Run benchmark</button>
-            <button id="abort_benchmark" class="button danger" type="button" hidden>Abort</button>
+            <button id="start_benchmark" class="button primary" type="button" data-icon="play">Run benchmark</button>
+            <button id="abort_benchmark" class="button danger" type="button" hidden data-icon="square">Abort</button>
         </div>
 
         <p class="benchmark-virtual-hint" id="virtual_workload_status">Checking saved virtual sensor…</p>
