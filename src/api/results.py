@@ -294,11 +294,16 @@ def _ensure_browser_video(directory: Path, file_path: Path):
 
     temporary = output.with_suffix(".tmp.mp4")
     temporary.unlink(missing_ok=True)
+    # Only the browser preview is encoded. The original recording and
+    # existing cache keys remain unchanged; cached previews stay reusable.
+    source_fps = _parse_number(probe.get("fps"))
+    preview_fps = min(12.0, source_fps) if source_fps and source_fps > 0 else 12.0
+    preview_filter = f"fps={preview_fps:g},scale=w='min(960,iw)':h=-2:flags=fast_bilinear"
     command = [
         ffmpeg, "-y", "-v", "error", "-i", str(file_path),
-        "-map", "0:v:0", "-an",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        "-map", "0:v:0", "-an", "-vf", preview_filter,
+        "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+        "-pix_fmt", "yuv420p", "-g", "24", "-movflags", "+faststart",
         str(temporary),
     ]
     try:
