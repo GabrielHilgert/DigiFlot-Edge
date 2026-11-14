@@ -792,8 +792,10 @@ function appendExperimentRow(rowData, level) {
     }
     if (window.DigiFlotIcons) {
         const localRow=rowData.kind === "local", busy=state.loadingKey === rowData.key;
+        const unavailableReason=openButton.disabled && !busy ? openButton.title : "";
         window.DigiFlotIcons.set(openButton, busy ? "refresh-cw" : localRow ? "folder-open" : "plus",
             openButton.textContent, localRow && !busy);
+        if (unavailableReason) openButton.title=unavailableReason;
     }
     openButton.addEventListener("click", async event => {
         event.stopPropagation();
