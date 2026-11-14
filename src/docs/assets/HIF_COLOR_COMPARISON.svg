@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="764" viewBox="0 0 900 764" role="img" aria-label="DigiFlot HIF color proposal: current versus proposed colors">
+<rect width="900" height="764" fill="#171B23"/>
+<text x="20" y="34" fill="#F6F7FA" font-family="Arial, sans-serif" font-size="22" font-weight="700">DigiFlot — HIF-inspired color comparison</text>
+<text x="20" y="55" fill="#A8B7C6" font-family="Arial, sans-serif" font-size="12">Context</text>
+<text x="380" y="55" fill="#A8B7C6" font-family="Arial, sans-serif" font-size="12">A · Current</text>
+<text x="640" y="55" fill="#A8B7C6" font-family="Arial, sans-serif" font-size="12">B · Proposed</text>
+<line x1="20" x2="880" y1="65" y2="65" stroke="#374455"/>
+<rect x="18" y="73" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="92" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Primary button</text>
+<rect x="380" y="78" width="82" height="20" rx="4" fill="#2F6FED" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="92" fill="#E3EAF1" font-family="monospace" font-size="12">#2F6FED</text>
+<text x="605" y="92" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="78" width="82" height="20" rx="4" fill="#176FA6" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="92" fill="#E3EAF1" font-family="monospace" font-size="12">#176FA6</text>
+<rect x="18" y="107" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="126" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Button hover</text>
+<rect x="380" y="112" width="82" height="20" rx="4" fill="#255ED0" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="126" fill="#E3EAF1" font-family="monospace" font-size="12">#255ED0</text>
+<text x="605" y="126" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="112" width="82" height="20" rx="4" fill="#105C90" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="126" fill="#E3EAF1" font-family="monospace" font-size="12">#105C90</text>
+<rect x="18" y="141" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="160" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Link/focus text</text>
+<rect x="380" y="146" width="82" height="20" rx="4" fill="#2F6FED" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="160" fill="#E3EAF1" font-family="monospace" font-size="12">#2F6FED</text>
+<text x="605" y="160" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="146" width="82" height="20" rx="4" fill="#69B9E8" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="160" fill="#E3EAF1" font-family="monospace" font-size="12">#69B9E8</text>
+<rect x="18" y="175" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="194" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Preview</text>
+<rect x="380" y="180" width="82" height="20" rx="4" fill="#7254D8" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="194" fill="#E3EAF1" font-family="monospace" font-size="12">#7254D8</text>
+<text x="605" y="194" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="180" width="82" height="20" rx="4" fill="#00A2E0" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="194" fill="#E3EAF1" font-family="monospace" font-size="12">#00A2E0</text>
+<rect x="18" y="209" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="228" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Selection border</text>
+<rect x="380" y="214" width="82" height="20" rx="4" fill="#CBDAFD" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="228" fill="#E3EAF1" font-family="monospace" font-size="12">#CBDAFD</text>
+<text x="605" y="228" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="214" width="82" height="20" rx="4" fill="#BFDDED" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="228" fill="#E3EAF1" font-family="monospace" font-size="12">#BFDDED</text>
+<rect x="18" y="243" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="262" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Success</text>
+<rect x="380" y="248" width="82" height="20" rx="4" fill="#18845B" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="262" fill="#E3EAF1" font-family="monospace" font-size="12">#18845B</text>
+<text x="605" y="262" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="248" width="82" height="20" rx="4" fill="#23865D" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="262" fill="#E3EAF1" font-family="monospace" font-size="12">#23865D</text>
+<rect x="18" y="277" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="296" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Warning</text>
+<rect x="380" y="282" width="82" height="20" rx="4" fill="#C47A12" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="296" fill="#E3EAF1" font-family="monospace" font-size="12">#C47A12</text>
+<text x="605" y="296" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="282" width="82" height="20" rx="4" fill="#D08A28" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="296" fill="#E3EAF1" font-family="monospace" font-size="12">#D08A28</text>
+<rect x="18" y="311" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="330" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Danger</text>
+<rect x="380" y="316" width="82" height="20" rx="4" fill="#C74242" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="330" fill="#E3EAF1" font-family="monospace" font-size="12">#C74242</text>
+<text x="605" y="330" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="316" width="82" height="20" rx="4" fill="#C94B3E" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="330" fill="#E3EAF1" font-family="monospace" font-size="12">#C94B3E</text>
+<rect x="18" y="345" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="364" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">HIF orange highlight</text>
+<rect x="380" y="350" width="82" height="20" rx="4" fill="#F59E0B" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="364" fill="#E3EAF1" font-family="monospace" font-size="12">#F59E0B</text>
+<text x="605" y="364" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="350" width="82" height="20" rx="4" fill="#F47721" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="364" fill="#E3EAF1" font-family="monospace" font-size="12">#F47721</text>
+<rect x="18" y="379" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="398" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Froth upper</text>
+<rect x="380" y="384" width="82" height="20" rx="4" fill="#38BDF8" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="398" fill="#E3EAF1" font-family="monospace" font-size="12">#38BDF8</text>
+<text x="605" y="398" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="384" width="82" height="20" rx="4" fill="#55BAE7" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="398" fill="#E3EAF1" font-family="monospace" font-size="12">#55BAE7</text>
+<rect x="18" y="413" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="432" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Froth lower</text>
+<rect x="380" y="418" width="82" height="20" rx="4" fill="#FBBF24" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="432" fill="#E3EAF1" font-family="monospace" font-size="12">#FBBF24</text>
+<text x="605" y="432" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="418" width="82" height="20" rx="4" fill="#E6AF11" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="432" fill="#E3EAF1" font-family="monospace" font-size="12">#E6AF11</text>
+<rect x="18" y="447" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="466" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">ROI cyan</text>
+<rect x="380" y="452" width="82" height="20" rx="4" fill="#22D3EE" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="466" fill="#E3EAF1" font-family="monospace" font-size="12">#22D3EE</text>
+<text x="605" y="466" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="452" width="82" height="20" rx="4" fill="#28BEE8" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="466" fill="#E3EAF1" font-family="monospace" font-size="12">#28BEE8</text>
+<rect x="18" y="481" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="500" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">ROI yellow</text>
+<rect x="380" y="486" width="82" height="20" rx="4" fill="#FACC15" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="500" fill="#E3EAF1" font-family="monospace" font-size="12">#FACC15</text>
+<text x="605" y="500" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="486" width="82" height="20" rx="4" fill="#E6AF11" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="500" fill="#E3EAF1" font-family="monospace" font-size="12">#E6AF11</text>
+<rect x="18" y="515" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="534" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Diagnostic surface</text>
+<rect x="380" y="520" width="82" height="20" rx="4" fill="#17212B" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="534" fill="#E3EAF1" font-family="monospace" font-size="12">#17212B</text>
+<text x="605" y="534" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="520" width="82" height="20" rx="4" fill="#172637" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="534" fill="#E3EAF1" font-family="monospace" font-size="12">#172637</text>
+<rect x="18" y="549" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="568" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Camera surface</text>
+<rect x="380" y="554" width="82" height="20" rx="4" fill="#101827" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="568" fill="#E3EAF1" font-family="monospace" font-size="12">#101827</text>
+<text x="605" y="568" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="554" width="82" height="20" rx="4" fill="#122131" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="568" fill="#E3EAF1" font-family="monospace" font-size="12">#122131</text>
+<rect x="18" y="583" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="602" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Toast surface</text>
+<rect x="380" y="588" width="82" height="20" rx="4" fill="#17202A" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="602" fill="#E3EAF1" font-family="monospace" font-size="12">#17202A</text>
+<text x="605" y="602" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="588" width="82" height="20" rx="4" fill="#162B3A" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="602" fill="#E3EAF1" font-family="monospace" font-size="12">#162B3A</text>
+<rect x="18" y="617" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="636" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Muted labels</text>
+<rect x="380" y="622" width="82" height="20" rx="4" fill="#728294" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="636" fill="#E3EAF1" font-family="monospace" font-size="12">#728294</text>
+<text x="605" y="636" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="622" width="82" height="20" rx="4" fill="#748A9D" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="636" fill="#E3EAF1" font-family="monospace" font-size="12">#748A9D</text>
+<rect x="18" y="651" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="670" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Secondary labels</text>
+<rect x="380" y="656" width="82" height="20" rx="4" fill="#435162" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="670" fill="#E3EAF1" font-family="monospace" font-size="12">#435162</text>
+<text x="605" y="670" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="656" width="82" height="20" rx="4" fill="#44596B" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="670" fill="#E3EAF1" font-family="monospace" font-size="12">#44596B</text>
+<rect x="18" y="685" width="864" height="30" rx="5" fill="#1B222D"/>
+<text x="28" y="704" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Border</text>
+<rect x="380" y="690" width="82" height="20" rx="4" fill="#AEB9C4" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="704" fill="#E3EAF1" font-family="monospace" font-size="12">#AEB9C4</text>
+<text x="605" y="704" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="690" width="82" height="20" rx="4" fill="#A7BDCC" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="704" fill="#E3EAF1" font-family="monospace" font-size="12">#A7BDCC</text>
+<rect x="18" y="719" width="864" height="30" rx="5" fill="#202632"/>
+<text x="28" y="738" fill="#E1E8EF" font-family="Arial, sans-serif" font-size="12">Video black</text>
+<rect x="380" y="724" width="82" height="20" rx="4" fill="#000000" stroke="#788493" stroke-opacity=".55"/>
+<text x="473" y="738" fill="#E3EAF1" font-family="monospace" font-size="12">#000000</text>
+<text x="605" y="738" fill="#9BACBC" font-family="Arial, sans-serif" font-size="16">→</text>
+<rect x="640" y="724" width="82" height="20" rx="4" fill="#000000" stroke="#788493" stroke-opacity=".55"/>
+<text x="733" y="738" fill="#E3EAF1" font-family="monospace" font-size="12">#000000</text>
+<text x="20" y="755" fill="#8193A4" font-family="Arial, sans-serif" font-size="10">Visual comparison only — no application colors changed. Colors shown on a dark neutral background.</text>
+</svg>
