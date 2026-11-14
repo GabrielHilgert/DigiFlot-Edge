@@ -270,6 +270,12 @@ function paletteColor(name, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 }
 
+function virtualInterfaceColors() {
+    // One palette for plots, diagnostics and horizontal interface markers.
+    return {surface:paletteColor("--plot-froth-upper","#29AEE4"),
+            pulp:paletteColor("--plot-pulp","#F47721")};
+}
+
 function virtualCanvas(canvas, width, height) {
     canvas.width = Math.max(1, Math.round(width)); canvas.height = Math.max(1, Math.round(height));
     return canvas.getContext("2d");
@@ -292,7 +298,8 @@ function drawVirtualOverlays() {
                 const py=(y-y0)/(y1-y0)*height;ctx.beginPath();ctx.moveTo(0,py);ctx.lineTo(width,py);ctx.stroke();
             }
         }
-        const rows = [["froth_row_px",paletteColor("--plot-froth","#55BAE7")],["pulp_row_px",paletteColor("--plot-pulp-secondary","#E6AF11")]];
+        const markerColors=virtualInterfaceColors();
+        const rows = [["froth_row_px",markerColors.surface],["pulp_row_px",markerColors.pulp]];
         for (const [key,color] of rows) {
             if (d[key] == null || !Number.isFinite(Number(d[key]))) continue;
             ctx.beginPath();ctx.moveTo(0,Number(d[key]));ctx.lineTo(width,Number(d[key]));
@@ -342,7 +349,8 @@ function drawVirtualProfiles() {
         });
         ctx.strokeStyle=colors[index%colors.length];ctx.lineWidth=1.8;ctx.stroke();
     });
-    for(const [key,color] of [["froth_row_px",paletteColor("--plot-froth","#55BAE7")],["pulp_row_px",paletteColor("--plot-pulp-secondary","#E6AF11")]]){
+    const markerColors=virtualInterfaceColors();
+    for(const [key,color] of [["froth_row_px",markerColors.surface],["pulp_row_px",markerColors.pulp]]){
         if(d[key]==null)continue;
         ctx.beginPath();ctx.moveTo(0,d[key]);ctx.lineTo(width,d[key]);
         ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.stroke();ctx.setLineDash([]);
@@ -387,7 +395,8 @@ function drawVirtualTestTimeline() {
     ctx.scale(dpr,dpr);
     const width=w/dpr,height=h/dpr,left=52,right=20,top=18,bottom=36;
     const plotW=width-left-right,plotH=height-top-bottom,series=virtualTestSeries;
-    const keys=[["froth_surface_cm",paletteColor("--plot-froth-upper","#29AEE4")],["pulp_froth_interface_cm",paletteColor("--plot-pulp","#F47721")]];
+    const markerColors=virtualInterfaceColors();
+    const keys=[["froth_surface_cm",markerColors.surface],["pulp_froth_interface_cm",markerColors.pulp]];
     const points=series.flatMap(item=>keys.map(([key])=>item.valid?item[key]:null))
         .filter(value=>value!=null&&Number.isFinite(Number(value))).map(Number);
     if(!points.length){ctx.fillText("No valid boundaries in this test",left,top+40);return;}
@@ -1168,7 +1177,8 @@ function drawVirtualChart(ctx, width, height, history, card) {
     ctx.strokeStyle=css.getPropertyValue("--chart-grid").trim() || "#394350";
     ctx.lineWidth=1;
     for(let i=0;i<=3;i++){const y=upper+i*plotHeight/3;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(width-right,y);ctx.stroke();}
-    for(const [key,color] of [["upper",paletteColor("--plot-froth-upper","#29AEE4")],["lower",paletteColor("--plot-pulp","#F47721")]]){
+    const markerColors=virtualInterfaceColors();
+    for(const [key,color] of [["upper",markerColors.surface],["lower",markerColors.pulp]]){
         ctx.beginPath();let started=false;
         for(let i=0;i<history.length;i++){const value=history[i][key];if(value==null){started=false;continue;}
             const x=xOf(history[i],i),y=yOf(value);
