@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261114hifie1">
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261114icons1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261114sensorroute2">
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261114sensorroute2"></script>
 </head>
 <body data-run-layout="compact">
     {% include "_navbar.html" %}
@@ -125,32 +125,8 @@
             </div>
         </section>
 
-        <section id="sensor_panel" class="card panel" hidden>
-            <div class="card-header">
-                <div>
-                    <span class="section-index">02</span>
-                    <div>
-                        <h2>Sensor calibration</h2>
-                        <p>Monitor all sensors live and perform supported calibration procedures before continuing.</p>
-                    </div>
-                </div>
-            </div>
-            <div class="card-body sensor-calibration-entry">
-<div class="run-cell-references">
-                    <div><strong>Cell &amp; physical references</strong>
-                    <p id="run_reference_state">Review saved reference points after camera calibration. Outlet level is the named default.</p></div>
-                    <a id="open_cell_references" class="button button-secondary" href="/cells" data-icon="external-link">Open Cells</a>
-                </div>
-                
-                <div>
-                    <div id="sensor_list" class="sensor-summary-list"></div>
-                    <p class="sensor-calibration-note">Sensor calibration can be explicitly skipped. Offline sensors also do not stop the workflow; both cases are recorded in the execution metadata.</p>
-                </div>
-                <a class="button button-primary button-large" href="/sensors?calibration=1">
-                    Open sensor calibration
-                </a>
-            </div>
-        </section>
+        <!-- SensorCalibration is displayed directly by /sensors; no duplicate
+             overview here. /run redirects there while calibration is active. -->
 
         <div id="run_workspace" class="run-workspace">
         <section id="run_stage_overview" class="mini-stage-shell card" aria-label="Experiment stages" hidden>
