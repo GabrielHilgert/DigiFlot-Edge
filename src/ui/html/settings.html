@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot Edge | Settings</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114hif1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20261114hif1">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114scraping1">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20261114scraping1">
     <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20261109a"></script>
 </head>
 <body>
@@ -34,13 +34,28 @@
                     <span class="input-unit"><input id="transition_timeout_s" type="number" min="0" step="1"><span>s</span></span>
                 </label>
                 <label>Scraping interval
-                    <span class="input-unit"><input id="scraping_interval" type="number" min="0.1" step="0.1"><span>s</span></span>
+                    <span class="input-unit"><input id="scraping_interval" type="number" min="1" step="0.5"><span>s</span></span>
                 </label>
-                <label>Scraping method
-                    <select id="scraping_method"><option value="audio">Audio</option><option value="gpio">GPIO</option></select>
+                <label>Scraping output
+                    <select id="scraping_method"><option value="audio">Audio (browser beep)</option><option value="gpio">GPIO (3.3 V TTL pulse)</option></select>
+                </label>
+                <label class="switch-field">
+                    <span><strong>Show Scraping Alert</strong><small>Display a visual cue on Run, independent of the scraping output.</small></span>
+                    <input id="scraping_alerts_enabled" type="checkbox" checked>
+                </label>
+                <label>Scraping alert display
+                    <select id="scraping_alert_style">
+                        <option value="fullscreen">Whole Screen Alert</option>
+                        <option value="banner">Compact Banner</option>
+                    </select>
+                </label>
+                <label id="scraping_gpio_pin_field" hidden>GPIO output (BCM numbering)
+                    <select id="scraping_gpio_pin"></select>
+                    <small>Active-high 200 ms pulse. Select a free pin; GPIO 17 is physical pin 11.</small>
                 </label>
             </div>
             <p id="auto_advance_hint" class="field-help"></p>
+            <p id="scraping_gpio_warning" class="field-help" hidden>GPIO uses 3.3 V logic only. Do not connect a motor, relay coil or 5 V signal directly. Use an isolated driver and common reference as appropriate.</p>
         </section>
 
         <section class="card">
