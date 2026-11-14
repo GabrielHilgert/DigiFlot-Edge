@@ -611,3 +611,48 @@ body[data-run-layout="compact"] .live-sensor-card:not(.live-sensor-card-virtual)
 }
 
 #calibration_review_panel[hidden] { display:none !important; }
+
+/* Operational run: stage progression is a full-width context strip, above sensors and controls. */
+#run_stage_overview[hidden], #active_view[hidden], #transition_view[hidden],
+#scraping_box[hidden], .run-actions [hidden] { display:none !important; }
+#run_stage_overview { min-width:0; margin-bottom:12px; overflow:hidden; border-radius:var(--radius-md); }
+#run_stage_overview .mini-stage-timeline { display:flex; gap:6px; overflow-x:auto; scroll-snap-type:x proximity; scrollbar-width:thin; }
+#run_stage_overview .mini-stage-segment { flex:1 0 105px; min-width:0; scroll-snap-align:start; padding:6px 8px; }
+#run_stage_overview .mini-stage-heading { margin-bottom:5px; }
+#run_stage_overview .mini-stage-segment small { display:none; }
+body[data-run-layout="compact"] #run_stage_overview { padding:9px 12px; }
+body[data-run-layout="compact"] #run_stage_overview .mini-stage-segment { min-height:30px; flex:1 0 105px; }
+body[data-run-layout="compact"] .run-workspace.is-dashboard {
+  grid-template-areas:"timeline timeline" "sensors action" "sensors acquisition";
+}
+body[data-run-layout="compact"] .run-workspace.is-dashboard.acquisition-expanded {
+  grid-template-areas:"timeline timeline" "sensors action" "acquisition acquisition";
+}
+body[data-run-layout="compact"] .run-workspace.is-dashboard > #run_stage_overview { grid-area:timeline; margin:0; width:100%; }
+body[data-run-layout="compact"] #run_panel .run-topbar { padding:10px 13px; }
+body[data-run-layout="compact"] #run_panel .run-topbar h2 { font-size:1rem; }
+body[data-run-layout="compact"] #run_panel .run-body { padding:10px; gap:8px; }
+body[data-run-layout="compact"] #run_panel .timer-block { min-height:100px; padding:10px 7px; }
+body[data-run-layout="compact"] #run_panel .scraping-box { min-height:100px; padding:10px 6px; }
+body[data-run-layout="compact"] #run_panel .scraping-box strong { font-size:1.65rem; }
+body[data-run-layout="compact"] #run_panel .no-scraping .timer-block { grid-column:1/-1; }
+body[data-run-layout="compact"] #run_panel .parameter-grid { gap:6px; }
+body[data-run-layout="compact"] #run_panel #stage_parameters .parameter { min-height:40px; padding:7px 9px; }
+body[data-run-layout="compact"] #run_panel #stage_parameters .parameter span { font-size:.6rem; }
+body[data-run-layout="compact"] #run_panel #stage_parameters .parameter strong { font-size:.8rem; }
+body[data-run-layout="compact"] .stage-technical-details { grid-column:1/-1; min-width:0; }
+body[data-run-layout="compact"] .stage-technical-details summary { display:list-item; cursor:pointer; color:var(--text-soft); font-size:.73rem; }
+body[data-run-layout="compact"] .stage-technical-details[open] > .parameter-grid { margin-top:8px; }
+body:not([data-run-layout="compact"]) .stage-technical-details { display:none; }
+body[data-run-layout="compact"] #run_panel .transition-view { padding:14px 12px; text-align:left; }
+body[data-run-layout="compact"] #run_panel .transition-view .eyebrow { font-size:.68rem; }
+body[data-run-layout="compact"] #run_panel .transition-view h2 { font-size:1.1rem; margin:4px 0; }
+body[data-run-layout="compact"] #run_panel .transition-view p { font-size:.78rem; margin:4px 0; }
+body[data-run-layout="compact"] #run_panel .transition-countdown { display:flex; align-items:center; flex-wrap:wrap; justify-content:flex-start; gap:5px 10px; margin-top:9px; font-size:.8rem; }
+body[data-run-layout="compact"] #run_panel .transition-countdown strong { font-size:1.45rem; line-height:1.2; overflow-wrap:anywhere; }
+body[data-run-layout="compact"] #run_panel .run-actions { justify-content:flex-start; padding:9px 11px; gap:6px; }
+body[data-run-layout="compact"] #run_panel .run-actions .button { flex:1 1 auto; min-width:85px; padding:0 9px; font-size:.77rem; }
+@media(max-width:1100px) {
+  body[data-run-layout="compact"] #run_stage_overview { order:0; width:100%; }
+  #run_stage_overview .mini-stage-segment { flex:0 0 130px; }
+}
