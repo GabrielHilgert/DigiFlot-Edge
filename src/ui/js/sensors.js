@@ -1272,6 +1272,12 @@ async function refreshDigiFlotState() {
     setExperimentState(state.digiflot.state);
 
     const reviewing = state.digiflot.state === "Ready";
+    const workflowLink=el.calibrationBanner.querySelector("a");
+    if(workflowLink) {
+        workflowLink.href=state.calibrationMode ? "/cells" : "/run";
+        workflowLink.textContent=state.calibrationMode ? "Cell & references" : "Back to run";
+        window.DigiFlotIcons?.enhance(workflowLink);
+    }
     el.calibrationBanner.hidden = !state.calibrationMode && !reviewing;
     el.calibrationFooter.hidden = !state.calibrationMode;
     const heading = el.calibrationBanner.querySelector("strong");
