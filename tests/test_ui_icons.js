@@ -28,7 +28,7 @@ function control(text){
     return {
         dataset:{},children:[],_text:text,classList:{add:n=>classes.add(n),contains:n=>classes.has(n)},
         get textContent(){return this._text;},set textContent(v){this._text=String(v);this.children=[];},
-        setAttribute(n,v){attrs[n]=String(v);},getAttribute:n=>attrs[n],hasAttribute:n=>Object.hasOwn(attrs,n),
+        setAttribute(n,v){attrs[n]=String(v);},getAttribute:n=>attrs[n],hasAttribute(n){return Object.hasOwn(attrs,n)||(n==="data-icon-only"&&Object.hasOwn(this.dataset,"iconOnly"));},
         prepend(node){this.children.unshift(node);},querySelector(sel){return sel===":scope > .df-icon" ? this.children.find(n=>n.classList.contains("df-icon")) : null;}
     };
 }
