@@ -1,3 +1,4 @@
+<script src="{{ url_for('static', path='js/icons.js') }}?v=20261114icons1"></script>
 <script defer src="{{ url_for('static', path='js/operation-feedback.js') }}?v=20261113ux1"></script>
 <nav class="app-navbar" aria-label="Main navigation">
     <a class="app-brand" href="/" aria-label="DigiFlot Edge home">
@@ -5,13 +6,13 @@
     </a>
 
     <div id="app_nav_links" class="app-nav-links">
-        <a data-nav="experiments" href="/">Experiments</a>
-        <a data-nav="cameras" href="/cameras">Cameras</a>
-        <a data-nav="cells" href="/cells">Cells</a>
-        <a data-nav="sensors" href="/sensors">Sensors</a>
-        <a data-nav="performance" href="/performance">Performance</a>
-        <a data-nav="settings" href="/settings">Settings</a>
-        <a data-nav="run" href="/run" class="run-link">Run</a>
+        <a data-icon="flask" data-nav="experiments" href="/">Experiments</a>
+        <a data-icon="camera" data-nav="cameras" href="/cameras">Cameras</a>
+        <a data-icon="scan" data-nav="cells" href="/cells">Cells</a>
+        <a data-icon="activity" data-nav="sensors" href="/sensors">Sensors</a>
+        <a data-icon="chart-line" data-nav="performance" href="/performance">Performance</a>
+        <a data-icon="settings" data-nav="settings" href="/settings">Settings</a>
+        <a data-icon="play" data-nav="run" href="/run" class="run-link">Run</a>
     </div>
 
     <a id="app_runtime_status" class="app-runtime-status" href="/run" data-state="loading">
