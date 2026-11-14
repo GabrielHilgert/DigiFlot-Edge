@@ -30,6 +30,10 @@ assert.ok(refresh.indexOf("await stopVirtualDiagnostics()") < refresh.indexOf("a
 assert.ok(refresh.indexOf("await loadVirtualRoiPlane()") < refresh.indexOf("await startVirtualDiagnostics()"));
 assert.match(sensors,/const pending=virtualDiagRequest;[\s\S]*?if\(pending\)await pending\.catch/);
 assert.match(sensors,/virtualRoiController\?\.abort\(\)/);
+assert.match(sensors,/const timeout=window\.setTimeout\(\(\)=>\{timedOut=true;controller\.abort\(\);\},25000\)/);
+assert.match(sensors,/window\.clearTimeout\(timeout\)/);
+assert.match(sensors,/if\(planeReady && virtualEffectiveRoi\(\)\)/);
+
 
 // Camera owns one stable lores stream; modal and sensor never resize it.
 assert.match(vision,/self\._roi_snapshot_lock = threading\.Lock\(\)/);
