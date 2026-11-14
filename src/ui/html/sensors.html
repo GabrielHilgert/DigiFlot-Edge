@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114hif1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114hif1">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261114hifie1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114calmodal1">
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261114calmodal1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -38,22 +38,22 @@
 
         <section id="sensor_grid" class="sensor-grid" aria-live="polite"></section>
 
-        <section id="calibration_drawer" class="calibration-drawer card" hidden>
+        <dialog id="calibration_drawer" class="calibration-drawer card calibration-modal" aria-labelledby="calibration_drawer_title">
             <div class="calibration-drawer-header">
                 <div>
                     <span class="status-label">Sensor calibration</span>
                     <strong id="calibration_drawer_title">pH calibration</strong>
                 </div>
-                <button id="calibration_drawer_close" class="button button-secondary" type="button">Minimize</button>
+                <button id="calibration_drawer_close" class="button button-secondary" type="button">Close</button>
             </div>
             <div id="calibration_drawer_body"></div>
-        </section>
+        </dialog>
 
-        <section id="virtual_panel" class="card virtual-panel" hidden>
+        <dialog id="virtual_panel" class="card virtual-panel calibration-modal" aria-labelledby="virtual_calibration_title">
             <div class="virtual-panel-header"><div><span class="status-label">HIFIE | Froth Interface Detection</span>
-                <h2>Froth interface · <span id="virtual_source">Camera</span></h2>
+                <h2 id="virtual_calibration_title">Froth interface · <span id="virtual_source">Camera</span></h2>
                 <p id="virtual_geometry">Uses the physical cell and camera calibration selected for this experiment.</p>
-            </div><button class="button button-secondary" id="virtual_close" type="button">Minimize</button></div>
+            </div><button class="button button-secondary" id="virtual_close" type="button">Close</button></div>
             <div id="virtual_missing" class="virtual-message" hidden>
                 <strong>Camera-cell geometry is incomplete.</strong>
                 <p>Confirm ArUco markers and select a physical analysis ROI in Cells before testing.</p>
@@ -145,7 +145,7 @@
                     <div class="virtual-chart-key"><span class="virtual-upper-key">Froth surface</span><span class="virtual-lower-key">Pulp–froth interface</span><small>cm · test data, not experimental data</small></div>
                 </section>
             </div>
-        </section>
+        </dialog>
 
         <section id="empty_state" class="empty-state" hidden>
             <h2>No sensors configured</h2>
