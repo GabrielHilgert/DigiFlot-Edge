@@ -1577,8 +1577,24 @@ document.getElementById("virtual_refresh_geometry").addEventListener("click",asy
     await virtualCleanup;
     await openVirtualCalibration().catch(error=>showToast(error.message));
 });
-document.getElementById("virtual_roi_refresh").addEventListener("click", () =>
-    loadVirtualRoiPlane().catch(error=>showToast(error.message)));
+document.getElementById("virtual_roi_refresh").addEventListener("click", async event => {
+    const button=event.currentTarget, generation=virtualSessionGeneration;
+    const resume=virtualDiagnosticsActive || virtualDiagnosticsDesired;
+    button.disabled=true;
+    virtualDiagnosticsDesired=false;
+    try {
+        if(virtualDiagnosticsActive)await stopVirtualDiagnostics();
+        const loaded=await loadVirtualRoiPlane();
+        if(!document.getElementById("virtual_panel").open || generation!==virtualSessionGeneration)return;
+        if(loaded && resume && virtualEffectiveRoi()){
+            virtualDiagnosticsDesired=true;
+            await startVirtualDiagnostics();
+        } else if(!loaded) {
+            showToast("The rectified plane could not be loaded. Use Refresh to try again.");
+        }
+    } catch(error){if(generation===virtualSessionGeneration)showToast(error.message);}
+    finally{button.disabled=false;}
+});
 document.getElementById("virtual_roi_reset").addEventListener("click", () => {
     if(!virtualDraft)return;
     virtualDraft.detection_roi_cm=null;virtualRoiDirty=true;
