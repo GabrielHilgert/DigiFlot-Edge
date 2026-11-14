@@ -41,4 +41,12 @@ for (const entry of [plane,live]) {
     assert.doesNotMatch(entry,/camera\.analysis_target_size\s*=/);
 }
 assert.doesNotMatch(vision.slice(vision.indexOf("def ensure_live_preview("),vision.indexOf("def _loop(")),/camera\.analysis_target_size\s*=/);
+// Froth/pulp markers use the exact same palette as the live sensor plot.
+assert.match(sensors,/function virtualInterfaceColors\(\)/);
+assert.match(sensors,/surface:paletteColor\("--plot-froth-upper","#29AEE4"\)/);
+assert.match(sensors,/pulp:paletteColor\("--plot-pulp","#F47721"\)/);
+assert.match(sensors,/\["froth_row_px",markerColors\.surface\]/);
+assert.match(sensors,/\["pulp_row_px",markerColors\.pulp\]/);
+assert.match(sensors,/\["upper",markerColors\.surface\]/);
+assert.match(sensors,/\["lower",markerColors\.pulp\]/);
 console.log("Single-page sensor calibration and serialized HIFIE camera startup passed");
