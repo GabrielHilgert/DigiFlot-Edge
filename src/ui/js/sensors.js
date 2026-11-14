@@ -122,6 +122,9 @@ function standaloneCalibrationMarkup(snapshot) {
 
 let virtualProfileData = null;
 let virtualDraft = null;
+let virtualSessionGeneration = 0, virtualRoiController = null, virtualRoiTask = null;
+let virtualCleanup = Promise.resolve(), virtualTestBusy = false, virtualDiagnosticsDesired = false;
+let virtualSavedConfig = null;
 
 const virtualMethods = ["mean_derivative", "cumulative_distribution", "heuristic_entropy",
     "dual_entropy", "dual_entropy_striped", "dual_entropy_hybrid"];
@@ -435,7 +438,7 @@ async function startVirtualDiagnostics() {
     document.getElementById("virtual_diagnostics_toggle").textContent="Stop live diagnostics";
     window.DigiFlotIcons?.enhance(document.getElementById("virtual_diagnostics_toggle"));
     await pollVirtualDiagnostics();
-    virtualDiagnosticsTimer=window.setInterval(pollVirtualDiagnostics,2500);
+    if(virtualDiagnosticsActive)virtualDiagnosticsTimer=window.setInterval(pollVirtualDiagnostics,2500);
 }
 
 function stopVirtualDiagnostics() {
@@ -443,7 +446,7 @@ function stopVirtualDiagnostics() {
     if(virtualDiagnosticsTimer){window.clearInterval(virtualDiagnosticsTimer);virtualDiagnosticsTimer=null;}
     document.getElementById("virtual_diagnostics_toggle").textContent="Start live diagnostics";
     window.DigiFlotIcons?.enhance(document.getElementById("virtual_diagnostics_toggle"));
-    requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
+    return requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
         method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false})
     }).catch(()=>{});
 }
@@ -545,16 +548,29 @@ function drawVirtualRoiOverlay() {
 }
 
 async function loadVirtualRoiPlane() {
+    if(virtualRoiTask)return virtualRoiTask;
+    const generation=virtualSessionGeneration, controller=new AbortController();
+    virtualRoiController=controller;
     const label=document.getElementById("virtual_roi_label");
-    label.textContent="Loading the complete rectified camera plane…";
-    const payload=await requestJson("/api/vision/virtual-sensors/froth-interface/detection-roi-preview");
-    virtualRoiPlane=payload;
-    const stage=document.getElementById("virtual_roi_stage"), image=document.getElementById("virtual_roi_image");
-    const [w,h]=payload.size; stage.hidden=false;
-    stage.style.aspectRatio=w+" / "+h;
-    stage.style.maxWidth=Math.min(760,Math.floor(500*w/h))+"px";
-    image.src="data:image/jpeg;base64,"+payload.jpeg_base64;
-    renderVirtualRoiCaption();drawVirtualRoiOverlay();
+    label.textContent="Loading the rectified camera plane…";
+    const task=(async()=>{
+        const payload=await requestJson("/api/vision/virtual-sensors/froth-interface/detection-roi-preview",
+            {signal:controller.signal});
+        if(generation!==virtualSessionGeneration || !document.getElementById("virtual_panel").open)return;
+        virtualRoiPlane=payload;
+        const stage=document.getElementById("virtual_roi_stage"),image=document.getElementById("virtual_roi_image");
+        const [w,h]=payload.size;stage.hidden=false;
+        stage.style.aspectRatio=w+" / "+h;
+        stage.style.removeProperty("max-width");
+        image.src="data:image/jpeg;base64,"+payload.jpeg_base64;
+        renderVirtualRoiCaption();drawVirtualRoiOverlay();
+    })();
+    virtualRoiTask=task;
+    try {await task;}
+    catch(error){if(error.name!=="AbortError" && generation===virtualSessionGeneration && !controller.signal.aborted)
+        label.textContent="Unable to load calibrated plane: "+error.message;}
+    finally {if(virtualRoiTask===task)virtualRoiTask=null;
+        if(virtualRoiController===controller)virtualRoiController=null;}
 }
 
 function finishVirtualRoiDrag(event) {
