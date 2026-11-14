@@ -77,14 +77,14 @@ class MediaSafetyTest(unittest.TestCase):
             self.assertEqual(create.call_count, 1)
 
     def test_state_machine_revokes_before_preparation(self):
-        digiflot = (SOURCE.parents[1] / "src/lib/digiflot.py").read_text(encoding="utf-8")
+        digiflot = (SOURCE.parents[2] / "src/lib/digiflot.py").read_text(encoding="utf-8")
         start = digiflot.index("    def select_experiment(")
         body = digiflot[start:digiflot.index("    def select_physical_cell(", start)]
         self.assertLess(body.index("self.results_media_manager.revoke()"), body.index("self._reset_run_state_unlocked()"))
-        app = (SOURCE.parents[1] / "src/app.py").read_text(encoding="utf-8")
+        app = (SOURCE.parents[2] / "src/app.py").read_text(encoding="utf-8")
         self.assertIn("app.include_router(results_media_router)", app)
         self.assertIn("app.state.results_media_manager.revoke()", app)
-        results = (SOURCE.parents[1] / "src/api/results.py").read_text(encoding="utf-8")
+        results = (SOURCE.parents[2] / "src/api/results.py").read_text(encoding="utf-8")
         self.assertIn('raise HTTPException(status_code=409, detail="Video playback requires DigiFlot to be Idle.")', results)
 
 
