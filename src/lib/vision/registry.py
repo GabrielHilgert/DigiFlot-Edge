@@ -71,6 +71,7 @@ class VisionRegistry:
     def __init__(self, local_storage_root):
         self.root = Path(local_storage_root) / "vision"
         self.lock = threading.RLock()
+        self._successful_match_cache = {}  # Cache disk proofs between live lores frames.
 
     def list_cells(self):
         with self.lock:
@@ -323,7 +324,9 @@ class VisionRegistry:
                 value["benchmark"] = deepcopy(benchmark or {})
             folder = self.root / "virtual_sensors" / context["sensor_id"] / "successful"
             _write(folder / f"{key}.json", value)
-            return {"id": key, **value}
+            saved = {"id": key, **value}
+            self._successful_match_cache[key] = deepcopy(saved) if signature and (benchmark or {}).get("passed") else None
+            return saved
 
     def matching_successful_virtual_profile(self, camera_id, cell_id, crop_region, roi_cm,
                                            sampling_interval_s, config, sensor_id="froth_interface"):
@@ -338,6 +341,11 @@ class VisionRegistry:
             identity = self._successful_virtual_context(camera_id, cell_id, crop_region, roi_cm,
                                                         sampling_interval_s, sensor_id)
             normalized = normalized_config(config)
+            payload = json.dumps({"identity": identity, "config": normalized},
+                                 sort_keys=True, separators=(",", ":"))
+            cache_key = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            if cache_key in self._successful_match_cache:
+                return deepcopy(self._successful_match_cache[cache_key])
             folder = self.root / "virtual_sensors" / identity["sensor_id"] / "successful"
             latest = None
             for path in folder.glob("*.json"):
@@ -356,7 +364,8 @@ class VisionRegistry:
                         latest = candidate
                 except (OSError, ValueError, TypeError, KeyError):
                     continue
-            return latest
+            self._successful_match_cache[cache_key] = deepcopy(latest)
+            return deepcopy(latest)
 
     def association(self, camera_id, cell_id):
         with self.lock:
