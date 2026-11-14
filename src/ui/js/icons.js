@@ -79,7 +79,7 @@
         if(existing?.dataset.name===name) return;
         existing?.remove();
         if(el.hasAttribute("data-icon-only")){
-            const label=el.getAttribute("aria-label")||el.textContent.trim()||el.getAttribute("title")||name;
+            const label=el.getAttribute("aria-label")||el.getAttribute("title")||el.textContent.trim()||name;
             if (!el.hasAttribute("aria-label")) el.setAttribute("aria-label",label);
             if (!el.hasAttribute("title")) el.setAttribute("title",label);
             el.classList.add("df-icon-only");
