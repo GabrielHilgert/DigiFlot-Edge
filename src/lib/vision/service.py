@@ -149,8 +149,11 @@ class VisionService:
     def _sync_camera_flags(self):
         settings = self.registry.settings()
         selected = str(settings["camera_id"]) if settings["camera_id"] is not None else None
+        # Persisted settings alone never activate a sensor for a new run.
+        # Only a frozen, approved run configuration enables the recording lores.
+        active = self._run_virtual is not None
         for camera in self.digiflot.cameras.values():
-            camera.analysis_enabled = bool(settings["enabled"] and str(camera.id) == selected)
+            camera.analysis_enabled = bool(active and settings["enabled"] and str(camera.id) == selected)
 
     def start(self):
         if self._thread is None:
@@ -233,7 +236,8 @@ class VisionService:
             owner = self.digiflot.preview_camera_id
             if owner is not None and int(owner) != int(camera.id):
                 return False
-            camera.analysis_target_size = self._desired_lores_size(camera, context["association"], context["config"])
+            # The camera already owns its fixed lores geometry; never resize it
+            # because a sensor, ROI editor or diagnostic subscriber started.
             camera.start_preview()
             self.digiflot.preview_camera_id = camera.id
             if self.digiflot.state == self.digiflot.SENSOR_CALIBRATION and not self.virtual_test_passed():
@@ -427,8 +431,6 @@ class VisionService:
             # Configure lores before opening Picamera2, regardless of whether
             # Diagnostics or ROI was the first client to request this camera.
             with self.digiflot.lock:
-                if camera.state == camera.IDLE:
-                    camera.analysis_target_size = self._desired_lores_size(camera, association, profile["config"])
                 self.digiflot.start_preview(camera.id, owner_id=owner_id)
         with self._lock:
             self._diagnostic_until = time.monotonic() + 12.0 if enabled else 0.0
@@ -619,23 +621,10 @@ class VisionService:
                          if current else (None if camera else "Source camera is unavailable")}
 
     def _desired_lores_size(self, camera, association, config):
-        roi = detection_roi(config, association)
-        x0, y0, x1, y1 = roi
-        corners = np.asarray([[x0,y0],[x1,y0],[x1,y1],[x0,y1]], np.float32)
-        cal = association["calibration"]
-        coords = (corners - np.asarray(cal["min_xy_cm"], np.float32)) * float(cal["px_per_cm"])
-        native = source_geometry(camera.frame_size, camera.crop_region or camera.full_sensor_crop())
-        mapped = project_rectified(coords, cal, association["camera_profile"], native)
-        roi_width = float(np.max(mapped[:,0])-np.min(mapped[:,0]))
-        fraction = max(.03, min(1., roi_width / native["size"][0]))
-        target = max(64, int(config["resolution_px"]))
-        full_width = max(2, int(camera.frame_size[0]))
-        width = min(full_width, max(128, int(np.ceil(target / fraction))))
-        width = width + width % 2
-        width = min(full_width - full_width%2, width)
-        height = max(2, int(round(width * camera.frame_size[1] / full_width / 2)) * 2)
-        height = min(int(camera.frame_size[1])//2*2, height)
-        return width, height
+        """Compatibility accessor: the camera, not sensor geometry, owns lores."""
+        del association, config
+        return tuple(getattr(camera, "analysis_target_size", None)
+                     or getattr(camera, "preview_size", None) or camera.frame_size)
 
     def performance_workload(self):
         """Resolve the saved virtual sensor for the idle, two-camera hardware benchmark."""
@@ -690,7 +679,8 @@ class VisionService:
         if camera.recording:
             raise RuntimeError("Stop recording before testing this sensor")
         planned_size = self._desired_lores_size(camera, association, config)
-        camera.analysis_target_size = planned_size
+        # No Picamera2 reconfiguration here: the benchmark uses the same
+        # camera-owned lores width as preview and the production recording.
         initial_signature = self._virtual_signature()
         # Reserve the camera before stopping preview to avoid the live worker
         # racing to restart Picamera2 while the main encoder is being prepared.
@@ -841,10 +831,8 @@ class VisionService:
             raise RuntimeError("HIFIE conditions differ from the last verified configuration; run a new test before starting")
         camera, cell_id, association, profile = self._virtual_context()
         config = deepcopy(profile["config"])
-        camera.analysis_target_size = self._desired_lores_size(camera, association, config)
         self.registry.save_settings({"camera_id": camera.id, "cell_id": cell_id,
                                      "enabled": True, "sampling_interval_s": config["sampling_interval_s"]})
-        self._sync_camera_flags()
         datum = resolve_vertical_reference(config, association)
         snapshot = {"schema_version": 2, "sensor_id": "froth_interface",
                     "camera_id": camera.id, "cell_id": cell_id,
@@ -863,6 +851,7 @@ class VisionService:
                              "vertical_reference": deepcopy(datum),
                              "association": deepcopy(association),
                              "cell_id": cell_id, "directory": str(directory)}
+        self._sync_camera_flags()
         return snapshot
 
     def restore_run_config(self, directory):
@@ -886,16 +875,16 @@ class VisionService:
         config = normalized_config(original)
         camera_id, cell_id = int(snapshot["camera_id"]), str(snapshot["cell_id"])
         camera = self.digiflot.cameras.get(camera_id)
-        if camera is not None:
-            camera.analysis_target_size = tuple(snapshot["lores_size"])
+        # Historical lores dimensions remain in the snapshot for provenance;
+        # a resumed camera keeps its own fixed resolution and frame metadata.
         self.registry.save_settings({"camera_id": camera_id, "cell_id": cell_id,
                                      "enabled": True, "sampling_interval_s": config["sampling_interval_s"]})
-        self._sync_camera_flags()
         self._run_virtual = {"camera_id": camera_id, "config": config,
                              "vertical_reference": deepcopy(snapshot.get("vertical_reference") or
                                   resolve_vertical_reference(config, snapshot["association"])),
                              "association": deepcopy(snapshot["association"]),
                              "cell_id": cell_id, "directory": str(directory)}
+        self._sync_camera_flags()
         self._map_key, self._roi_map = None, None
         return True
 
@@ -1118,13 +1107,8 @@ class VisionService:
                     raise RuntimeError("Close the other camera preview before selecting the Detection ROI")
                 if camera.state not in (camera.IDLE, camera.PREVIEW):
                     raise RuntimeError("Camera is unavailable for the planar preview")
-                if camera.state == camera.IDLE:
-                    try:
-                        camera.analysis_target_size = self._desired_lores_size(camera, association, profile["config"])
-                    except ValueError:
-                        # The operator may be selecting the Detection ROI for the
-                        # first time. A full-plane preview must work without it.
-                        camera.analysis_target_size = tuple(getattr(camera, "preview_size", camera.frame_size))
+                # No ROI-dependent resolution changes: the same preconfigured
+                # lores supports first-time selection, diagnostics and live view.
                 self.digiflot.start_preview(camera.id, owner_id=owner_id)
                 image, frame = self._capture(camera.id)
                 optics = self.registry.camera_profile(camera.id)
