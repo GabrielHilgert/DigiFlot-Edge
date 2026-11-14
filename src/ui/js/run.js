@@ -50,7 +50,8 @@ function cacheUi() {
         "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value", "measurement_manual_text",
         "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint", "required_inputs_panel",
         "measurement_count", "measurement_summary_body", "measurement_history_body",
-        "calibration_review_panel", "calibration_review_list", "run_stage_timeline", "run_stage_position",
+        "calibration_review_panel", "calibration_review_list", "run_stage_overview", "run_stage_timeline", "run_stage_position",
+        "stage_technical_details", "stage_technical_grid",
         "run_workspace"
     ].forEach((id) => { ui[id] = document.getElementById(id); });
     ui.workflowSteps = [...document.querySelectorAll(".workflow-step")];
@@ -75,6 +76,7 @@ function applyRunLayout(value, persist = true) {
     if (latestState) {
         renderCalibrationReview(latestState);
         renderMeasurements(latestState);
+        if (["Running","Paused"].includes(latestState.state)) renderRun(latestState);
         window.requestAnimationFrame?.(() => renderLiveSensors(latestState));
     }
 }
@@ -237,7 +239,7 @@ function setWorkflow(data) {
 }
 
 function hidePanels() {
-    [ui.cell_panel, ui.camera_panel, ui.sensor_panel, ui.ready_panel, ui.run_panel, ui.completed_panel, ui.error_panel]
+    [ui.cell_panel, ui.camera_panel, ui.sensor_panel, ui.ready_panel, ui.run_stage_overview, ui.run_panel, ui.completed_panel, ui.error_panel]
         .forEach((panel) => { panel.hidden = true; });
 }
 
@@ -326,7 +328,7 @@ function renderSensorCalibration(state) {
     anchor.href="/cells?cell="+encodeURIComponent(cellId)+"&camera="+encodeURIComponent(cameraId);
     document.getElementById("run_reference_state").textContent=refs?
         (refs.ready?"Default: "+refs.default_name+" · "+refs.count+" named references · revision "+refs.revision:
-        "Default reference "+refs.default_name+" is not calibrated. Open Cells and place it before the Froth Interface test.") :
+        "Default reference "+refs.default_name+" is not calibrated. Open Cells and place it before the HFDS test.") :
         "Select a physical cell and calibrate its named references first.";
     const sensors = Object.values(state.calibration?.sensors || {});
     ui.sensor_list.innerHTML = sensors.map((sensor) => {
@@ -334,7 +336,7 @@ function renderSensorCalibration(state) {
         const connection = snapshot.status || "unknown";
         const calibration = sensor.status || "pending";
         const virtual = sensor.type === "virtual_froth_interface";
-        const type = virtual ? "Virtual sensor · Froth interface" : (sensor.type || "Sensor").replaceAll("_", " ");
+        const type = virtual ? "HFDS · Froth Depth Sensor" : (sensor.type || "Sensor").replaceAll("_", " ");
         const origin = virtual ? `Camera ${sensor.source_camera_id ?? snapshot.source_camera_id ?? "—"} · ${state.cell_selection?.cell_name || state.execution_inputs?.cell_profile?.cell_name || "Selected cell"}` : "";
         const calibrationLabel = calibration === "passed" ? "Calibrated" : calibration === "pending" && virtual ? "Test required" : calibration.replaceAll("_", " ");
         return `
@@ -388,6 +390,22 @@ function stageParameters(stage, state = null) {
     return items.map(([label, value]) => `
         <div class="parameter"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
     `).join("");
+}
+
+function compactStageParameters(stage) {
+    if (!stage) return "";
+    const entries = [
+        ["Type", stage.type],
+        ["Airflow", stage.airflow == null ? null : stage.airflow + " L/min"],
+        ["Target pH", stage.ph ?? stage.pH],
+        ["Rotor speed", stage.rotor_speed == null ? null : stage.rotor_speed + " rpm"],
+        ["Reagent", stage.reagent_name || stage.reagent?.name],
+        ["Concentration", stage.reagent?.concentration == null ? null : stage.reagent.concentration + " %"],
+        ["Volume", stage.reagent?.volume == null ? null : stage.reagent.volume + " mL"]
+    ];
+    return entries.filter(([,value]) => value !== null && value !== undefined && value !== "")
+        .map(([label,value]) => '<div class="parameter"><span>' + escapeHtml(label) +
+            '</span><strong>' + escapeHtml(value) + '</strong></div>').join("");
 }
 
 function renderCalibrationReview(state) {
@@ -1071,6 +1089,7 @@ function renderReady(state) {
 
 function renderRun(state) {
     ui.run_panel.hidden = false;
+    ui.run_stage_overview.hidden = false;
     const stage = state.current_stage;
     renderMiniStageTimeline(state);
     const paused = state.state === "Paused";
@@ -1096,10 +1115,12 @@ function renderRun(state) {
     if (!transition) {
         ui.stage_timer.textContent = formatTime(state.stage_remaining_s);
         ui.stage_elapsed.textContent = `Elapsed ${formatTime(state.stage_elapsed_s)}`;
-        ui.stage_parameters.innerHTML = stageParameters(stage, state);
+        ui.stage_parameters.innerHTML = runLayout === "compact" ? compactStageParameters(stage) : stageParameters(stage, state);
+        ui.stage_technical_grid.innerHTML = stageParameters(stage, state);
         const scraping = state.scraping || {};
-        ui.scraping_box.hidden = !scraping.enabled;
-        if (scraping.enabled) {
+        const showScraping = Boolean(scraping.enabled) && String(stage?.type || "").toLowerCase() !== "conditioning";
+        ui.scraping_box.hidden = !showScraping;
+        if (showScraping) {
             ui.scraping_timer.textContent = scraping.next_in_s == null ? "—" : `${Math.max(0, Number(scraping.next_in_s)).toFixed(1)} s`;
             const detail = ui.scraping_box.querySelector(".scraping-description");
             if (detail) detail.textContent = `Scraping signal every ${scraping.interval_s ?? "—"} s`;
