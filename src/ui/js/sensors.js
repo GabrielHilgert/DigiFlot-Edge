@@ -520,7 +520,9 @@ async function runVirtualTuning() {
         });
         if(epoch===virtualTuningEpoch&&session===virtualSessionGeneration){
             renderVirtualDiagnostic(data.diagnostic,"Unsaved processing preview");
-            virtualTuningStatus("Preview updated · no camera request");
+            virtualTuningStatus(data.approximate_resolution ?
+                "Resolution preview uses cached pixels; Save rebuilds the ROI map" :
+                "Preview updated · no camera request");
         }
     } catch(error) {
         if(epoch===virtualTuningEpoch)virtualTuningStatus(error.message);
