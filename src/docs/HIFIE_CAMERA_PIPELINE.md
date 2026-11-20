@@ -50,6 +50,54 @@ before increasing it on Raspberry Pi 5.
    is not presumed canceled when HTTP is aborted; pending requests are
    serialized and their late results are ignored.
 
+
+## Interactive calibration and temporal stabilization
+
+The HIFIE modal exposes method-dependent quick sliders before the Detection
+ROI editor. Dragging a slider sends `POST /api/vision/virtual-sensors/froth-interface/tune-preview`
+after a short debounce. The endpoint reruns the detector on the latest
+**cached, already rectified ROI**. It does not start Picamera2, capture another
+frame, change the camera-owned lores resolution, save any profile, or change
+the approved run configuration. Only the owning calibration tab can use it.
+The cache is bounded to one ROI frame and is accepted only while live
+diagnostics are active and its camera, cell, calibration and ROI match.
+
+Changing `resolution_px` in the slider previews the corresponding kernel
+scales on cached pixels. The full ROI geometry remap happens after **Save**;
+the preview explicitly reports this approximation. Changing the physical
+Detection ROI requires saving and waiting for a matching cached diagnostic
+frame before another parameter preview.
+
+The optional causal temporal stage in
+`src/lib/virtual_sensors/temporal.py` supports:
+
+- `off` (default; preserves prior measurements exactly)
+- `ema` (exponential smoothing of valid upper and lower rows)
+- `median` (short rolling median of valid rows)
+- `vote_prior` (Gaussian prior added to the striped/hybrid row vote curves,
+  or an EMA fallback for nonvoting detectors).
+
+`temporal_strength`, `temporal_radius_px`, and `temporal_window` control
+the low-cost filter. The state contains only recent valid row pairs, is
+reset when detector parameters/geometry change, and is separate for the
+calibration benchmark and live detection. Diagnostics draw the preceding
+rows as **dotted lines** over both Rectified ROI and Entropy map; measured
+rows remain solid.
+
+Operators can click the froth surface and/or pulp interface in either
+diagnostic image to mark reference rows. The guided fit endpoint
+`POST /api/vision/virtual-sensors/froth-interface/tune-fit` runs a bounded,
+single-frame, conservative neighborhood search around the existing filter
+parameters. Thresholds are excluded by default and added only when the
+operator explicitly chooses **Include thresholds**. A proposal updates only
+the UI draft: **Save** and an accepted benchmark or previously verified exact
+configuration remain separate requirements. No fitting request writes
+to the sensor profile or starts an experiment.
+
+A single-frame fit is not evidence of temporal robustness. Validate
+stability against a sequence of independent frames and rerun the
+performance benchmark after changing the algorithm or acquisition rate.
+
 ## Colors
 
 Both the sensor plot and the live horizontal HIFIE markers read the same CSS
