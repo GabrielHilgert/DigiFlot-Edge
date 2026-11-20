@@ -32,6 +32,8 @@ DEFAULTS = {
     "texture_ksize": 21, "upper_threshold_q": 62., "lower_bias": 0.,
     "n_stripes": 7, "stripe_overlap": .40, "min_valid_stripes": 3,
     "vote_sigma_px": 12., "outlier_mad": 2.5,
+    "temporal_filter": "off", "temporal_strength": 0.35,
+    "temporal_radius_px": 24., "temporal_window": 3,
 }
 LIMITS = {
     "resolution_px": (64, 1920), "sampling_interval_s": (.2, 60.),
@@ -47,8 +49,11 @@ LIMITS = {
     "lower_bias": (-10, 10), "n_stripes": (3, 30),
     "stripe_overlap": (0, .9), "min_valid_stripes": (1, 30),
     "vote_sigma_px": (1, 100), "outlier_mad": (.1, 20),
+    "temporal_strength": (0., .95), "temporal_radius_px": (2., 150.),
+    "temporal_window": (3, 9),
 }
 OPTIONS = {
+    "temporal_filter": ("off", "ema", "median", "vote_prior"),
     "vertical_reference_mode": ("cell_default", "aruco_bottom", "cell_top", "cell_bottom", "historical_offset"),
     "selection_criteria": ("strong_candidates", "next_tp_after_pulp", "hybrid", "interpolate"),
     "simplification_alg": ("turning_point", "reumann_witkam", "douglas_peucker", "opheim", "lang"),
@@ -75,7 +80,7 @@ def normalized_config(values=None):
             raise ValueError(f"Invalid {key}")
         if key in {"resolution_px","entropy_radius","entropy_bins","min_row",
                    "min_thickness_px","dual_entropy_radius","dual_entropy_bins",
-                   "texture_ksize","n_stripes","min_valid_stripes"}:
+                   "texture_ksize","n_stripes","min_valid_stripes","temporal_window"}:
             if isinstance(value, float) and not value.is_integer():
                 raise ValueError(f"{key} requires an integer")
             value = int(value)
@@ -141,7 +146,8 @@ def config_signature(config, association, camera_geometry=None):
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def detect_interface(image, config, roi_cm, px_per_cm, *, diagnostics=False, vertical_reference=None):
+def detect_interface(image, config, roi_cm, px_per_cm, *, diagnostics=False, vertical_reference=None,
+                     temporal_state=None):
     """Return physical heights and validity without requiring plot IO."""
     conf = normalized_config(config)
     if not isinstance(image, np.ndarray) or image.ndim not in (2, 3):
@@ -203,6 +209,11 @@ def detect_interface(image, config, roi_cm, px_per_cm, *, diagnostics=False, ver
         except (ValueError, TypeError):
             return None
     upper, lower = valid_row(upper), valid_row(lower)
+    raw_upper, raw_lower = upper, lower
+    prior = None
+    if temporal_state is not None:
+        scores = result.get("profiles") if method in COLOR_METHODS else None
+        upper, lower, prior = temporal_state.apply(upper, lower, conf, scores, height)
     valid = upper is not None and lower is not None and lower > upper
     oy = float(roi_cm[1])
     if vertical_reference is None:
@@ -226,6 +237,8 @@ def detect_interface(image, config, roi_cm, px_per_cm, *, diagnostics=False, ver
         "froth_thickness_cm": (lower - upper) / px_per_cm if valid else None,
         "froth_surface_row_px": upper, "pulp_froth_row_px": lower,
         "valid": bool(valid), "method": method, "quality": quality,
+        "raw_rows_px": [raw_upper, raw_lower],
+        "temporal_prior_rows_px": list(prior) if prior is not None else None,
     }
     if diagnostics:
         source = result if method in COLOR_METHODS else result.diagnostics or {}
