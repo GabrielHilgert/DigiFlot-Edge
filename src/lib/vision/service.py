@@ -332,7 +332,8 @@ class VisionService:
                                         "density": density, "reference": deepcopy(datum),
                                         "camera_id": str(camera.id), "cell_id": str(cell_id),
                                         "calibration_id": association["calibration_id"],
-                                        "timestamp_ns": frame["captured_timestamp_ns"]}
+                                        "timestamp_ns": frame["captured_timestamp_ns"],
+                                        "received_at": time.monotonic()}
                             reading = detect_interface(transformed, config, roi, density,
                                 diagnostics=want_diag, vertical_reference=datum,
                                 temporal_state=self._temporal_live)
@@ -429,6 +430,126 @@ class VisionService:
             # Optional UI rendering must never mark the real sensor as failed.
             with self._lock:
                 self._diagnostic_error = str(error)
+
+    def _tuning_input(self, payload, owner_id):
+        """A cached frame can be retested without touching Picamera2 or the saved profile."""
+        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION or self._benchmarking:
+            raise RuntimeError("Interactive tuning is available only during sensor calibration")
+        camera, cell_id, association, profile = self._virtual_context()
+        config = normalized_config((payload or {}).get("config") or profile["config"])
+        expected_roi = detection_roi(profile["config"], association)
+        if detection_roi(config, association) != expected_roi:
+            raise ValueError("Save the new Detection ROI and wait for a matching live diagnostic frame")
+        with self._lock:
+            cached = self._tuning_frame
+            owner = self._diagnostic_owner_id
+            active = time.monotonic() < self._diagnostic_until
+            prior = self._temporal_live.copy()
+        if not active or not owner_id or owner != str(owner_id):
+            raise RuntimeError("Start live diagnostics in this tab before tuning")
+        if (cached is None or cached["camera_id"] != str(camera.id)
+                or cached["cell_id"] != str(cell_id)
+                or cached["calibration_id"] != association["calibration_id"]
+                or cached["roi"] != expected_roi or time.monotonic() - cached["received_at"] > 25):
+            raise RuntimeError("Waiting for a fresh ROI frame; keep live diagnostics active")
+        # The cached frame is an immutable ROI image; no new lores stream is created.
+        return cached, config, prior
+
+    @staticmethod
+    def _reference_rows(payload, height):
+        rows = (payload or {}).get("reference_rows_px") or [None, None]
+        if not isinstance(rows, (list, tuple)) or len(rows) != 2:
+            raise ValueError("Reference must contain froth and pulp rows")
+        result = []
+        for row in rows:
+            if row is None:
+                result.append(None)
+            else:
+                value = float(row)
+                if not np.isfinite(value) or value < 0 or value >= height:
+                    raise ValueError("Reference line is outside the rectified ROI")
+                result.append(value)
+        return result
+
+    def preview_virtual_tuning(self, payload, owner_id=None):
+        cached, config, prior = self._tuning_input(payload, owner_id)
+        if not self._tuning_lock.acquire(blocking=False):
+            raise RuntimeError("Another detector preview is processing; retry shortly")
+        try:
+            refs = self._reference_rows(payload, cached["image"].shape[0])
+            reading = detect_interface(cached["image"], config, cached["roi"], cached["density"],
+                                       diagnostics=True, vertical_reference=cached["reference"],
+                                       temporal_state=prior)
+            reading["reference_rows_px"] = refs
+            diagnostic = build_interface_diagnostic(cached["image"], reading, cached["roi"],
+                                                    cached["timestamp_ns"])
+            return {"diagnostic": diagnostic, "cached_frame": True,
+                    "processing_only": True, "requires_camera_reconfiguration": False}
+        finally:
+            self._tuning_lock.release()
+
+    def fit_virtual_tuning(self, payload, owner_id=None):
+        """Bounded, conservative single-frame tuning. No camera capture or automatic save."""
+        cached, config, prior = self._tuning_input(payload, owner_id)
+        refs = self._reference_rows(payload, cached["image"].shape[0])
+        if all(value is None for value in refs):
+            raise ValueError("Mark at least one reference line before fitting")
+        if not self._tuning_lock.acquire(blocking=False):
+            raise RuntimeError("Another tuning task is processing; retry shortly")
+        try:
+            include_thresholds = bool((payload or {}).get("include_thresholds", False))
+            keys = (["dual_entropy_radius", "dual_entropy_bins", "sigma_rows", "vote_sigma_px",
+                     "texture_ksize"] if config["method"] in COLOR_METHODS else
+                    ["entropy_radius", "entropy_bins", "sigma"])
+            if include_thresholds:
+                keys += (["upper_threshold_q", "lower_bias"] if config["method"] in COLOR_METHODS
+                         else ["threshold_froth", "threshold_pulp"])
+            integer_keys = {"dual_entropy_radius", "dual_entropy_bins", "texture_ksize",
+                            "entropy_radius", "entropy_bins"}
+            limits = __import__("lib.virtual_sensors.interface", fromlist=["LIMITS"]).LIMITS
+            count = 0
+            def score(candidate):
+                nonlocal count
+                count += 1
+                try:
+                    result = detect_interface(cached["image"], candidate, cached["roi"],
+                        cached["density"], vertical_reference=cached["reference"],
+                        temporal_state=prior.copy())
+                    rows = result["raw_rows_px"]
+                    errors = [abs(rows[i] - refs[i]) for i in range(2)
+                              if refs[i] is not None and rows[i] is not None]
+                    return sum(errors) / len(errors) if len(errors) == sum(x is not None for x in refs) else 1e5
+                except (ValueError, TypeError):
+                    return 1e5
+            baseline = score(config)
+            best_score, best = baseline, dict(config)
+            # One conservative coordinate search. Keep current values unless the
+            # improvement is meaningful: avoid tuning to the noise in one frame.
+            for key in keys:
+                original = config[key]
+                lo, hi = limits[key]
+                span = max(abs(original) * .2, 1 if key in integer_keys else .1)
+                if key == "upper_threshold_q": span = 3.
+                if key in {"lower_bias", "threshold_froth", "threshold_pulp"}: span = .12
+                for direction in (-1, 1):
+                    value = max(lo, min(hi, original + direction * span))
+                    if key in integer_keys: value = int(round(value))
+                    if key == "texture_ksize": value = int(value) | 1
+                    if value == original: continue
+                    candidate = dict(config)
+                    candidate[key] = value
+                    try: candidate = normalized_config(candidate)
+                    except ValueError: continue
+                    error = score(candidate)
+                    if error + max(1., baseline * .10) < best_score:
+                        best, best_score = candidate, error
+            suggested = {key: best[key] for key in keys if best[key] != config[key]}
+            return {"suggested": suggested, "baseline_error_px": round(baseline, 2),
+                    "fitted_error_px": round(best_score, 2), "evaluations": count,
+                    "reference_rows_px": refs, "thresholds_included": include_thresholds,
+                    "applied": False, "note": "One cached frame only; review and retest before confirming"}
+        finally:
+            self._tuning_lock.release()
 
     def diagnostic_preview(self, enabled=True, last_revision=0, owner_id=None):
         """Own a short-lived camera preview lease; another tab cannot clear it."""
