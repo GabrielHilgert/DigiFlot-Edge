@@ -556,16 +556,66 @@ function virtualMarkReference(event) {
     drawVirtualOverlays();scheduleVirtualTuning();
 }
 
+function showVirtualReference() {
+    virtualDiagnosticSource="reference";
+    if(!virtualReferenceReady) {
+        virtualTuningStatus("Capture a reference image to start fitting");
+        return;
+    }
+    scheduleVirtualTuning(10);
+}
+
+async function captureVirtualReference() {
+    const button=document.getElementById("virtual_reference_capture");
+    const status=document.getElementById("virtual_fit_status");
+    if(virtualFitInFlight){status.textContent="Finish the running fit before recapturing.";return;}
+    button.disabled=true;status.textContent="Capturing a new reference frame…";
+    try {
+        virtualDiagnosticsDesired=false;
+        if(virtualDiagnosticsActive)await stopVirtualDiagnostics();
+        virtualDiagnosticSource="reference";
+        virtualReferenceReady=false;
+        const captured=await loadVirtualRoiPlane();
+        if(!captured||!virtualReferenceReady){
+            status.textContent="No matching ROI was captured. Check the ROI and try again.";
+            return;
+        }
+        virtualReferenceRows=[null,null];
+        status.textContent="Reference image captured. Mark one or both boundaries, then Fit filters.";
+        scheduleVirtualTuning(10);
+    } catch(error){status.textContent="Reference capture failed: "+error.message;}
+    finally{button.disabled=false;}
+}
+
 async function virtualFitParameters() {
-    if(virtualFitInFlight||virtualTuningInFlight)return;
+    const button=document.getElementById("virtual_fit_parameters");
+    const status=document.getElementById("virtual_fit_status");
+    if(virtualFitInFlight){status.textContent="A fit is already running on the frozen reference image.";return;}
+    if(!virtualReferenceReady){
+        status.textContent="Capture a reference image first (New reference). Live diagnostics are not required.";
+        return;
+    }
+    if(virtualDiagnosticSource!=="reference"){
+        showVirtualReference();
+        status.textContent="Switched to the frozen reference. Mark the interfaces here, then Fit.";
+        return;
+    }
     if(virtualReferenceRows.every(x=>x==null)){
-        document.getElementById("virtual_fit_status").textContent="Mark at least one interface on the image first.";return;
+        status.textContent="Mark at least one interface on the reference image first.";return;
     }
     virtualFitInFlight=true;
-    const button=document.getElementById("virtual_fit_parameters"),status=document.getElementById("virtual_fit_status");
+    ++virtualTuningEpoch;
+    if(virtualTuningTimer)window.clearTimeout(virtualTuningTimer);
+    virtualTuningTimer=null;
     const session=virtualSessionGeneration;
-    button.disabled=true;status.textContent="Testing nearby filter parameters on the cached ROI…";
+    button.disabled=true;
+    status.textContent="Fitting filters to the frozen reference image…";
     try {
+        if(virtualTuningTask){
+            status.textContent="Finishing the reference preview before fitting…";
+            await virtualTuningTask.catch(()=>{});
+        }
+        if(session!==virtualSessionGeneration)return;
         const result=await requestJson("/api/vision/virtual-sensors/froth-interface/tune-fit",{
             method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({config:virtualCollectInputs(),reference_rows_px:virtualReferenceRows,
@@ -573,20 +623,19 @@ async function virtualFitParameters() {
         });
         if(session!==virtualSessionGeneration)return;
         const changed=Object.keys(result.suggested||{});
-        if(changed.length) {
+        if(changed.length){
             virtualDraft={...virtualDraft,...result.suggested};
             renderVirtualFields();
             scheduleVirtualTuning(10);
         }
         status.textContent=changed.length ?
-            `Suggested: ${changed.join(", ")} · reference error ${result.baseline_error_px} → ${result.fitted_error_px} px (${result.evaluations} trials). Review before saving.` :
-            `No clear improvement found (${result.evaluations} trials). Kept existing parameters.`;
-    } catch(error){status.textContent="Fit unavailable: "+error.message;}
-    finally {
+            `Suggested: ${changed.join(", ")} · error ${result.baseline_error_px} → ${result.fitted_error_px} px (${result.evaluations} evaluations). Review before saving.` :
+            `No significant improvement on this reference (${result.evaluations} evaluations). Existing settings retained.`;
+    } catch(error){
+        if(session===virtualSessionGeneration)status.textContent="Fit failed: "+error.message;
+    } finally {
         virtualFitInFlight=false;button.disabled=false;
-        // A queued preview waits until the bounded fit has released its worker.
-        if(virtualTuningDirty && document.getElementById("virtual_panel").open)
-            scheduleVirtualTuning(20);
+        if(session===virtualSessionGeneration && virtualTuningDirty)scheduleVirtualTuning(20);
     }
 }
 
