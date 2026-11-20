@@ -33,7 +33,15 @@ assert.match(sensors,/const pending=virtualDiagRequest;[\s\S]*?if\(pending\)awai
 assert.match(sensors,/virtualRoiController\?\.abort\(\)/);
 assert.match(sensors,/const timeout=window\.setTimeout\(\(\)=>\{timedOut=true;controller\.abort\(\);\},18000\)/);
 assert.match(sensors,/window\.clearTimeout\(timeout\)/);
-assert.match(sensors,/if\(planeReady && virtualReferenceReady\)/);
+assert.match(sensors,/if\(planeReady\)/);
+assert.match(sensors,/function hifieUpdateNavigation\(\)/);
+assert.match(sensors,/function hifieGoToStep\(step\)/);
+assert.match(sensors,/document\.getElementById\("virtual_camera_continue"\)\.addEventListener/);
+assert.match(sensors,/document\.getElementById\("virtual_tuning_continue"\)\.addEventListener/);
+assert.match(sensors,/document\.getElementById\("virtual_validation_test"\)\.addEventListener/);
+for (const control of ["virtual_camera_continue","virtual_tuning_continue","virtual_validation_step","virtual_validation_test"])
+    assert.match(sensorsHtml,new RegExp('id="'+control+'"'));
+assert.doesNotMatch(sensorsHtml,/Resolution and Detection ROI changes need a new ROI remap/);
 
 
 // Camera owns one stable lores stream; modal and sensor never resize it.
