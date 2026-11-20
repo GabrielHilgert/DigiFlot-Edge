@@ -74,7 +74,16 @@ class Scale:
                     item["runtime_status"] = snapshot.get("status")
                     item["sample"] = snapshot.get("raw")
                     unit = snapshot.get("unit")
-                    if snapshot.get("value") is not None and cls._is_weight_unit(unit):
+                    timestamp_ns = snapshot.get("timestamp_ns")
+                    fresh = False
+                    try:
+                        fresh = timestamp_ns is not None and (
+                            0 <= time.time_ns() - int(timestamp_ns) < 10_000_000_000
+                        )
+                    except (ValueError, TypeError):
+                        pass
+                    if (snapshot.get("status") == "connected" and fresh
+                            and snapshot.get("value") is not None and cls._is_weight_unit(unit)):
                         item["scale_detected"] = True
                         item["probable_scale"] = True
                         item["detected"] = True

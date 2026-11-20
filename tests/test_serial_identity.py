@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from lib.serial_identity import connection_from_port, configured_endpoint_map, resolve_runtime_ports, serial_inventory, strong_match
@@ -48,6 +49,18 @@ class SerialIdentityTests(unittest.TestCase):
     def test_legacy_config_keeps_current_port(self):
         saved = [{"id": "scale_1", "port": "/dev/ttyUSB2"}]
         self.assertEqual(resolve_runtime_ports(saved, [self.endpoint("/dev/ttyUSB2")]), {})
+
+    def test_offline_cached_weight_does_not_confirm_scale(self):
+        from lib.scale import Scale
+        endpoint = self.endpoint("/dev/ttyUSB0")
+        runtime = SimpleNamespace(snapshot=lambda: {
+            "status": "offline", "value": 100.0, "unit": "g",
+            "raw": "100.00 g", "timestamp_ns": "1", "error": "disconnected"
+        })
+        with patch("lib.scale.serial_inventory", return_value=[endpoint]):
+            result = Scale.discover_available(runtime_scales={endpoint["port"]: runtime})
+        self.assertFalse(result[0]["scale_detected"])
+        self.assertEqual(result[0]["runtime_status"], "offline")
 
     def test_by_id_survives_reenumeration(self):
         with tempfile.TemporaryDirectory() as temp:

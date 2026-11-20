@@ -236,7 +236,7 @@ function row(kind, item, label, detail, selectable = true, controls = "") {
 
 function scaleIdentityControls(item) {
     if (item.configured) {
-        if (!item.scale_detected || item.config?.connection?.usb_id || item.config?.connection?.adapter_serial) return "";
+        if (!item.scale_detected || item.config?.connection) return "";
         return `<label class="scale-identity-controls"><input type="checkbox" class="remember-scale-connection"
             data-sensor-id="${esc(item.config?.id)}" checked> Remember this serial connection</label>`;
     }
@@ -245,7 +245,7 @@ function scaleIdentityControls(item) {
         other.configured && !other.scale_detected && other.config?.id);
     if (!offline.length) return "";
     const options = offline.map(other =>
-        `<option value="${esc(other.config.id)}">${esc(other.config.name || other.config.id)}</option>`).join("");
+        `<option value="${esc(other.config.id)}" ${offline.length === 1 ? "selected" : ""}>${esc(other.config.name || other.config.id)}${offline.length === 1 ? " (suggested)" : ""}</option>`).join("");
     return `<div class="scale-identity-controls">
         <label>Existing scale <select class="scale-reassignment" data-port="${esc(item.port)}">
             <option value="">Register as new scale</option>${options}</select></label>
