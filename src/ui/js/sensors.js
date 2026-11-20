@@ -652,8 +652,10 @@ async function pollVirtualDiagnostics() {
         if(!virtualDiagnosticsActive)return;
         if(payload.diagnostic){
             virtualDiagRevision=payload.revision;
-            if(virtualTuningDirty)scheduleVirtualTuning(120);
-            else renderVirtualDiagnostic(payload.diagnostic,"Live preview");
+            if(virtualDiagnosticSource==="live"){
+                if(virtualTuningDirty)scheduleVirtualTuning(120);
+                else renderVirtualDiagnostic(payload.diagnostic,"Live preview");
+            }
         }
         if(payload.error)document.getElementById("virtual_diagnostics_status").textContent=
             "Diagnostic rendering error: "+payload.error+" (sensor acquisition continues).";
@@ -818,6 +820,14 @@ async function loadVirtualRoiPlane() {
         }
         if(generation!==virtualSessionGeneration || !document.getElementById("virtual_panel").open)return false;
         virtualRoiPlane=payload;
+        virtualReferenceReady=Boolean(payload.reference_ready);
+        virtualReferenceRows=[null,null];
+        virtualDiagnosticSource="reference";
+        virtualDiagnostic=null;
+        document.getElementById("virtual_diagnostic_grid").hidden=true;
+        virtualTuningStatus(virtualReferenceReady ?
+            "Frozen reference captured · no live diagnostics required" :
+            "Reference unavailable: "+(payload.reference_error||"Select a valid Detection ROI"));
         const stage=document.getElementById("virtual_roi_stage"),image=document.getElementById("virtual_roi_image");
         const [w,h]=payload.size;stage.hidden=false;
         stage.style.aspectRatio=w+" / "+h;
@@ -962,14 +972,19 @@ async function openVirtualCalibration() {
         document.getElementById("virtual_roi_stage").hidden=true;
         renderVirtualRoiCaption();
         virtualBenchmarkMarkup(profile.test);renderVirtualTestTimeline(profile.test?.series||[]);
-        if(profile.test_diagnostic)renderVirtualDiagnostic(profile.test_diagnostic,"Last calibration test");
+        // A historical benchmark image is not the frozen reference frame.
+        // Show only results from the current reference to avoid mislabeling.
+        document.getElementById("virtual_diagnostic_grid").hidden=true;
         // First capture the calibrated plane, then start the background lores
         // diagnostics. Simultaneous Picamera2 acquisition broke some sessions.
         const planeReady=await loadVirtualRoiPlane();
         if(generation!==virtualSessionGeneration || !panel.open)return;
-        if(planeReady && virtualEffectiveRoi()) {
-            virtualDiagnosticsDesired=true;
-            await startVirtualDiagnostics().catch(error=>{if(panel.open)showToast(error.message);});
+        if(planeReady && virtualReferenceReady) {
+            // Initial detector preview is computed from the SAME captured
+            // frame as the plane; do not start live acquisition for Fit.
+            await runVirtualTuning();
+            document.getElementById("virtual_fit_status").textContent=
+                "Frozen reference ready. Mark one or both lines, then Fit filters.";
         }
     } catch(error) {
         if(generation!==virtualSessionGeneration || !panel.open)return;
