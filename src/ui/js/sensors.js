@@ -132,7 +132,8 @@ const virtualMethods = ["mean_derivative", "cumulative_distribution", "heuristic
 const virtualSelectOptions = {
     method: virtualMethods,
     selection_criteria: ["strong_candidates", "next_tp_after_pulp", "hybrid", "interpolate"],
-    simplification_alg: ["turning_point", "reumann_witkam", "douglas_peucker", "opheim", "lang"]
+    simplification_alg: ["turning_point", "reumann_witkam", "douglas_peucker", "opheim", "lang"],
+    temporal_filter: ["off", "ema", "median", "vote_prior"]
 };
 const virtualFieldGroups = [
     ["Entropy and profile", ["entropy_radius","entropy_bins","sigma","threshold_froth","threshold_pulp",
@@ -140,7 +141,8 @@ const virtualFieldGroups = [
     ["Dual entropy / texture", ["x0_frac","x1_frac","min_y_frac","lower_search_start","lower_search_end",
         "min_thickness_px","sigma_rows","dual_entropy_radius","dual_entropy_bins","texture_ksize",
         "upper_threshold_q","lower_bias"]],
-    ["Striped / hybrid vote", ["n_stripes","stripe_overlap","min_valid_stripes","vote_sigma_px","outlier_mad"]]
+    ["Striped / hybrid vote", ["n_stripes","stripe_overlap","min_valid_stripes","vote_sigma_px","outlier_mad"]],
+    ["Temporal stabilization", ["temporal_filter","temporal_strength","temporal_radius_px","temporal_window"]]
 ];
 
 function virtualField(key) {
@@ -179,12 +181,45 @@ function virtualCollectInputs() {
     return {...virtualDraft};
 }
 
+const virtualQuickSpecs = {
+    resolution_px:["ROI processing width",64,960,16],
+    entropy_bins:["Entropy bins",4,128,4], entropy_radius:["Entropy radius",1,60,1],
+    sigma:["Row smoothing",0,15,.5], dual_entropy_bins:["Entropy bins",4,64,2],
+    dual_entropy_radius:["Entropy radius",1,50,1], sigma_rows:["Row smoothing",0,30,.5],
+    vote_sigma_px:["Vote smoothing",1,80,1], texture_ksize:["Texture window",3,101,2],
+    temporal_strength:["Temporal influence",0,.95,.05],
+    temporal_radius_px:["Prior tolerance (px)",2,150,2],
+    temporal_window:["Median window",3,9,2]
+};
+
+function virtualQuickKeys() {
+    const color=["dual_entropy","dual_entropy_striped","dual_entropy_hybrid"].includes(virtualDraft?.method);
+    const voting=["dual_entropy_striped","dual_entropy_hybrid"].includes(virtualDraft?.method);
+    return ["resolution_px",...(color?["dual_entropy_bins","dual_entropy_radius","sigma_rows","texture_ksize"]:
+        ["entropy_bins","entropy_radius","sigma"]),...(voting?["vote_sigma_px"]:[]),
+        "temporal_strength","temporal_radius_px","temporal_window"];
+}
+
+function virtualQuickSlider(key) {
+    const [label,minimum,maximum,step]=virtualQuickSpecs[key], value=Number(virtualDraft[key]);
+    const min=Math.min(minimum,value),max=Math.max(maximum,value);
+    return `<label class="virtual-slider-control" for="virtual_quick_${key}">
+        <span>${escapeHtml(label)} <output data-quick-value="${key}">${value}</output></span>
+        <input id="virtual_quick_${key}" type="range" min="${min}" max="${max}" step="${step}"
+            data-virtual-param="${key}" data-tuning-control="true" value="${value}">
+    </label>`;
+}
+
 function renderVirtualFields() {
-    const main = document.getElementById("virtual_main_fields");
-    main.innerHTML = ["method","resolution_px","sampling_interval_s"].map(virtualField).join("");
+    const quick=virtualQuickKeys();
+    document.getElementById("virtual_quick_fields").innerHTML =
+        quick.map(virtualQuickSlider).join("")+
+        '<div class="virtual-quick-select">'+virtualField("temporal_filter")+'</div>';
+    document.getElementById("virtual_main_fields").innerHTML = ["method","sampling_interval_s"].map(virtualField).join("");
     document.getElementById("virtual_advanced_fields").innerHTML = virtualFieldGroups.map(([name,keys]) =>
         `<details><summary>${escapeHtml(name)}</summary>
-        <div class="virtual-field-grid">${keys.map(virtualField).join("")}</div></details>`).join("");
+        <div class="virtual-field-grid">${keys.filter(key=>!quick.includes(key)&&key!=="temporal_filter")
+            .map(virtualField).join("")}</div></details>`).join("");
     renderVirtualPresets();
 }
 
