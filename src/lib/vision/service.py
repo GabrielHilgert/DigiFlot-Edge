@@ -182,9 +182,23 @@ class VisionService:
             if self._thread is not None and self._thread.is_alive() and (
                     self._sensor_stop is None or not self._sensor_stop.is_set()):
                 return
+            previous = self._thread
             stop_signal = threading.Event()
             self._sensor_stop = stop_signal
-            self._thread = threading.Thread(target=self._loop, args=(stop_signal,),
+            def operational_loop():
+                # A deactivated worker must exit before a newly approved
+                # worker can acquire the same camera. Never join under the
+                # DigiFlot orchestration lock.
+                if previous is not None and previous.is_alive():
+                    previous.join(timeout=6)
+                    if previous.is_alive():
+                        with self._lock:
+                            self._latest = {"state": "error",
+                                            "error": "Previous HIFIE worker did not exit"}
+                        return
+                if not stop_signal.is_set() and not self._stop.is_set():
+                    self._loop(stop_signal)
+            self._thread = threading.Thread(target=operational_loop,
                                             name="digiflot-hifie", daemon=True)
             self._thread.start()
 
@@ -627,15 +641,17 @@ class VisionService:
                     raise RuntimeError("HIFIE diagnostics belong to another browser tab.")
                 return {"enabled": False, "revision": self._diagnostic_revision}
         if not enabled:
-            with self._lock:
-                self._diagnostic_until = 0.0
-                self._diagnostic_owner_id = None
-                self._diagnostic_latest = None
-                self._diagnostic_temporal = TemporalBoundaryFilter()
-                self._diagnostic_temporal_key = None
-            with self.digiflot.lock:
-                if owner_id and self.digiflot.preview_owner_id == str(owner_id):
-                    self.digiflot.stop_preview(owner_id=owner_id)
+            # Shutdown must not stop Picamera2 while a plane capture uses it.
+            with self._roi_snapshot_lock:
+                with self._lock:
+                    self._diagnostic_until = 0.0
+                    self._diagnostic_owner_id = None
+                    self._diagnostic_latest = None
+                    self._diagnostic_temporal = TemporalBoundaryFilter()
+                    self._diagnostic_temporal_key = None
+                with self.digiflot.lock:
+                    if owner_id and self.digiflot.preview_owner_id == str(owner_id):
+                        self.digiflot.stop_preview(owner_id=owner_id)
             return {"enabled": False, "revision": self._diagnostic_revision}
         if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
             raise RuntimeError("Live diagnostics are available only during HIFIE calibration")
