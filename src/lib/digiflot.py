@@ -3770,11 +3770,20 @@ class DigiFlot:
                         evidence = klass.discover_available([endpoint],
                             baudrate=int(requested.get("baudrate", 38400)))
                     else:
-                        evidence = klass.discover_available([endpoint],
-                            slave_ids=(int(requested.get("slave_id", 1)),),
-                            baudrates=(int(requested.get("baudrate", 9600)),))
+                        slave_id = int(requested.get("slave_id", 1))
+                        baudrate = int(requested.get("baudrate", 9600))
+                        parity = str(requested.get("parity", "N")).upper()
+                        if not 1 <= slave_id <= 247 or baudrate not in (9600, 19200, 38400, 57600, 115200):
+                            raise ValueError("Invalid WAGO slave ID or serial baud rate.")
+                        if parity not in ("N", "E", "O"):
+                            raise ValueError("Invalid WAGO serial parity.")
                         if not requested.get("confirmed_model"):
                             raise ValueError("Confirm the WAGO 879-1300 model before saving a generic Modbus device.")
+                        evidence = klass.discover_available([endpoint], slave_ids=(slave_id,),
+                                                              baudrates=(baudrate,))
+                        if not evidence and requested.get("manual_setup"):
+                            evidence = [{"port": port, "slave_id": slave_id, "baudrate": baudrate,
+                                         "parity": parity, "connection": endpoint["connection"]}]
                     if not evidence:
                         raise ValueError(f"No confirmed {kind} protocol response on {port}.")
                     detected = evidence[0]
