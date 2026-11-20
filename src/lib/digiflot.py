@@ -2494,7 +2494,8 @@ class DigiFlot:
 
             self.paused_stage_state = self.stage_state
             self.scraping_gpio.cancel_pending()
-            self._request_airflow_stop_unlocked("pause")
+            if hasattr(self, "_request_airflow_stop_unlocked"):
+                self._request_airflow_stop_unlocked("pause")
             self.pause_started_monotonic = time.monotonic()
             self.pause_started_at = _utc_now()
             self.state = self.PAUSED
@@ -2530,7 +2531,9 @@ class DigiFlot:
             self.pause_started_monotonic = None
             self.pause_started_at = None
             self.paused_stage_state = None
-            if self.stage_state == self.STAGE_ACTIVE and self.current_stage is not None:
+            if (self.stage_state == self.STAGE_ACTIVE and
+                    getattr(self, "current_stage", None) is not None and
+                    hasattr(self, "apply_stage_setpoints")):
                 try:
                     self.apply_stage_setpoints(self.current_stage)
                 except Exception as error:
@@ -2568,7 +2571,8 @@ class DigiFlot:
             if self.state == self.IDLE:
                 return self.status
 
-            self._request_airflow_stop_unlocked("aborted")
+            if hasattr(self, "_request_airflow_stop_unlocked"):
+                self._request_airflow_stop_unlocked("aborted")
             self.scraping_gpio.cancel_pending()
             self.next_scraping_deadline = None
             self.stage_deadline = None
