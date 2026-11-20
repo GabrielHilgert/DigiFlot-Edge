@@ -840,7 +840,9 @@ function requestVirtualClose() {
 }
 
 function cleanupVirtualSession() {
-    ++virtualSessionGeneration;
+    ++virtualSessionGeneration;++virtualTuningEpoch;
+    if(virtualTuningTimer)window.clearTimeout(virtualTuningTimer);
+    virtualTuningTimer=null;virtualTuningDirty=false;
     virtualRoiController?.abort();virtualRoiController=null;virtualRoiTask=null;
     virtualDiagnosticsDesired=false;
     const stop=stopVirtualDiagnostics();
@@ -861,6 +863,7 @@ async function openVirtualCalibration() {
     missing.hidden=true;editor.hidden=true;
     document.getElementById("virtual_modal_footer").hidden=true;
     virtualRoiDirty=false;virtualSavedConfig=null;
+    virtualReferenceRows=[null,null];virtualTuningDirty=false;++virtualTuningEpoch;
     try {
         await virtualCleanup;
         if(generation!==virtualSessionGeneration || !panel.open)return;
@@ -880,6 +883,8 @@ async function openVirtualCalibration() {
         document.getElementById("virtual_modal_footer").hidden=false;
         document.getElementById("virtual_method_section").open=false;
         renderVirtualFields();renderVerticalReference();
+        virtualTuningStatus("Waiting for the first cached ROI");
+        document.getElementById("virtual_fit_status").textContent="Mark one or both interface levels for a guided fit.";
         virtualSavedConfig=virtualCollectInputs();
         virtualRoiPlane=null;virtualRoiDirty=false;
         document.getElementById("virtual_roi_stage").hidden=true;
@@ -925,6 +930,10 @@ async function virtualSaveConfiguration() {
     document.getElementById("virtual_diagnostics_status").textContent=
         refreshed.test?.reused ? "Previous passing benchmark matches these settings. A new test is optional." :
             "Settings updated. Waiting for a diagnostic frame with the new parameters.";
+    if(virtualDiagnosticsActive) {
+        virtualTuningStatus("Saved · waiting for updated detector frame");
+        scheduleVirtualTuning(150);
+    }
     await refreshDigiFlotState();
 }
 
@@ -1729,6 +1738,38 @@ document.getElementById("virtual_advanced_fields").addEventListener("toggle", ev
         if(node!==event.target)node.open=false;
     });
 }, true);
+const tuningControls=document.getElementById("virtual_quick_fields");
+tuningControls.addEventListener("input",event=>{
+    const input=event.target;
+    if(!input.matches("[data-virtual-param]"))return;
+    const key=input.dataset.virtualParam;
+    virtualDraft[key]=input.tagName==="SELECT"?input.value:Number(input.value);
+    const output=tuningControls.querySelector('[data-quick-value="'+key+'"]');
+    if(output)output.textContent=input.value;
+    scheduleVirtualTuning();
+});
+tuningControls.addEventListener("change",event=>{
+    if(event.target.dataset.virtualParam==="temporal_filter")scheduleVirtualTuning(10);
+});
+document.getElementById("virtual_main_fields").addEventListener("change",event=>{
+    if(!virtualDraft)return;
+    try{virtualCollectInputs();}catch(error){virtualTuningStatus(error.message);return;}
+    if(event.target.dataset.virtualParam==="method")renderVirtualFields();
+    scheduleVirtualTuning();
+});
+document.getElementById("virtual_advanced_fields").addEventListener("input",event=>{
+    if(!event.target.matches("[data-virtual-param]"))return;
+    scheduleVirtualTuning();
+});
+document.getElementById("virtual_tune_refresh").addEventListener("click",()=>scheduleVirtualTuning(10));
+for(const id of ["virtual_image","virtual_entropy_image"])
+    document.getElementById(id).addEventListener("click",virtualMarkReference);
+document.getElementById("virtual_reference_clear").addEventListener("click",()=>{
+    virtualReferenceRows=[null,null];
+    document.getElementById("virtual_fit_status").textContent="Reference marks cleared.";
+    drawVirtualOverlays();scheduleVirtualTuning();
+});
+document.getElementById("virtual_fit_parameters").addEventListener("click",virtualFitParameters);
 document.getElementById("virtual_show_grid").addEventListener("change", () => {
     drawVirtualOverlays();drawVirtualRoiOverlay();
 });
@@ -1786,6 +1827,7 @@ document.getElementById("virtual_roi_refresh").addEventListener("click", async e
 document.getElementById("virtual_roi_reset").addEventListener("click", () => {
     if(!virtualDraft)return;
     virtualDraft.detection_roi_cm=null;virtualRoiDirty=true;
+    virtualTuningStatus("Detection ROI changed · Save to refresh its rectified image");
     virtualBenchmarkMarkup(null);
     renderVirtualRoiCaption();drawVirtualRoiOverlay();
 });
