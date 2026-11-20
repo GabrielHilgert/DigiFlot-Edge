@@ -1801,7 +1801,9 @@ class DigiFlot:
 
             item["status"] = "pending"
             item["confirmed_at"] = None
-            if sensor_id == "froth_interface" and self.vision is not None and hasattr(self.vision, "deactivate_sensor"):
+            if (getattr(self, "vision", None) is not None and
+                    str(getattr(self, "virtual_camera_id", None)) == str(camera_id) and
+                    hasattr(self.vision, "deactivate_sensor")):
                 self.vision.deactivate_sensor()
             item.pop("skip_reason", None)
             item.pop("error", None)
@@ -1887,7 +1889,9 @@ class DigiFlot:
             self._mark_calibration_changed_unlocked("camera", camera_id)
             item["status"] = "skipped"
             item["confirmed_at"] = _utc_now()
-            if sensor_id == "froth_interface" and self.vision is not None and hasattr(self.vision, "deactivate_sensor"):
+            if (getattr(self, "vision", None) is not None and
+                    str(getattr(self, "virtual_camera_id", None)) == str(camera_id) and
+                    hasattr(self.vision, "deactivate_sensor")):
                 self.vision.deactivate_sensor()
             item["skip_reason"] = str(reason or "Operator skipped calibration")
             self._touch_unlocked(
@@ -2002,6 +2006,9 @@ class DigiFlot:
                 self._mark_calibration_changed_unlocked()
             item["status"] = "pending"
             item["confirmed_at"] = None
+            if (sensor_id == "froth_interface" and getattr(self, "vision", None) is not None
+                    and hasattr(self.vision, "deactivate_sensor")):
+                self.vision.deactivate_sensor()
             item.pop("skip_reason", None)
             item.pop("error", None)
             if item.get("mode") in {"two_point", "ph_points"}:
@@ -2092,6 +2099,9 @@ class DigiFlot:
             item = self.sensor_calibration[sensor_id]
             item["status"] = "skipped"
             item["confirmed_at"] = _utc_now()
+            if (sensor_id == "froth_interface" and getattr(self, "vision", None) is not None
+                    and hasattr(self.vision, "deactivate_sensor")):
+                self.vision.deactivate_sensor()
             item["skip_reason"] = str(reason or "Operator skipped calibration")
             item.pop("error", None)
             if item.get("mode") == "virtual_interface" and self.preview_camera_id == self.virtual_camera_id:
@@ -2600,7 +2610,7 @@ class DigiFlot:
             return self.status
 
     def _finish_experiment_unlocked(self):
-        if self.vision is not None and hasattr(self.vision, "deactivate_sensor"):
+        if getattr(self, "vision", None) is not None and hasattr(self.vision, "deactivate_sensor"):
             self.vision.deactivate_sensor()
         self._request_airflow_stop_unlocked("completed")
         self.scraping_gpio.cancel_pending()
@@ -2627,7 +2637,7 @@ class DigiFlot:
             if self.state == self.IDLE:
                 return self.status
 
-            if self.vision is not None and hasattr(self.vision, "deactivate_sensor"):
+            if getattr(self, "vision", None) is not None and hasattr(self.vision, "deactivate_sensor"):
                 self.vision.deactivate_sensor()
             if hasattr(self, "_request_airflow_stop_unlocked"):
                 self._request_airflow_stop_unlocked("aborted")
