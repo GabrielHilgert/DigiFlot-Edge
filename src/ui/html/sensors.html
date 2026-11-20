@@ -6,7 +6,7 @@
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
     <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114hifie2">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261120tuning1"></script>
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261120fixedreference2"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -107,14 +107,16 @@
                         <div class="virtual-reference-fit-controls">
                             <label for="virtual_reference_target">Reference line</label>
                             <select id="virtual_reference_target"><option value="froth">Froth surface</option><option value="pulp">Pulp–froth interface</option></select>
+                            <button id="virtual_reference_show" type="button" class="button button-secondary" data-icon="image">Reference image</button>
+                            <button id="virtual_reference_capture" type="button" class="button button-secondary" data-icon="refresh-cw">New reference</button>
                             <button id="virtual_reference_clear" type="button" class="button button-secondary" data-icon="x">Clear marks</button>
                             <button id="virtual_fit_parameters" type="button" class="button button-secondary" data-icon="sliders">Fit filters</button>
                             <label class="virtual-grid-option"><input id="virtual_fit_thresholds" type="checkbox"> Include thresholds (optional)</label>
                         </div>
-                        <p>Click a horizontal level in the Rectified ROI or Entropy map. Fit proposes nearby parameter values; review them before Save and Run test.</p>
+                        <p>Fit filters uses only the frozen reference image. Mark the froth surface and/or pulp interface on that image. New reference captures one frame; sliders and Fit never capture again.</p>
                         <span id="virtual_fit_status" role="status">Mark one or both interface levels to enable a guided fit.</span>
                     </div>
-                    <div id="virtual_diagnostics_status" class="virtual-diagnostic-status" role="status">Open live diagnostics or run the calibration test to inspect the detector.</div>
+                    <div id="virtual_diagnostics_status" class="virtual-diagnostic-status" role="status">The frozen reference image is available after the camera plane loads. Live diagnostics are optional.</div>
                     <div id="virtual_diagnostic_grid" class="virtual-diagnostic-grid" hidden>
                         <figure class="virtual-diagnostic-figure">
                             <figcaption>Rectified ROI <small>Input image · physical grid</small></figcaption>
