@@ -1290,10 +1290,37 @@ class VisionService:
                 optics = self.registry.camera_profile(camera.id)
                 calibrated = deepcopy(association)
 
-            # Rectification can be expensive on a Pi; never block the run lock.
+            # Capture once. This same frame supplies both the full plane and
+            # a frozen detector ROI for any number of parameter-fit requests.
+            # Only explicit Refresh/Recapture ever touches the camera again.
             result = self._rectify_captured(image, frame, optics, calibrated)
-            config = self.registry.virtual_profile(camera.id, cell_id)["config"]
+            config = normalized_config(profile["config"])
+            frozen, error = None, None
+            try:
+                from math import sqrt
+                roi = detection_roi(config, calibrated)
+                span_x, span_y = roi[2] - roi[0], roi[3] - roi[1]
+                source_w, source_h = frame["size"]
+                density = min(float(config["resolution_px"]) / span_x,
+                              min(source_w, 1280) / span_x, min(source_h, 960) / span_y,
+                              sqrt(1_000_000 / (span_x * span_y)))
+                maps = compile_roi_maps(calibrated["calibration"], calibrated["camera_profile"],
+                                        frame, roi, px_per_cm=density, max_pixels=1_000_000)
+                frozen = {"image": remap_roi(image, maps), "roi": list(roi),
+                          "density": maps["size"][0] / span_x,
+                          "camera_id": str(camera.id), "cell_id": str(cell_id),
+                          "calibration_id": calibrated["calibration_id"],
+                          "resolution_px": config["resolution_px"],
+                          "timestamp_ns": frame["captured_timestamp_ns"]}
+            except (ValueError, RuntimeError, KeyError) as exc:
+                error = str(exc)
+            with self._lock:
+                self._reference_frame = frozen
+                self._reference_owner_id = str(owner_id) if frozen is not None and owner_id else None
             result["detection_roi_cm"] = config.get("detection_roi_cm")
+            result["reference_ready"] = frozen is not None and bool(owner_id)
+            if error:
+                result["reference_error"] = error
             return result
 
     def rectified_snapshot(self, camera_id, cell_id):
