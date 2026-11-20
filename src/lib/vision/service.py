@@ -862,7 +862,10 @@ class VisionService:
         return {"id": "froth_interface", "name": "HIFIE | Froth Interface Detection",
                 "type": "virtual_froth_interface", "virtual": True,
                 "source_camera_id": camera_id, "physical_cell_id": cell_id,
-                "status": ("connected" if active_state else "stopped") if camera else "offline",
+                "status": "connected" if camera else "offline",
+                "acquisition_active": bool(active_state and self._thread is not None and
+                                           self._thread.is_alive() and self._sensor_stop is not None and
+                                           not self._sensor_stop.is_set()),
                 "value": reading.get("froth_thickness_cm") if valid else None,
                 "unit": "cm", "decimals": 2,
                 "channels": {key: reading.get(key) for key in
