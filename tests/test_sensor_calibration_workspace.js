@@ -15,13 +15,13 @@ assert.match(sensorsHtml,/id="finish_calibration"/);
 assert.match(sensors,/state\.digiflot = await requestJson\("\/api\/digiflot\/calibration\/sensors\/complete"/);
 assert.match(sensors,/workflowLink\.href=state\.calibrationMode \? "\/cells" : "\/run"/);
 
-// Initial snapshot must finish before background lores diagnostics can claim the camera.
+// One initial frame provides the static reference and full camera plane.
 const modal=sensors.slice(sensors.indexOf("async function openVirtualCalibration()"),
     sensors.indexOf("async function virtualSaveConfiguration()"));
 assert.ok(modal.includes("await loadVirtualRoiPlane()"));
-assert.ok(modal.includes("await startVirtualDiagnostics()"));
-assert.ok(modal.indexOf("await loadVirtualRoiPlane()") < modal.indexOf("await startVirtualDiagnostics()"));
-assert.doesNotMatch(modal,/void loadVirtualRoiPlane\(\)/);
+assert.ok(modal.includes("await runVirtualTuning()"));
+assert.ok(modal.indexOf("await loadVirtualRoiPlane()") < modal.indexOf("await runVirtualTuning()"));
+assert.doesNotMatch(modal,/await startVirtualDiagnostics\(\)|void loadVirtualRoiPlane\(\)/);
 
 // Subsequent manual refresh and modal close also quiesce the live request first.
 const refresh=sensors.slice(sensors.indexOf('document.getElementById("virtual_roi_refresh").addEventListener'),
@@ -32,7 +32,7 @@ assert.match(sensors,/const pending=virtualDiagRequest;[\s\S]*?if\(pending\)awai
 assert.match(sensors,/virtualRoiController\?\.abort\(\)/);
 assert.match(sensors,/const timeout=window\.setTimeout\(\(\)=>\{timedOut=true;controller\.abort\(\);\},25000\)/);
 assert.match(sensors,/window\.clearTimeout\(timeout\)/);
-assert.match(sensors,/if\(planeReady && virtualEffectiveRoi\(\)\)/);
+assert.match(sensors,/if\(planeReady && virtualReferenceReady\)/);
 
 
 // Camera owns one stable lores stream; modal and sensor never resize it.
