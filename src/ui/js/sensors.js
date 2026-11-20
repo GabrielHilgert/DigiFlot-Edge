@@ -295,6 +295,7 @@ function renderVerticalReference() {
 function invalidateVerticalReference() {
     virtualDraft.vertical_reference_confirmed=false;
     document.getElementById("virtual_reference_confirm").checked=false;
+    document.getElementById("virtual_camera_step").open=true;
     virtualBenchmarkMarkup(null);
     renderVirtualTestTimeline([]);
     renderVerticalReference();
@@ -1011,10 +1012,12 @@ async function openVirtualCalibration() {
                 document.getElementById("virtual_fit_status").textContent=
                     "Frozen reference ready. Mark one or both lines, then Fit filters.";
                 hifieWorkflow("detector","ready");
-                // The ROI is still editable; collapse the large plane once a
-                // matching reference has been acquired, making tuning visible.
-                document.getElementById("virtual_camera_step").open=false;
+                // Keep required physical datum confirmation visible.
+                const datumChecked=document.getElementById("virtual_reference_confirm").checked;
+                document.getElementById("virtual_camera_step").open=!datumChecked;
                 document.getElementById("virtual_detector_step").open=true;
+                if(!datumChecked)hifieWorkflow("camera","check datum",
+                    "Reference image captured. Confirm the physical vertical datum before running the test.");
             }
         }).catch(error => {
             if(generation===virtualSessionGeneration && panel.open) {
@@ -1966,6 +1969,7 @@ document.getElementById("virtual_named_reference").addEventListener("change",()=
     virtualDraft.reference_id=document.getElementById("virtual_named_reference").value;
     virtualDraft.vertical_reference_confirmed=false;
     document.getElementById("virtual_reference_confirm").checked=false;
+    document.getElementById("virtual_camera_step").open=true;
     virtualBenchmarkMarkup(null);renderVirtualTestTimeline([]);renderVerticalReference();
     drawVirtualRoiOverlay();scheduleVirtualTuning();
 });
@@ -1981,6 +1985,7 @@ document.getElementById("virtual_reference_y").addEventListener("input",()=>{
     virtualDraft.vertical_reference_y_cm=value===""?null:Number(value);
     virtualDraft.vertical_reference_confirmed=false;
     document.getElementById("virtual_reference_confirm").checked=false;
+    document.getElementById("virtual_camera_step").open=true;
     virtualBenchmarkMarkup(null);renderVirtualTestTimeline([]);
     document.getElementById("virtual_reference_description").textContent=
         "Reference modified. Review it before saving and checking validation.";
@@ -1988,6 +1993,14 @@ document.getElementById("virtual_reference_y").addEventListener("input",()=>{
 });
 document.getElementById("virtual_reference_confirm").addEventListener("change",event=>{
     if(virtualDraft)virtualDraft.vertical_reference_confirmed=event.target.checked;
+    if(event.target.checked && virtualReferenceReady){
+        hifieWorkflow("camera","ready","Camera and physical reference confirmed.");
+        document.getElementById("virtual_camera_step").open=false;
+        document.getElementById("virtual_detector_step").open=true;
+    } else {
+        document.getElementById("virtual_camera_step").open=true;
+        hifieWorkflow("camera","check datum","Confirm the physical vertical reference before running the test.");
+    }
 });
 document.getElementById("virtual_refresh_geometry").addEventListener("click",async()=>{
     if(virtualHasUnsavedChanges() && !window.confirm("Discard unsaved changes and reload geometry?"))return;
