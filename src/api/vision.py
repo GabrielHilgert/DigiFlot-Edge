@@ -63,6 +63,18 @@ def froth_interface_diagnostics(request: Request, payload: dict | None = None):
                    int(options.get("last_revision") or 0), request.headers.get("X-DigiFlot-Tab-Id"))
 
 
+@router.post("/virtual-sensors/froth-interface/tune-preview")
+def froth_interface_tune_preview(request: Request, payload: dict):
+    return _invoke(service(request).preview_virtual_tuning, payload,
+                   request.headers.get("X-DigiFlot-Tab-Id"))
+
+
+@router.post("/virtual-sensors/froth-interface/tune-fit")
+def froth_interface_tune_fit(request: Request, payload: dict):
+    return _invoke(service(request).fit_virtual_tuning, payload,
+                   request.headers.get("X-DigiFlot-Tab-Id"))
+
+
 @router.get("/virtual-sensors/froth-interface/detection-roi-preview")
 def froth_detection_roi_preview(request: Request):
     return _invoke(service(request).virtual_detection_roi_preview, request.headers.get("X-DigiFlot-Tab-Id"))
