@@ -216,8 +216,9 @@ function renderVirtualFields() {
         quick.map(virtualQuickSlider).join("")+
         '<div class="virtual-quick-select">'+virtualField("temporal_filter")+'</div>';
     document.getElementById("virtual_main_fields").innerHTML = ["method","sampling_interval_s"].map(virtualField).join("");
-    document.getElementById("virtual_advanced_fields").innerHTML = virtualFieldGroups.map(([name,keys]) =>
-        `<details><summary>${escapeHtml(name)}</summary>
+    document.getElementById("virtual_advanced_fields").innerHTML = virtualFieldGroups
+        .filter(([name,keys])=>keys.some(key=>!quick.includes(key)&&key!=="temporal_filter"))
+        .map(([name,keys])=>`<details><summary>${escapeHtml(name)}</summary>
         <div class="virtual-field-grid">${keys.filter(key=>!quick.includes(key)&&key!=="temporal_filter")
             .map(virtualField).join("")}</div></details>`).join("");
     renderVirtualPresets();
@@ -570,7 +571,12 @@ async function virtualFitParameters() {
             `Suggested: ${changed.join(", ")} · reference error ${result.baseline_error_px} → ${result.fitted_error_px} px (${result.evaluations} trials). Review before saving.` :
             `No clear improvement found (${result.evaluations} trials). Kept existing parameters.`;
     } catch(error){status.textContent="Fit unavailable: "+error.message;}
-    finally{virtualFitInFlight=false;button.disabled=false;}
+    finally {
+        virtualFitInFlight=false;button.disabled=false;
+        // A queued preview waits until the bounded fit has released its worker.
+        if(virtualTuningDirty && document.getElementById("virtual_panel").open)
+            scheduleVirtualTuning(20);
+    }
 }
 
 async function pollVirtualDiagnostics() {
