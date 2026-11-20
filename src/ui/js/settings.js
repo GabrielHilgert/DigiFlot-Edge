@@ -5,7 +5,7 @@ const el = Object.fromEntries([
     "save_performance", "telemetry_interval_s", "idle_telemetry_interval_s", "min_disk_free_gb", "storage_safety_margin_pct",
     "save_settings", "auto_advance_hint", "server_ip", "server_id", "server_name", "server_token",
     "server_status", "server_runtime_error", "server_restart_notice", "save_server", "autodetect", "save_devices",
-    "camera_devices", "scale_devices", "atlas_devices", "discovery_errors", "restart_notice", "restart_program",
+    "camera_devices", "scale_devices", "atlas_devices", "bronkhorst_devices", "wago_devices", "discovery_errors", "restart_notice", "restart_program",
     "restart_status", "toast"
 ].map(id => [id, document.getElementById(id)]));
 
@@ -84,6 +84,12 @@ function configuredDiscovery(payload) {
             config,
         })),
         atlas_bus: atlas.bus ?? 1,
+        bronkhorst: (configured.bronkhorst || []).map(config => ({
+            port: config.port, configured: true, detected: null, name: config.name, config,
+        })),
+        wago: (configured.wago || []).map(config => ({
+            port: config.port, configured: true, detected: null, name: config.name, config,
+        })),
         errors: [],
         scanned: false,
     };
@@ -163,13 +169,14 @@ async function load(resetDiscovery = false) {
 }
 
 function sensorEnabled(kind, item) {
-    if (!item.configured || !["scale", "atlas"].includes(kind)) return true;
+    if (!item.configured || !["scale", "atlas", "bronkhorst", "wago"].includes(kind)) return true;
     return item.config?.enabled !== false;
 }
 
 function genericDeviceStatus(kind, item) {
     if (!sensorEnabled(kind, item)) return ["Disabled", "disabled"];
     if (item.configured && item.detected === null) return ["Configured / not scanned", "unknown"];
+    if (item.configured && item.runtime_status === "unconfigured") return ["Register map required", "unknown"];
     if (item.configured && item.detected) return ["Configured", "configured"];
     if (item.configured && !item.detected) return ["Configured / offline", "offline"];
     if (item.detected) return ["Detected", "new"];
@@ -192,7 +199,7 @@ function deviceStatus(kind, item) {
 }
 
 function sensorEnableControl(kind, item) {
-    if (!item.configured || !["scale", "atlas"].includes(kind)) return "";
+    if (!item.configured || !["scale", "atlas", "bronkhorst", "wago"].includes(kind)) return "";
     const enabled = sensorEnabled(kind, item);
     const id = item.config?.id ?? "";
     const port = item.config?.port ?? item.port ?? "";
@@ -212,7 +219,8 @@ function sensorEnableControl(kind, item) {
 
 function row(kind, item, label, detail, selectable = true, controls = "") {
     const [status, cls] = deviceStatus(kind, item);
-    const key = kind === "camera" ? item.id : kind === "scale" ? item.port : item.address;
+    const key = kind === "camera" ? item.id :
+        ["scale", "bronkhorst", "wago"].includes(kind) ? item.port : item.address;
     const canSelect = Boolean(selectable && !item.configured && item.detected);
     const selection = canSelect
         ? `<input class="device-select" data-kind="${kind}" data-key="${esc(key)}" type="checkbox" aria-label="Select ${esc(label)}">`
@@ -254,6 +262,31 @@ function scaleIdentityControls(item) {
     </div>`;
 }
 
+function processControls(kind, item) {
+    if (kind === "wago" && item.detected && !item.configured) {
+        const offline = (state.discovery?.wago || []).filter(candidate =>
+            candidate.configured && !candidate.detected && candidate.config?.id);
+        const options = offline.map(other => '<option value="' + esc(other.config.id) + '">' +
+            esc(other.config.name || other.config.id) + '</option>').join("");
+        return '<label class="sensor-enable-control"><input type="checkbox" class="wago-model-confirm">' +
+            '<span>I verified this is a WAGO 879-1300 (Modbus alone does not identify the model)</span></label>' +
+            (offline.length ? '<label>Identity <select class="wago-reassignment"><option value="">New meter</option>' +
+                options + '</select></label>' : '');
+    }
+    if (kind === "bronkhorst" && item.configured)
+        return '<label class="sensor-enable-control"><input type="checkbox" class="bronk-control-enabled" ' +
+            'data-id="' + esc(item.config.id) + '" data-initial="' +
+            Boolean(item.config.control_enabled) + '" ' + (item.config.control_enabled ? 'checked' : '') +
+            '><span>Enable airflow control (after hardware verification)</span></label>';
+    if (kind === "wago" && item.configured) {
+        const registers = JSON.stringify(item.config.registers || {}, null, 2);
+        return '<details class="wago-register-details"><summary>Modbus registers (verified 879-1300 map)</summary>' +
+            '<textarea class="wago-register-map" data-id="' + esc(item.config.id) + '" rows="6" spellcheck="false">' +
+            esc(registers) + '</textarea><small>Read-only register map in JSON. Do not use registers from other WAGO models without verification.</small></details>';
+    }
+    return "";
+}
+
 function render() {
     const discovery = state.discovery;
     if (!discovery) return;
@@ -290,6 +323,20 @@ function render() {
         true,
     )).join("") || '<p class="muted">No configured Atlas sensors. Run auto-detect to scan known EZO addresses.</p>';
 
+    for (const kind of ["bronkhorst", "wago"]) {
+        const host = el[kind + "_devices"];
+        if (!host) continue;
+        host.innerHTML = (discovery[kind] || []).map(item => {
+            const detail = [item.port, kind === "bronkhorst" ?
+                [item.model, item.device_serial, item.unit].filter(Boolean).join(" · ") :
+                (item.evidence || "Modbus RTU · RS-485"),
+                item.error].filter(Boolean).join(" · ");
+            return row(kind, item, item.config?.name || item.name ||
+                (kind === "bronkhorst" ? "Bronkhorst MFC" : "Modbus device (model unverified)"),
+                detail, true, processControls(kind, item));
+        }).join("") || '<p class="muted">No configured devices. Use Auto-detect to scan serial interfaces.</p>';
+    }
+
     const errors = discovery.errors || [];
     el.discovery_errors.hidden = !errors.length;
     el.discovery_errors.innerHTML = errors.map(item =>
@@ -314,14 +361,31 @@ function updateSaveButton() {
         if (!active && confirmation) confirmation.querySelector("input").checked = false;
     });
     const selected = [...document.querySelectorAll(".device-select:checked")];
-    const sensorStateChanged = [...document.querySelectorAll(".sensor-enabled")].some(box =>
+    const sensorStateChanged = [...document.querySelectorAll(".sensor-enabled, .bronk-control-enabled")].some(box =>
         box.checked !== (box.dataset.initial === "true"));
+    const invalidRegisters = [...document.querySelectorAll(".wago-register-map")].some(box => {
+        try {
+            const map = JSON.parse(box.value || "{}");
+            return map === null || Array.isArray(map) || typeof map !== "object";
+        } catch (_) { return true; }
+    });
+    const changedRegisters = [...document.querySelectorAll(".wago-register-map")].some(box => {
+        try {
+            const next = JSON.stringify(JSON.parse(box.value || "{}"));
+            const item = (state.discovery?.wago || []).find(v => String(v.config?.id) === box.dataset.id);
+            return next !== JSON.stringify(item?.config?.registers || {});
+        } catch (_) { return true; }
+    });
     const remembered = [...document.querySelectorAll(".remember-scale-connection:checked")];
     const assigned = linkSelectors.filter(select => select.value);
     const confirmed = assigned.filter(select => select.closest(".device-row")?.querySelector(".scale-confirm:checked"));
     const uniqueTargets = new Set(assigned.map(select => select.value)).size === assigned.length;
-    const incomplete = confirmed.length !== assigned.length || !uniqueTargets;
-    el.save_devices.disabled = incomplete || !(selected.length || sensorStateChanged || remembered.length || confirmed.length);
+    const wagoUnchecked = [...document.querySelectorAll(".device-row:has(.device-select[data-kind='wago']:checked)")].some(
+        card => !card.querySelector(".wago-model-confirm:checked"));
+    const incomplete = confirmed.length !== assigned.length || !uniqueTargets ||
+        wagoUnchecked || invalidRegisters;
+    el.save_devices.disabled = incomplete ||
+        !(selected.length || sensorStateChanged || changedRegisters || remembered.length || confirmed.length);
     document.querySelectorAll(".device-row-selectable").forEach(card => {
         const checkbox = card.querySelector(".device-select");
         card.classList.toggle("selected", Boolean(checkbox?.checked));
@@ -335,8 +399,12 @@ function selectedHardware() {
         cameras: [],
         scales: [],
         atlas: [],
+        bronkhorst: [],
+        wago: [],
+        control_changes: [],
+        register_updates: [],
         atlas_bus: state.discovery?.atlas_bus ?? 1,
-        sensor_enabled: { scales: [], atlas: [] },
+        sensor_enabled: { scales: [], atlas: [], bronkhorst: [], wago: [] },
         reassignments: [],
         remember_connections: [],
     };
@@ -346,14 +414,17 @@ function selectedHardware() {
         const key = box.dataset.key;
         const list = kind === "camera"
             ? state.discovery.cameras
-            : kind === "scale"
-                ? state.discovery.scales
-                : state.discovery.atlas;
+            : kind === "scale" ? state.discovery.scales :
+              kind === "atlas" ? state.discovery.atlas : state.discovery[kind];
         const item = list.find(value => String(
-            kind === "camera" ? value.id : kind === "scale" ? value.port : value.address
+            kind === "camera" ? value.id :
+                ["scale", "bronkhorst", "wago"].includes(kind) ? value.port : value.address
         ) === String(key));
         if (item) {
-            out[kind === "camera" ? "cameras" : kind === "scale" ? "scales" : "atlas"].push(item);
+            const keyName = kind === "camera" ? "cameras" : kind === "scale" ? "scales" : kind;
+            out[keyName].push(kind === "wago" ? {...item,
+                confirmed_model: Boolean(box.closest(".device-row")?.querySelector(".wago-model-confirm:checked")),
+                reassign_id: box.closest(".device-row")?.querySelector(".wago-reassignment")?.value || null} : item);
         }
     });
 
@@ -365,11 +436,17 @@ function selectedHardware() {
                 enabled: box.checked,
             });
         } else if (box.dataset.kind === "atlas") {
-            out.sensor_enabled.atlas.push({
-                address: Number(box.dataset.address),
-                enabled: box.checked,
-            });
+            out.sensor_enabled.atlas.push({address: Number(box.dataset.address), enabled: box.checked});
+        } else if (["bronkhorst", "wago"].includes(box.dataset.kind)) {
+            out.sensor_enabled[box.dataset.kind].push({id: box.dataset.id, enabled: box.checked});
         }
+    });
+
+    document.querySelectorAll(".bronk-control-enabled").forEach(box =>
+        out.control_changes.push({id: box.dataset.id, control_enabled: box.checked}));
+    document.querySelectorAll(".wago-register-map").forEach(box => {
+        const value = JSON.parse(box.value || "{}");
+        out.register_updates.push({id: box.dataset.id, registers: value});
     });
 
     document.querySelectorAll(".scale-reassignment").forEach(select => {
@@ -498,13 +575,19 @@ document.addEventListener("click", event => {
 
 document.addEventListener("change", event => {
     if (["device-select", "sensor-enabled", "scale-reassignment", "scale-confirm",
+        "bronk-control-enabled", "wago-model-confirm",
         "remember-scale-connection"].some(cls => event.target.classList?.contains(cls))) {
         updateSaveButton();
     }
 });
+document.addEventListener("input", event => {
+    if (event.target.classList?.contains("wago-register-map")) updateSaveButton();
+});
 
 el.save_devices.addEventListener("click", async () => {
-    const payload = selectedHardware();
+    let payload;
+    try { payload = selectedHardware(); }
+    catch (error) { toast("Invalid register map JSON: " + error.message, 4500); return; }
     el.save_devices.disabled = true;
     try {
         const result = await json("/api/digiflot/devices/save", {

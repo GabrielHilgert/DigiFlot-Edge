@@ -431,6 +431,8 @@ function renderOperations(state) {
         ...(devices.cameras || []),
         ...(devices.scales || []),
         ...(devices.atlas || []),
+        ...(devices.bronkhorst || []),
+        ...(devices.wago || []),
     ];
     const online = all.filter((item) => ["connected", "Recording", "Preview", "Idle"].includes(item.status) || item.state === "Recording").length;
     const offline = all.length - online;
@@ -455,6 +457,8 @@ function sensorSnapshots(state) {
     return [
         ...(state.scales || []),
         ...(state.atlas || []),
+        ...(state.bronkhorst || []),
+        ...(state.wago || []),
         ...(state.virtual_sensors || []),
     ].filter((item) => item && item.id != null);
 }
@@ -610,6 +614,7 @@ function ensureSensorCard(sensor) {
         </div>
         <div class="live-sensor-reading">—</div>
         <div class="live-sensor-age">—</div>
+        <div class="run-process-details" hidden></div>
         <div class="sensor-sparkline-wrap"><canvas class="sensor-sparkline" aria-label="Recent sensor values"></canvas></div>`;
     ui.live_sensor_grid.appendChild(card);
     window.DigiFlotIcons?.decorate(card);
@@ -660,6 +665,23 @@ function renderLiveSensors(state) {
             card.querySelector(".live-sensor-reading").textContent = sensorDisplayValue(sensor);
         }
         card.querySelector(".live-sensor-age").textContent = sensorAgeText(sensor);
+        const processDetails = card.querySelector(".run-process-details");
+        if (processDetails) {
+            const channels = sensor.channels || {};
+            if (sensor.type === "bronkhorst") {
+                const setpoint = channels.setpoint_l_min;
+                processDetails.textContent = "Target " + (setpoint == null ? "—" :
+                    Number(setpoint).toFixed(2) + " L/min") +
+                    " · " + (sensor.control_state || "read-only");
+                processDetails.hidden = false;
+            } else if (sensor.type === "wago") {
+                processDetails.textContent = "Stage " + (channels.stage_energy_wh == null ?
+                    "—" : Number(channels.stage_energy_wh).toFixed(2) + " Wh") +
+                    " · Total " + (channels.energy_import == null ? "—" :
+                    Number(channels.energy_import).toFixed(4) + " kWh");
+                processDetails.hidden = false;
+            } else processDetails.hidden = true;
+        }
         const wrap = card.querySelector(".sensor-sparkline-wrap");
         const toggle = card.querySelector("[data-plot-toggle]");
         toggle.setAttribute("aria-pressed", String(!hidden));

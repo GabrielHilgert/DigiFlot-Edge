@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 from picamera2 import Picamera2
 
 from lib.atlasScientific import AtlasScientific
+from lib.bronkhorst import Bronkhorst
+from lib.wago import Wago
 from lib.camera import Camera
 from lib.scale import Scale
 from lib.serial_identity import serial_inventory, resolve_runtime_ports
@@ -153,6 +155,8 @@ class DigiFlot:
 
         self.scales = {}
         self.atlas = None
+        self.bronkhorst = {}
+        self.wago = {}
         self._load_sensors()
 
         # Optional subsystem. Its failure must never prevent DigiFlot startup.
@@ -298,6 +302,23 @@ class DigiFlot:
             elif atlas_config.get("sensors"):
                 print("[DigiFlot] All configured Atlas sensors are disabled. Skipping Atlas runtime.")
 
+        for key, klass, target in (("bronkhorst", Bronkhorst, self.bronkhorst),
+                                   ("wago", Wago, self.wago)):
+            configs = sensor_config.get(key, [])
+            resolved = resolve_runtime_ports(configs, serial_inventory())
+            for item in configs:
+                if not bool(item.get("enabled", True)):
+                    continue
+                runtime = deepcopy(item)
+                sensor_id = str(runtime.get("id") or runtime.get("port"))
+                runtime["port"] = resolved.get(sensor_id, runtime.get("port"))
+                try:
+                    device = klass.from_config(runtime)
+                    device.set_context_provider(self.acquisition_context)
+                    target[device.id] = device
+                except Exception as error:
+                    print(f"[DigiFlot] Could not configure {key} {sensor_id}: {error}")
+
     def start(self):
         for scale in self.scales.values():
             try:
@@ -310,6 +331,12 @@ class DigiFlot:
                 self.atlas.start()
             except Exception as error:
                 self.atlas.error = str(error)
+
+        for device in (*self.bronkhorst.values(), *self.wago.values()):
+            try:
+                device.start()
+            except Exception as error:
+                print(f"[DigiFlot] Could not start {device.name}: {error}")
 
         self._discover_incomplete_run()
         if self.performance is not None:
@@ -365,6 +392,12 @@ class DigiFlot:
                 self.atlas.stop()
             except Exception as error:
                 errors.append((self.atlas.name, error))
+
+        for device in (*self.bronkhorst.values(), *self.wago.values()):
+            try:
+                device.stop()
+            except Exception as error:
+                errors.append((device.name, error))
 
         if self.performance is not None:
             try:
@@ -555,6 +588,8 @@ class DigiFlot:
                 if self.atlas is not None
                 else []
             ),
+            "bronkhorst": [device.snapshot() for device in self.bronkhorst.values()],
+            "wago": [device.snapshot() for device in self.wago.values()],
             "cell_selection": {"selected": bool((self.cell_profile or {}).get("physical_cell_id")),
                                "cell_id": (self.cell_profile or {}).get("physical_cell_id"),
                                "camera_id": self.virtual_camera_id,
@@ -668,6 +703,8 @@ class DigiFlot:
             "cameras": cameras,
             "scales": scales,
             "atlas": atlas,
+            "bronkhorst": [device.snapshot() for device in self.bronkhorst.values()],
+            "wago": [device.snapshot() for device in self.wago.values()],
         }
 
     @staticmethod
@@ -837,6 +874,9 @@ class DigiFlot:
             for snapshot in self.atlas.sensor_snapshots():
                 if str(snapshot.get("id")) == sensor_id:
                     return snapshot
+        for device in (*self.bronkhorst.values(), *self.wago.values()):
+            if str(device.id) == sensor_id:
+                return device.snapshot()
         raise KeyError(f"Sensor not found: {sensor_id}")
 
     def measurements_payload(self):
@@ -1654,6 +1694,12 @@ class DigiFlot:
                     ),
                 }
 
+        for device in (*self.bronkhorst.values(), *self.wago.values()):
+            sensor_calibration[str(device.id)] = {
+                "id": device.id, "name": device.name, "type": device.DRIVER,
+                "mode": "manual_check", "status": "pending", "confirmed_at": None,
+            }
+
         self.sensor_calibration = sensor_calibration
 
     def _sensor_calibration_resolved_unlocked(self):
@@ -2076,6 +2122,10 @@ class DigiFlot:
             except KeyError:
                 pass
 
+        for device in (*self.bronkhorst.values(), *self.wago.values()):
+            if str(device.id) == sensor_id:
+                return device.snapshot()
+
         raise KeyError(f"Sensor '{sensor_id}' not found.")
 
     def set_sensor_calibration_points(self, sensor_id: str, requested_points: int):
@@ -2300,6 +2350,8 @@ class DigiFlot:
                 f"Could not apply stage setpoints: {error}",
                 {"stage_id": stage.get("id")},
             )
+            if any(device.control_enabled for device in self.bronkhorst.values()):
+                raise
 
         if self._camera_required(stage):
             if not self.recording:
@@ -2442,6 +2494,7 @@ class DigiFlot:
 
             self.paused_stage_state = self.stage_state
             self.scraping_gpio.cancel_pending()
+            self._request_airflow_stop_unlocked("pause")
             self.pause_started_monotonic = time.monotonic()
             self.pause_started_at = _utc_now()
             self.state = self.PAUSED
@@ -2477,6 +2530,12 @@ class DigiFlot:
             self.pause_started_monotonic = None
             self.pause_started_at = None
             self.paused_stage_state = None
+            if self.stage_state == self.STAGE_ACTIVE and self.current_stage is not None:
+                try:
+                    self.apply_stage_setpoints(self.current_stage)
+                except Exception as error:
+                    self._enter_recovery_unlocked(error, source="airflow_resume")
+                    raise
             self._touch_unlocked(
                 "EXPERIMENT_RESUMED",
                 {"pause_duration_s": pause_duration},
@@ -2484,6 +2543,7 @@ class DigiFlot:
             return self.status
 
     def _finish_experiment_unlocked(self):
+        self._request_airflow_stop_unlocked("completed")
         self.scraping_gpio.cancel_pending()
         self.next_scraping_deadline = None
         self.stage_deadline = None
@@ -2508,6 +2568,7 @@ class DigiFlot:
             if self.state == self.IDLE:
                 return self.status
 
+            self._request_airflow_stop_unlocked("aborted")
             self.scraping_gpio.cancel_pending()
             self.next_scraping_deadline = None
             self.stage_deadline = None
@@ -2533,6 +2594,7 @@ class DigiFlot:
             return self.status
 
     def _enter_recovery_unlocked(self, error, source="orchestrator"):
+        self._request_airflow_stop_unlocked("recovery")
         self.scraping_gpio.cancel_pending()
         previous_state = self.state
         previous_stage_state = self.stage_state
@@ -2792,6 +2854,14 @@ class DigiFlot:
                         {"sensor_id": snapshot.get("id"), "error": snapshot.get("error")},
                     )
 
+        for device in (*self.bronkhorst.values(), *self.wago.values()):
+            snapshot = device.snapshot()
+            if snapshot.get("status") not in ("connected", "stopped"):
+                self._add_warning_once_unlocked(
+                    f"process-{device.id}-{snapshot.get('status')}", "sensor",
+                    f"{device.name} is {snapshot.get('status')}: {snapshot.get('error') or 'No valid data'}.",
+                    {"sensor_id": device.id, "status": snapshot.get("status")})
+
     # ------------------------------------------------------------------
     # Timing / control loop
     # ------------------------------------------------------------------
@@ -2893,12 +2963,33 @@ class DigiFlot:
         return max(1.0, interval)
 
     def apply_stage_setpoints(self, stage: dict):
-        """Hardware control extension point for airflow, rotor speed, pH, etc."""
-        return {
-            "airflow": stage.get("airflow"),
-            "rotor_speed": stage.get("rotor_speed"),
-            "pH": stage.get("ph", stage.get("pH")),
-        }
+        """Apply the recipe airflow without moving serial I/O to the control thread."""
+        requested = stage.get("airflow")
+        controllers = [device for device in self.bronkhorst.values() if device.control_enabled]
+        if requested is not None and controllers:
+            if len(controllers) != 1:
+                raise ValueError("Configure exactly one enabled Bronkhorst airflow controller")
+            response = controllers[0].set_airflow(float(requested))
+            self._append_event_unlocked("AIRFLOW_SETPOINT_REQUESTED", {
+                "sensor_id": controllers[0].id, "stage_id": stage.get("id"),
+                "airflow_l_min": float(requested), "result": response})
+        return {"airflow": requested, "rotor_speed": stage.get("rotor_speed"),
+                "pH": stage.get("ph", stage.get("pH"))}
+
+    def _request_airflow_stop_unlocked(self, reason):
+        for device in self.bronkhorst.values():
+            if not device.control_enabled:
+                continue
+            try:
+                result = device.stop_airflow()
+                self._append_event_unlocked("AIRFLOW_STOP_REQUESTED", {
+                    "sensor_id": device.id, "reason": reason, "result": result})
+                if result.get("status") == "unconfirmed":
+                    self._add_warning_unlocked("airflow", "Airflow stop was not confirmed.",
+                                               {"sensor_id": device.id, "reason": reason})
+            except Exception as error:
+                self._add_warning_unlocked("airflow", f"Could not request air stop: {error}",
+                                           {"sensor_id": device.id, "reason": reason})
 
     def set_scraping_alerts(self, enabled: bool):
         """Suppress only the operator overlay/audio; preserve scheduling and logs."""
@@ -3058,6 +3149,20 @@ class DigiFlot:
                         {"sensor_id": "atlas", "reason": str(error)},
                     )
 
+        for device in (*self.bronkhorst.values(), *self.wago.values()):
+            snapshot = device.snapshot()
+            if snapshot.get("status") != "connected":
+                self._add_warning_unlocked("sensor", f"{device.name} unavailable; no recording started.",
+                                           {"sensor_id": device.id, "error": snapshot.get("error")})
+                continue
+            try:
+                path = device.start_recording(output_dir=directory, file_stem=_safe_path_name(device.id))
+                self._append_event_unlocked("SENSOR_RECORDING_STARTED",
+                                            {"sensor_id": device.id, "path": str(path)})
+            except Exception as error:
+                self._add_warning_unlocked("sensor", f"Could not record {device.name}: {error}",
+                                           {"sensor_id": device.id})
+
     def _stop_sensor_recording_unlocked(self):
         for scale in self.scales.values():
             try:
@@ -3088,6 +3193,15 @@ class DigiFlot:
                     f"Could not stop Atlas recording cleanly: {error}",
                     {"sensor_id": "atlas"},
                 )
+
+        for device in (*self.bronkhorst.values(), *self.wago.values()):
+            try:
+                if device.recording or device.writer_active:
+                    device.stop_recording()
+                    self._append_event_unlocked("SENSOR_RECORDING_STOPPED", {"sensor_id": device.id})
+            except Exception as error:
+                self._add_warning_unlocked("sensor", f"Could not close {device.name}: {error}",
+                                           {"sensor_id": device.id})
 
     # ------------------------------------------------------------------
     # Optional performance telemetry
@@ -3258,6 +3372,18 @@ class DigiFlot:
                 desired_scale_ids != runtime_scale_ids
                 or desired_atlas_addresses != runtime_atlas_addresses
                 or scale_ports_changed
+                or any(set(str(item.get("id")) for item in sensor_config.get(key, []) if item.get("enabled", True))
+                       != set(runtime) for key, runtime in (("bronkhorst", self.bronkhorst),
+                                                             ("wago", self.wago)))
+                or any(str(item.get("id")) in runtime and (
+                    getattr(runtime[str(item["id"])], "port", None) !=
+                    resolve_runtime_ports([item], serial_inventory()).get(str(item["id"]), item.get("port"))
+                    or (key == "bronkhorst" and
+                        bool(item.get("control_enabled", False)) != runtime[str(item["id"])].control_enabled)
+                    or (key == "wago" and
+                        (item.get("registers") or {}) != runtime[str(item["id"])].registers))
+                    for key, runtime in (("bronkhorst", self.bronkhorst), ("wago", self.wago))
+                    for item in sensor_config.get(key, []) if item.get("enabled", True))
             )
 
             return {
@@ -3292,6 +3418,8 @@ class DigiFlot:
                     "cameras": deepcopy(self.config.get("cameras", [])),
                     "scales": deepcopy(self.config.get("sensors", {}).get("scales", [])),
                     "atlas_scientific": deepcopy(self.config.get("sensors", {}).get("atlas_scientific")),
+                    "bronkhorst": deepcopy(sensor_config.get("bronkhorst", [])),
+                    "wago": deepcopy(sensor_config.get("wago", [])),
                 },
             }
 
@@ -3437,8 +3565,8 @@ class DigiFlot:
             if self.state != self.IDLE:
                 raise RuntimeError("Hardware configuration can only be changed while DigiFlot is idle.")
 
-            added = {"cameras": [], "scales": [], "atlas": []}
-            updated = {"scales": [], "atlas": []}
+            added = {"cameras": [], "scales": [], "atlas": [], "bronkhorst": [], "wago": []}
+            updated = {"scales": [], "atlas": [], "bronkhorst": [], "wago": []}
             reassigned = []
 
             config_cameras = self.config.setdefault("cameras", [])
@@ -3617,6 +3745,137 @@ class DigiFlot:
                         "enabled": enabled,
                     })
 
+            # Verify new serial instruments on the server before persisting any selection.
+            endpoints = {item["port"]: item for item in serial_inventory()}
+            for kind, klass in (("bronkhorst", Bronkhorst), ("wago", Wago)):
+                configs = sensors.setdefault(kind, [])
+                known_ids = {str(item.get("id")) for item in configs}
+                known_ports = {str(item.get("port")) for item in configs}
+                for requested in payload.get(kind, []) or []:
+                    port = str(requested.get("port") or "")
+                    if port in known_ports or port not in endpoints:
+                        continue
+                    if any(port == str(item.get("port")) for other in ("scales", "bronkhorst", "wago")
+                           for item in sensors.get(other, []) if other != kind):
+                        raise ValueError(f"Port {port} is already assigned to a sensor.")
+                    endpoint = dict(endpoints[port])
+                    from lib.serial_identity import connection_from_port
+                    endpoint["connection"] = connection_from_port(
+                        endpoint, transport="rs485" if kind == "wago" else "rs232")
+                    if kind == "bronkhorst":
+                        evidence = klass.discover_available([endpoint],
+                            baudrate=int(requested.get("baudrate", 38400)))
+                    else:
+                        evidence = klass.discover_available([endpoint],
+                            slave_ids=(int(requested.get("slave_id", 1)),),
+                            baudrates=(int(requested.get("baudrate", 9600)),))
+                        if not requested.get("confirmed_model"):
+                            raise ValueError("Confirm the WAGO 879-1300 model before saving a generic Modbus device.")
+                    if not evidence:
+                        raise ValueError(f"No confirmed {kind} protocol response on {port}.")
+                    detected = evidence[0]
+                    existing_target = None
+                    if kind == "bronkhorst" and detected.get("device_serial"):
+                        matches = [item for item in configs if str(
+                            (item.get("identity") or {}).get("device_serial") or ""
+                        ) == str(detected["device_serial"])]
+                        if len(matches) > 1:
+                            raise ValueError("Duplicate Bronkhorst serial identities in configuration.")
+                        existing_target = matches[0] if matches else None
+                    elif kind == "wago" and requested.get("reassign_id"):
+                        existing_target = next((item for item in configs
+                            if str(item.get("id")) == str(requested["reassign_id"])), None)
+                        if existing_target is None:
+                            raise ValueError("Unknown WAGO device selected for reassignment.")
+                    if existing_target is not None:
+                        old_runtime = (self.bronkhorst if kind == "bronkhorst" else self.wago).get(
+                            str(existing_target["id"]))
+                        if old_runtime is not None and old_runtime.snapshot().get("status") == "connected":
+                            raise ValueError("Existing device is still online; refusing reassignment.")
+                        known_ports.discard(str(existing_target.get("port")))
+                        existing_target["port"] = port
+                        existing_target["connection"] = detected["connection"]
+                        if kind == "bronkhorst":
+                            existing_target["identity"] = detected["identity"]
+                        else:
+                            existing_target.update({"slave_id": int(detected["slave_id"]),
+                                "baudrate": int(detected["baudrate"]), "parity": detected["parity"]})
+                        known_ports.add(port)
+                        updated[kind].append({"id": existing_target["id"], "reassigned": True, "port": port})
+                        continue
+                    idx = 1
+                    prefix = "air_flow" if kind == "bronkhorst" else "power_meter"
+                    while f"{prefix}_{idx}" in known_ids:
+                        idx += 1
+                    item = {"id": f"{prefix}_{idx}", "name": "Air Flow" if kind == "bronkhorst" else "Motor Power",
+                            "enabled": True, "port": port, "sample_interval": 1.0,
+                            "connection": detected["connection"],
+                            "identity": detected.get("identity") or {"protocol": "modbus_rtu", "device_serial": None}}
+                    if kind == "bronkhorst":
+                        item.update({"baudrate": int(detected.get("baudrate", 38400)),
+                                     "address": int(requested.get("address", 128)),
+                                     "control_enabled": False, "max_flow_l_min": 10.0})
+                    else:
+                        item.update({"slave_id": int(detected["slave_id"]), "baudrate": int(detected["baudrate"]),
+                                     "parity": detected["parity"], "registers": {}})
+                    configs.append(item)
+                    known_ids.add(item["id"])
+                    known_ports.add(port)
+                    added[kind].append(item)
+
+                existing = {str(item["id"]): item for item in configs}
+                for change in (payload.get("sensor_enabled") or {}).get(kind, []) or []:
+                    target = existing.get(str(change.get("id")))
+                    if target is not None and bool(target.get("enabled", True)) != bool(change.get("enabled", True)):
+                        target["enabled"] = bool(change["enabled"])
+                        updated[kind].append({"id": target["id"], "enabled": target["enabled"]})
+
+            bronk_by_id = {str(item["id"]): item for item in sensors.get("bronkhorst", [])}
+            for change in payload.get("control_changes", []) or []:
+                sensor_id = str(change.get("id") or "")
+                target = bronk_by_id.get(sensor_id)
+                if target is None:
+                    raise ValueError(f"Unknown Bronkhorst controller: {sensor_id}")
+                enabled = change.get("control_enabled")
+                if type(enabled) is not bool:
+                    raise ValueError("control_enabled must be a boolean")
+                if enabled and not target.get("control_enabled"):
+                    runtime = self.bronkhorst.get(sensor_id)
+                    if runtime is None or runtime.snapshot().get("status") != "connected":
+                        raise ValueError("Identify and verify Bronkhorst communication before enabling control.")
+                if bool(target.get("control_enabled", False)) != enabled:
+                    target["control_enabled"] = enabled
+                    updated["bronkhorst"].append({"id": sensor_id, "control_enabled": enabled})
+
+            wago_by_id = {str(item["id"]): item for item in sensors.get("wago", [])}
+            supported_types = {"float32", "uint32", "int32", "uint16", "int16"}
+            for change in payload.get("register_updates", []) or []:
+                sensor_id = str(change.get("id") or "")
+                target = wago_by_id.get(sensor_id)
+                if target is None:
+                    raise ValueError(f"Unknown WAGO: {sensor_id}")
+                registers = change.get("registers")
+                if not isinstance(registers, dict) or any(name not in Wago.CHANNELS for name in registers):
+                    raise ValueError("Invalid WAGO register names.")
+                for name, spec in registers.items():
+                    if not isinstance(spec, dict) or type(spec.get("address")) is not int:
+                        raise ValueError(f"Invalid WAGO {name} register address.")
+                    if not 0 <= spec["address"] <= 65535 or spec.get("function", 3) not in (3, 4):
+                        raise ValueError(f"Invalid WAGO {name} register or function code.")
+                    if spec.get("data_type", "float32") not in supported_types:
+                        raise ValueError(f"Invalid WAGO {name} data type.")
+                    if spec.get("byteorder", "big") not in ("big", "little", "big_swap", "little_swap"):
+                        raise ValueError(f"Invalid WAGO {name} register byte order.")
+                    try:
+                        import math
+                        if not math.isfinite(float(spec.get("scale", 1))):
+                            raise ValueError()
+                    except (ValueError, TypeError):
+                        raise ValueError(f"Invalid WAGO {name} scaling factor.")
+                if (target.get("registers") or {}) != registers:
+                    target["registers"] = deepcopy(registers)
+                    updated["wago"].append({"id": sensor_id, "registers_updated": True})
+
             changed = any(added.values()) or any(updated.values())
             paths = self.save_config() if changed else []
             if changed:
@@ -3625,7 +3884,8 @@ class DigiFlot:
                     f"{len(added['cameras'])} camera(s), "
                     f"{len(added['scales'])} scale(s), "
                     f"{len(added['atlas'])} Atlas sensor(s) added; "
-                    f"{len(updated['scales']) + len(updated['atlas'])} sensor state change(s)."
+                    f"{sum(len(v) for v in updated.values())} sensor state change(s), "
+                    f"{len(added['bronkhorst'])} Bronkhorst and {len(added['wago'])} WAGO."
                 )
                 print("[DigiFlot] Restart required to apply hardware configuration changes.")
             else:

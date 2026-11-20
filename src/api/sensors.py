@@ -45,6 +45,7 @@ def list_all_sensors(request: Request):
     if atlas is not None:
         snapshots.extend(atlas.sensor_snapshots())
     digiflot = request.app.state.digiflot
+    snapshots.extend(device.snapshot() for device in (*digiflot.bronkhorst.values(), *digiflot.wago.values()))
     if digiflot.virtual_camera_id is not None:
         snapshots.append(request.app.state.vision.virtual_sensor_snapshot())
     return snapshots
@@ -65,12 +66,18 @@ def get_sensor(request: Request, sensor_id: str):
         except KeyError:
             pass
 
+    for device in (*request.app.state.digiflot.bronkhorst.values(),
+                   *request.app.state.digiflot.wago.values()):
+        if str(device.id) == sensor_id:
+            return "process", device
     raise HTTPException(status_code=404, detail="Sensor not found.")
 
 
 def sensor_snapshot(kind, source, sensor_id):
     if kind == "scale":
         return scale_snapshot(source)
+    if kind == "process":
+        return source.snapshot()
     if kind == "virtual":
         return source.virtual_sensor_snapshot()
     return source.snapshot(sensor_id)
@@ -103,6 +110,8 @@ def sensor_event_stream(kind, source, sensor_id):
                 ),
                 "decimals": 2,
             })
+        elif kind == "process":
+            snapshot = source.wait_for_update(last_revision, timeout=5.0)
         else:
             snapshot = source.wait_for_update(sensor_id, last_revision, timeout=5.0)
 

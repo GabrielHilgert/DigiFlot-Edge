@@ -23,6 +23,8 @@ Pillow
 # Hardware / sensors
 pyserial
 smbus2
+bronkhorst-propar
+minimalmodbus
 
 # Utilities
 python-dotenv

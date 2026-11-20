@@ -39,12 +39,12 @@ def serial_inventory(ports=None, serial_root="/dev/serial"):
     } for info in ports]
 
 
-def connection_from_port(endpoint):
-    """Snapshot the endpoint; do not claim this identifies the scale itself."""
+def connection_from_port(endpoint, transport="rs232"):
+    """Snapshot the USB endpoint. Adapter identity is not instrument identity."""
     return {key: endpoint.get(key) for key in (
         "usb_id", "usb_path", "adapter_serial", "interface",
         "vid", "pid", "last_port",
-    )} | {"transport": "rs232", "last_port": endpoint["port"]}
+    )} | {"transport": str(transport), "last_port": endpoint["port"]}
 
 
 def strong_match(connection, endpoints):

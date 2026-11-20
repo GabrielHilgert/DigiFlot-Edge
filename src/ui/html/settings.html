@@ -6,7 +6,7 @@
     <title>DigiFlot Edge | Settings</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
     <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20261114hfds1">
-    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20261114icons1"></script>
+    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20261120serialprocess1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -135,6 +135,8 @@
                 <section><h3>Cameras</h3><div id="camera_devices" class="device-list"><p class="muted">Loading configured cameras…</p></div></section>
                 <section><h3>Scales / serial</h3><div id="scale_devices" class="device-list"><p class="muted">Loading configured scales…</p></div></section>
                 <section><h3>Atlas Scientific</h3><div id="atlas_devices" class="device-list"><p class="muted">Loading configured Atlas sensors…</p></div></section>
+                <section><h3>Bronkhorst Air Flow</h3><div id="bronkhorst_devices" class="device-list"><p class="muted">Loading configured controllers…</p></div></section>
+                <section><h3>WAGO Energy Meter</h3><div id="wago_devices" class="device-list"><p class="muted">Loading configured power meters…</p></div></section>
             </div>
             <div id="restart_notice" class="restart-notice" hidden>Hardware configuration saved. Restart DigiFlot to apply sensor or device changes.</div>
         </section>

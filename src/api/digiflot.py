@@ -6,9 +6,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from lib.atlasScientific import AtlasScientific
+from lib.bronkhorst import Bronkhorst
+from lib.wago import Wago
 from lib.camera import Camera
 from lib.scale import Scale
-from lib.serial_identity import serial_inventory, configured_endpoint_map
+from lib.serial_identity import (serial_inventory, configured_endpoint_map,
+                                 connection_from_port, resolve_runtime_ports)
 
 
 router = APIRouter(
@@ -26,7 +29,7 @@ def api_error(error: Exception):
         return HTTPException(status_code=404, detail=str(error).strip("'"))
     if isinstance(error, ValueError):
         return HTTPException(status_code=400, detail=str(error))
-    if isinstance(error, RuntimeError):
+    if isinstance(error, (RuntimeError, ConnectionError, PermissionError)):
         return HTTPException(status_code=409, detail=str(error))
     return HTTPException(status_code=500, detail=str(error))
 
@@ -363,6 +366,8 @@ def discover_devices(request: Request):
     configured_scales = sensor_config.get("scales", [])
     configured_scale_by_port = configured_endpoint_map(configured_scales, serial_inventory())
     configured_ports = set(configured_scale_by_port)
+    process_ports = {str(device.port) for device in (*digiflot.bronkhorst.values(),
+                       *digiflot.wago.values())}
     # Do not associate a previously known sensor with a tty reused by another
     # converter. An unmatched saved scale is displayed as offline below.
 
@@ -375,6 +380,8 @@ def discover_devices(request: Request):
         "cameras": [],
         "scales": [],
         "atlas": [],
+        "bronkhorst": [],
+        "wago": [],
         "atlas_bus": atlas_bus,
         "errors": [],
     }
@@ -417,6 +424,7 @@ def discover_devices(request: Request):
         result["scales"] = Scale.discover_available(
             configured_ports,
             runtime_scales=runtime_scales_by_port,
+            reserved_ports=process_ports,
         )
         serial_ports = {str(item["port"]) for item in result["scales"]}
         for item in result["scales"]:
@@ -493,6 +501,50 @@ def discover_devices(request: Request):
                 "detected": False, "config": config, "error": str(error),
             })
 
+    # Reuse the same inventory. Never reopen a live runtime sensor during discovery.
+    inventory = serial_inventory()
+    confirmed_scales = {str(item["port"]) for item in result["scales"]
+                        if item.get("scale_detected")}
+    reserved = process_ports | confirmed_scales | configured_ports | {str(x.port) for x in digiflot.scales.values()}
+    for kind, klass, runtime in (("bronkhorst", Bronkhorst, digiflot.bronkhorst),
+                                  ("wago", Wago, digiflot.wago)):
+        configured_list = sensor_config.get(kind, [])
+        try:
+            # Configured devices are represented by their live snapshots.
+            for device in runtime.values():
+                snap = device.snapshot()
+                result[kind].append({"port": device.port, "configured": True,
+                    "detected": snap["status"] == "connected", "config": next(
+                        (item for item in configured_list if str(item.get("id")) == device.id), None),
+                    "name": device.name, "runtime_status": snap["status"], "error": snap.get("error"),
+                    "model": snap.get("model"), "device_serial": snap.get("device_serial")})
+            configured_ids = {str(item.get("id")) for item in configured_list}
+            present = {str(item["config"]["id"]) for item in result[kind] if item.get("config")}
+            for item in configured_list:
+                if str(item.get("id")) not in present:
+                    result[kind].append({"port": item.get("port"), "configured": True,
+                        "detected": False, "name": item.get("name"), "config": item,
+                        "error": "Configured device is disabled or offline."})
+            # Probe never uses a port already claimed by any running/configured sensor.
+            endpoints = []
+            for item in inventory:
+                if item["port"] in reserved:
+                    continue
+                endpoint = dict(item)
+                endpoint["connection"] = connection_from_port(
+                    item, transport="rs485" if kind == "wago" else "rs232")
+                endpoints.append(endpoint)
+            if kind == "bronkhorst":
+                discovered = klass.discover_available(endpoints, occupied=reserved)
+            else:
+                discovered = klass.discover_available(endpoints, occupied=reserved)
+            for item in discovered:
+                item["configured"] = False
+                result[kind].append(item)
+                reserved.add(item["port"])
+        except Exception as error:
+            result["errors"].append({"source": kind, "error": str(error)})
+
     print("[DigiFlot] Device discovery complete")
     print(
         "[DigiFlot] Cameras: "
@@ -515,6 +567,19 @@ def discover_devices(request: Request):
 
     return result
 
+
+@router.post("/devices/bronkhorst/{sensor_id}/airflow")
+def set_bronkhorst_airflow(sensor_id: str, request: Request, payload: dict | None = None):
+    digiflot = get_digiflot(request)
+    if digiflot.state not in {digiflot.IDLE, digiflot.READY}:
+        raise HTTPException(status_code=409, detail="Manual airflow control is available only while idle or ready.")
+    device = digiflot.bronkhorst.get(str(sensor_id))
+    if device is None:
+        raise HTTPException(status_code=404, detail="Bronkhorst controller not configured.")
+    try:
+        return device.set_airflow(float((payload or {})["airflow_l_min"]))
+    except Exception as error:
+        raise api_error(error)
 
 @router.post("/devices/save")
 def save_devices(request: Request, payload: dict | None = None):

@@ -38,6 +38,7 @@ class Scale:
         runtime_scales=None,
         baudrate=9600,
         probe_seconds=1.0,
+        reserved_ports=(),
     ):
         """Enumerate serial ports and conservatively identify scales.
 
@@ -49,9 +50,9 @@ class Scale:
         """
         configured_ports = {str(value) for value in (configured_ports or [])}
         runtime_scales = {
-            str(port): scale
-            for port, scale in (runtime_scales or {}).items()
+            str(port): scale for port, scale in (runtime_scales or {}).items()
         }
+        reserved_ports = set(map(str, reserved_ports))
         devices = []
 
         for port in serial_inventory():
@@ -80,6 +81,11 @@ class Scale:
                 "evidence": None,
                 "error": None,
             }
+
+            if device in reserved_ports and runtime_scale is None:
+                item["evidence"] = "Port owned by another configured sensor; not probed."
+                devices.append(item)
+                continue
 
             if runtime_scale is not None:
                 try:

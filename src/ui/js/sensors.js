@@ -1309,6 +1309,21 @@ function sensorCard(snapshot) {
                 </div>
             </div>
 
+            ${snapshot.type === "bronkhorst" ? `<div class="reading-details process-reading-details">
+                <div><span>Target flow</span><strong class="process-setpoint">—</strong></div>
+                <div><span>Control</span><strong class="process-control-state">—</strong></div>
+            </div>` : snapshot.type === "wago" ? `<div class="reading-details process-reading-details">
+                <div><span>Energy counter</span><strong class="process-energy">—</strong></div>
+                <div><span>Stage energy</span><strong class="process-stage-energy">—</strong></div>
+            </div>` : ""}
+            ${snapshot.type === "bronkhorst" && snapshot.control_enabled &&
+                ["Idle", "Ready"].includes(state.digiflot?.state) ? `
+                <div class="calibration-actions process-airflow-manual">
+                    <label>Airflow (L/min) <input type="number" min="0" step="0.1"
+                        class="sensor-airflow-input" aria-label="Airflow setpoint"></label>
+                    <button class="button button-secondary sensor-airflow-set" type="button"
+                        data-sensor-id="${escapeHtml(snapshot.id)}">Set airflow</button>
+                </div>` : ""}
             ${virtual ? `<div class="virtual-live-channels">
                 <div><span>Froth surface</span><strong class="virtual-froth">—</strong></div>
                 <div><span>Pulp–froth interface</span><strong class="virtual-pulp">—</strong></div>
@@ -1378,6 +1393,22 @@ function updateCard(snapshot) {
     card.querySelector(".reading-unit").textContent = snapshot.unit || "";
     card.querySelector(".last-update").textContent = snapshot.timestamp_ms ? new Date(snapshot.timestamp_ms).toLocaleTimeString() : "—";
     card.querySelector(".sample-count").textContent = snapshot.sample_count ?? 0;
+    const channels = snapshot.channels || {};
+    if (snapshot.type === "bronkhorst") {
+        const target = card.querySelector(".process-setpoint");
+        const control = card.querySelector(".process-control-state");
+        if (target) target.textContent = channels.setpoint_l_min == null ? "—" :
+            Number(channels.setpoint_l_min).toFixed(2) + " L/min";
+        if (control) control.textContent = snapshot.control_state || "read-only";
+    }
+    if (snapshot.type === "wago") {
+        const energy = card.querySelector(".process-energy");
+        const stageEnergy = card.querySelector(".process-stage-energy");
+        if (energy) energy.textContent = channels.energy_import == null ? "—" :
+            Number(channels.energy_import).toFixed(4) + " kWh";
+        if (stageEnergy) stageEnergy.textContent = channels.stage_energy_wh == null ? "—" :
+            Number(channels.stage_energy_wh).toFixed(2) + " Wh";
+    }
 
     const message = card.querySelector(".sensor-message");
     message.textContent = snapshot.error || "";
@@ -1755,6 +1786,26 @@ function bindCalibrationControls(root = document) {
                 button.textContent = point === "mid" ? "Calibrate midpoint" : "Calibrate low point";
                 showToast(error.message);
             }
+        });
+    });
+    root.querySelectorAll(".sensor-airflow-set").forEach(button => {
+        if (button.dataset.bound) return;
+        button.dataset.bound = "1";
+        button.addEventListener("click", async () => {
+            const input = button.closest(".process-airflow-manual")?.querySelector(".sensor-airflow-input");
+            const value = Number(input?.value);
+            if (!input?.value || !Number.isFinite(value) || value < 0) {
+                showToast("Enter a valid non-negative airflow setpoint."); return;
+            }
+            button.disabled = true;
+            try {
+                await requestJson(`/api/digiflot/devices/bronkhorst/${encodeURIComponent(button.dataset.sensorId)}/airflow`, {
+                    method: "POST", headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({airflow_l_min: value}),
+                });
+                showToast("Airflow requested. Check the measured flow and setpoint.");
+            } catch (error) { showToast(error.message); }
+            finally { button.disabled = false; }
         });
     });
 }
