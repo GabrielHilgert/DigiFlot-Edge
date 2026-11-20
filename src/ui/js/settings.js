@@ -180,6 +180,7 @@ function genericDeviceStatus(kind, item) {
     if (item.configured && item.detected) return ["Configured", "configured"];
     if (item.configured && !item.detected) return ["Configured / offline", "offline"];
     if (item.detected) return ["Detected", "new"];
+    if (item.configurable) return ["Unverified serial port", "unknown"];
     return ["Unavailable", "offline"];
 }
 
@@ -221,7 +222,7 @@ function row(kind, item, label, detail, selectable = true, controls = "") {
     const [status, cls] = deviceStatus(kind, item);
     const key = kind === "camera" ? item.id :
         ["scale", "bronkhorst", "wago"].includes(kind) ? item.port : item.address;
-    const canSelect = Boolean(selectable && !item.configured && item.detected);
+    const canSelect = Boolean(selectable && !item.configured && (item.detected || item.configurable));
     const selection = canSelect
         ? `<input class="device-select" data-kind="${kind}" data-key="${esc(key)}" type="checkbox" aria-label="Select ${esc(label)}">`
         : `<span class="device-marker" aria-hidden="true">${item.configured ? "✓" : "·"}</span>`;
@@ -263,15 +264,21 @@ function scaleIdentityControls(item) {
 }
 
 function processControls(kind, item) {
-    if (kind === "wago" && item.detected && !item.configured) {
+    if (kind === "wago" && (item.detected || item.configurable) && !item.configured) {
         const offline = (state.discovery?.wago || []).filter(candidate =>
             candidate.configured && !candidate.detected && candidate.config?.id);
         const options = offline.map(other => '<option value="' + esc(other.config.id) + '">' +
             esc(other.config.name || other.config.id) + '</option>').join("");
+        const manual = item.configurable && !item.detected ?
+            '<details><summary>RS-485 connection (not detected)</summary>' +
+            '<label>Baud <select class="wago-baud"><option>9600</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option></select></label>' +
+            '<label>Parity <select class="wago-parity"><option>N</option><option>E</option><option>O</option></select></label>' +
+            '<label>Modbus slave <input class="wago-slave" type="number" min="1" max="247" value="1"></label>' +
+            '<small>Registration is unverified. Measurements remain unavailable until the correct manufacturer register map is configured.</small></details>' : '';
         return '<label class="sensor-enable-control"><input type="checkbox" class="wago-model-confirm">' +
             '<span>I verified this is a WAGO 879-1300 (Modbus alone does not identify the model)</span></label>' +
             (offline.length ? '<label>Identity <select class="wago-reassignment"><option value="">New meter</option>' +
-                options + '</select></label>' : '');
+                options + '</select></label>' : '') + manual;
     }
     if (kind === "bronkhorst" && item.configured)
         return '<label class="sensor-enable-control"><input type="checkbox" class="bronk-control-enabled" ' +
@@ -422,9 +429,14 @@ function selectedHardware() {
         ) === String(key));
         if (item) {
             const keyName = kind === "camera" ? "cameras" : kind === "scale" ? "scales" : kind;
+            const card = box.closest(".device-row");
             out[keyName].push(kind === "wago" ? {...item,
-                confirmed_model: Boolean(box.closest(".device-row")?.querySelector(".wago-model-confirm:checked")),
-                reassign_id: box.closest(".device-row")?.querySelector(".wago-reassignment")?.value || null} : item);
+                confirmed_model: Boolean(card?.querySelector(".wago-model-confirm:checked")),
+                reassign_id: card?.querySelector(".wago-reassignment")?.value || null,
+                manual_setup: Boolean(item.configurable && !item.detected),
+                baudrate: Number(card?.querySelector(".wago-baud")?.value || item.baudrate || 9600),
+                parity: card?.querySelector(".wago-parity")?.value || item.parity || "N",
+                slave_id: Number(card?.querySelector(".wago-slave")?.value || item.slave_id || 1)} : item);
         }
     });
 
