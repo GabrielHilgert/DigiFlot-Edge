@@ -331,6 +331,7 @@ class VisionService:
                                     self._tuning_frame = {"image": transformed.copy(), "roi": list(roi),
                                         "density": density, "reference": deepcopy(datum),
                                         "camera_id": str(camera.id), "cell_id": str(cell_id),
+                                        "resolution_px": config["resolution_px"],
                                         "calibration_id": association["calibration_id"],
                                         "timestamp_ns": frame["captured_timestamp_ns"],
                                         "received_at": time.monotonic()}
@@ -484,7 +485,9 @@ class VisionService:
             diagnostic = build_interface_diagnostic(cached["image"], reading, cached["roi"],
                                                     cached["timestamp_ns"])
             return {"diagnostic": diagnostic, "cached_frame": True,
-                    "processing_only": True, "requires_camera_reconfiguration": False}
+                    "processing_only": True, "requires_camera_reconfiguration": False,
+                    "approximate_resolution": config["resolution_px"] != cached.get("resolution_px"),
+                    "note": "Resolution preview reuses mapped pixels; saving rebuilds the ROI map"}
         finally:
             self._tuning_lock.release()
 
@@ -536,7 +539,7 @@ class VisionService:
                     if key in integer_keys: value = int(round(value))
                     if key == "texture_ksize": value = int(value) | 1
                     if value == original: continue
-                    candidate = dict(config)
+                    candidate = dict(best)
                     candidate[key] = value
                     try: candidate = normalized_config(candidate)
                     except ValueError: continue
