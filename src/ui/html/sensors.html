@@ -6,7 +6,7 @@
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
     <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114hifie2">
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261114axisref"></script>
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261120tuning1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -64,6 +64,37 @@
                     <a class="button button-secondary" id="virtual_open_cells" href="/cells" data-icon="external-link">Complete camera geometry</a>
                 </div>
                 <div id="virtual_editor" hidden>
+                <section class="virtual-tuning" aria-labelledby="virtual_tuning_title">
+                    <div class="virtual-tuning-heading">
+                        <div><h3 id="virtual_tuning_title">Tune detector</h3>
+                            <p>Drag sliders to recalculate the last rectified ROI. These previews never change the camera stream or save the sensor.</p></div>
+                        <span id="virtual_tuning_status" role="status">Waiting for an ROI frame</span>
+                    </div>
+                    <div id="virtual_quick_fields" class="virtual-quick-grid"></div>
+                    <div class="virtual-tuning-actions">
+                        <button id="virtual_tune_refresh" type="button" class="button button-secondary" data-icon="refresh-cw">Recalculate preview</button>
+                        <span>Resolution and Detection ROI changes need a new ROI remap, not a new lores stream.</span>
+                    </div>
+                    <details id="virtual_method_section" class="virtual-method-section">
+                        <summary><span><strong>Method &amp; acquisition</strong><small>Detector method, sampling rate and advanced parameters</small></span></summary>
+                        <div class="virtual-method-body">
+                            <p>Settings are previewed without saving. Exact previously passed configurations can be reused.</p>
+                            <div id="virtual_presets" class="virtual-presets" hidden>
+                                <label for="virtual_preset_select">Previously passed configuration</label>
+                                <div class="virtual-preset-actions">
+                                    <select id="virtual_preset_select"></select>
+                                    <button id="virtual_preset_restore" type="button" class="button button-secondary" data-icon="rotate-ccw">Restore</button>
+                                </div>
+                                <small>Restoring a previously approved identical configuration can enable Confirm without another test.</small>
+                            </div>
+                            <div id="virtual_main_fields" class="virtual-field-grid"></div>
+                            <div class="virtual-advanced-heading">Advanced parameters</div>
+                            <div id="virtual_advanced_fields" class="virtual-advanced"></div>
+                        </div>
+                    </details>
+
+                </section>
+
                 <section class="virtual-diagnostics">
                     <div class="virtual-diagnostics-heading">
                         <div><h3>Detection diagnostics</h3><p>Same processed frame and row profiles used by the sensor. Diagnostic images are sampled less frequently than measurements.</p></div>
@@ -71,6 +102,17 @@
                             <label class="virtual-grid-option"><input id="virtual_show_grid" type="checkbox" checked> Physical grid</label>
                             <button id="virtual_diagnostics_toggle" class="button button-secondary" type="button" data-icon="activity">Start live diagnostics</button>
                         </div>
+                    </div>
+                    <div class="virtual-reference-fit">
+                        <div class="virtual-reference-fit-controls">
+                            <label for="virtual_reference_target">Reference line</label>
+                            <select id="virtual_reference_target"><option value="froth">Froth surface</option><option value="pulp">Pulp–froth interface</option></select>
+                            <button id="virtual_reference_clear" type="button" class="button button-secondary" data-icon="x">Clear marks</button>
+                            <button id="virtual_fit_parameters" type="button" class="button button-secondary" data-icon="sliders-horizontal">Fit filters</button>
+                            <label class="virtual-grid-option"><input id="virtual_fit_thresholds" type="checkbox"> Include thresholds (optional)</label>
+                        </div>
+                        <p>Click a horizontal level in the Rectified ROI or Entropy map. Fit proposes nearby parameter values; review them before Save and Run test.</p>
+                        <span id="virtual_fit_status" role="status">Mark one or both interface levels to enable a guided fit.</span>
                     </div>
                     <div id="virtual_diagnostics_status" class="virtual-diagnostic-status" role="status">Open live diagnostics or run the calibration test to inspect the detector.</div>
                     <div id="virtual_diagnostic_grid" class="virtual-diagnostic-grid" hidden>
@@ -135,24 +177,7 @@
 
                 </section>
 
-                    <details id="virtual_method_section" class="virtual-method-section">
-                        <summary><span><strong>Method &amp; acquisition</strong><small>Detector method, sampling rate and advanced parameters</small></span></summary>
-                        <div class="virtual-method-body">
-                            <p>Changes to geometry, acquisition or detector settings require another calibration test.</p>
-                            <div id="virtual_presets" class="virtual-presets" hidden>
-                                <label for="virtual_preset_select">Previously passed configuration</label>
-                                <div class="virtual-preset-actions">
-                                    <select id="virtual_preset_select"></select>
-                                    <button id="virtual_preset_restore" type="button" class="button button-secondary" data-icon="rotate-ccw">Restore</button>
-                                </div>
-                                <small>Restores settings only. A new calibration test is still required for this execution.</small>
-                            </div>
-                            <div id="virtual_main_fields" class="virtual-field-grid"></div>
-                            <div class="virtual-advanced-heading">Advanced parameters</div>
-                            <div id="virtual_advanced_fields" class="virtual-advanced"></div>
-                        </div>
-                    </details>
-                <div id="virtual_benchmark" class="virtual-message" role="status">A live detection and performance test is required for this execution.</div>
+                <div id="virtual_benchmark" class="virtual-message" role="status">Save a configuration to check for an existing passing benchmark.</div>
 
                 <section id="virtual_test_history" class="virtual-test-history" hidden>
                     <div class="virtual-test-history-heading"><div><h3>Calibration test · temporal results</h3><p>Individual measurements from the benchmark; invalid detections appear as gaps.</p></div><span id="virtual_test_history_count"></span></div>
