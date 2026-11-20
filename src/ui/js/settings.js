@@ -577,8 +577,8 @@ el.autodetect.addEventListener("click", async () => {
 document.addEventListener("click", event => {
     const card = event.target.closest(".device-row-selectable");
     if (!card || card.dataset.selectable !== "true" ||
-        event.target.closest(".scale-identity-controls") ||
-        event.target.matches("input, label, select, span.sensor-enable-control")) return;
+        event.target.closest(".scale-identity-controls, details, .sensor-enable-control") ||
+        event.target.matches("input, label, select, textarea, summary, span.sensor-enable-control")) return;
     const checkbox = card.querySelector(".device-select");
     if (!checkbox || checkbox.disabled) return;
     checkbox.checked = !checkbox.checked;
