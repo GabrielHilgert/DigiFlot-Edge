@@ -1396,7 +1396,14 @@ class VisionService:
                 # lores supports first-time selection, diagnostics and live view.
                 self.digiflot.start_preview(camera.id, owner_id=owner_id)
                 try:
-                    image, frame = self._capture(camera.id)
+                    try:
+                        image, frame = self._capture(camera.id)
+                    except (RuntimeError, TimeoutError, OSError):
+                        # Some Picamera2 cameras need one extra frame after
+                        # entering Preview. Retry the read, not the whole
+                        # capture request or the camera configuration.
+                        time.sleep(0.25)
+                        image, frame = self._capture(camera.id)
                 except Exception:
                     # A preview can have a stale Picamera2 stream even if its
                     # state says PREVIEW. Force a clean camera state for Retry.
