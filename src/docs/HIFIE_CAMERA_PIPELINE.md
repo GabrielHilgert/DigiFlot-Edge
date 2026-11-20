@@ -54,19 +54,23 @@ before increasing it on Raspberry Pi 5.
 ## Interactive calibration and temporal stabilization
 
 The HIFIE modal exposes method-dependent quick sliders before the Detection
-ROI editor. Dragging a slider sends `POST /api/vision/virtual-sensors/froth-interface/tune-preview`
-after a short debounce. The endpoint reruns the detector on the latest
-**cached, already rectified ROI**. It does not start Picamera2, capture another
-frame, change the camera-owned lores resolution, save any profile, or change
-the approved run configuration. Only the owning calibration tab can use it.
-The cache is bounded to one ROI frame and is accepted only while live
-diagnostics are active and its camera, cell, calibration and ROI match.
+ROI editor. Opening the calibration captures one camera frame for the full
+rectified plane **and** a frozen detector ROI. Dragging sliders or selecting
+**Fit filters** recomputes exclusively from that frozen reference image. The
+endpoints do not start Picamera2, capture another frame, require live diagnostics,
+change the camera-owned lores stream, save a profile, or alter the approved run.
+Only the tab that captured the frozen image may use it. The reference remains
+stable until **New reference** captures another one or the modal closes.
+**Reference image** returns from optional live diagnostics to the same frozen
+image. A concurrent slider preview finishes before the Fit begins; operations
+always show a status rather than failing silently.
 
 Changing `resolution_px` in the slider previews the corresponding kernel
 scales on cached pixels. The full ROI geometry remap happens after **Save**;
 the preview explicitly reports this approximation. Changing the physical
-Detection ROI requires saving and waiting for a matching cached diagnostic
-frame before another parameter preview.
+Detection ROI requires saving and explicitly capturing **New reference**
+to remap that ROI from a new single camera image; no live diagnostic session
+is needed.
 
 The optional causal temporal stage in
 `src/lib/virtual_sensors/temporal.py` supports:
