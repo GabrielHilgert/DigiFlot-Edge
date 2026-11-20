@@ -1420,7 +1420,8 @@ function updateCard(snapshot) {
             (ref.direction==="down"?"Depth ↓":"Height ↑")+" from "+datumName+" · cm" :
             "Awaiting physical reference";
         card.querySelector(".chart-empty").textContent = snapshot.status === "offline" ? "Camera unavailable" :
-            snapshot.measurement_mode === "waiting" ? "Waiting for live lores acquisition. Test results are not plotted." :
+            snapshot.measurement_mode === "inactive" ? "HIFIE measurement is inactive until calibration is confirmed. Live diagnostics are previews only." :
+            snapshot.measurement_mode === "waiting" ? "Waiting for approved live acquisition. Test results are not plotted." :
             snapshot.reading_valid === false ? "Detection invalid: waiting for a valid interface" : "Acquiring live interface positions…";
     }
     card.querySelector(".reading-unit").textContent = snapshot.unit || "";
