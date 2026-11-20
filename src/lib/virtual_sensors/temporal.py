@@ -66,4 +66,4 @@ class TemporalBoundaryFilter:
             lower = float(np.clip(lower, 0, height - 1))
         if lower > upper:
             self._history.append((float(upper), float(lower)))
-        return float(upper), float(lower), previous
+        return float(upper), float(lower), previous if mode != "off" else None
