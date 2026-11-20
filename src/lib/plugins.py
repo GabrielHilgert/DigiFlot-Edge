@@ -55,6 +55,7 @@ class PluginCatalog:
         self.root = Path(root)
         self.config = config if isinstance(config, dict) else {}
         self.installed = {}
+        self.active_meta = {}
         self.sensors = {}
         self.errors = {}
         self.refresh()
@@ -101,13 +102,14 @@ class PluginCatalog:
                 if any(not callable(getattr(sensor, attr, None)) for attr in _REQUIRES):
                     raise TypeError("Plugin sensor does not implement the required interface")
                 self.sensors[sensor.id] = sensor
+                self.active_meta[slug] = dict(entry["manifest"])
             except Exception as error:
                 self.errors[slug] = f"{type(error).__name__}: {error}"
 
     def snapshot(self, device):
         data = dict(device.snapshot())
         slug = str(device.id)[len("plugin_"):]
-        meta = self.installed[slug]["manifest"]
+        meta = self.active_meta.get(slug, {})
         data.update({"plugin_id": slug, "type": "plugin_sensor",
                      "display": meta.get("display", []),
                      "calibration_policy": meta.get("calibration", "none")})
@@ -122,12 +124,18 @@ class PluginCatalog:
         for slug, entry in self.installed.items():
             config = self.config.get(slug) or {}
             meta = entry.get("manifest", {})
+            runtime = self.sensors.get(f"plugin_{slug}")
+            try:
+                runtime_status = runtime.snapshot().get("status") if runtime is not None else None
+            except Exception:
+                runtime_status = "error"
             items.append({"id": slug, "name": meta.get("name", slug),
                 "version": meta.get("version", ""), "description": meta.get("description", ""),
                 "calibration": meta.get("calibration", "none"),
                 "display": meta.get("display", []),
                 "enabled": bool(config.get("enabled", False)),
-                "loaded": f"plugin_{slug}" in self.sensors,
+                "loaded": runtime is not None,
+                "runtime_status": runtime_status,
                 "error": self.errors.get(slug) or entry.get("error")})
         return items
 
