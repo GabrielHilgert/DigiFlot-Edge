@@ -21,6 +21,7 @@ from .aruco import calibrate, detect_markers, grid_overlay, project_rectified, s
 from .roi import compile_roi_maps, full_plane_geometry, remap_roi, remap_yuv420_roi
 from .registry import VisionRegistry, _write
 from lib.virtual_sensors.interface import COLOR_METHODS, DEFAULTS, config_signature, detect_interface, detection_roi, normalized_config
+from lib.virtual_sensors.temporal import TemporalBoundaryFilter
 from .reference import resolve_vertical_reference
 
 
@@ -87,7 +88,10 @@ def build_interface_diagnostic(image, reading, roi_cm, timestamp_ns):
             "pulp_row_px": reading.get("pulp_froth_row_px"),
             "froth_surface_cm": reading.get("froth_surface_cm"),
             "pulp_froth_interface_cm": reading.get("pulp_froth_interface_cm"),
-            "valid": bool(reading.get("valid")), "timestamp_ns": int(timestamp_ns or 0)}
+            "valid": bool(reading.get("valid")), "timestamp_ns": int(timestamp_ns or 0),
+            "raw_rows_px": reading.get("raw_rows_px"),
+            "temporal_prior_rows_px": reading.get("temporal_prior_rows_px"),
+            "reference_rows_px": reading.get("reference_rows_px")}
 
 
 def encode_monitor_frame(image, reading, timestamp_ns, requested_width=320):
@@ -136,6 +140,10 @@ class VisionService:
         self._diagnostic_latest = None
         self._diagnostic_error = None
         self._diagnostic_future = None
+        self._temporal_live = TemporalBoundaryFilter()
+        self._temporal_live_key = None
+        self._tuning_frame = None  # Most recent processed ROI, no new camera acquisition.
+        self._tuning_lock = threading.Lock()
         self._diagnostic_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vision-diagnostic")
         self._monitor_until = 0.
         self._monitor_next_due = 0.
@@ -290,7 +298,8 @@ class VisionService:
                 started = time.perf_counter()
                 roi = (detection_roi(config, association) if config and association else
                        (association or {}).get("analysis_roi_cm"))
-                color = bool(config and config["method"] in COLOR_METHODS and roi)
+                color = bool(config and roi and (config["method"] in COLOR_METHODS
+                             or time.monotonic() < self._diagnostic_until))
                 image, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
                 status = {"state": "running", "mode": "experiment" if active else
                           ("live_preview" if config else "geometry"),
@@ -312,8 +321,21 @@ class VisionService:
                         try:
                             datum = (active.get("vertical_reference") if active else
                                      resolve_vertical_reference(config, association))
+                            token = (str(camera.id), str(cell_id), association["calibration_id"],
+                                     json.dumps(config, sort_keys=True), tuple(roi))
+                            if token != self._temporal_live_key:
+                                self._temporal_live.clear()
+                                self._temporal_live_key = token
+                            if time.monotonic() < self._diagnostic_until and want_diag:
+                                with self._lock:
+                                    self._tuning_frame = {"image": transformed.copy(), "roi": list(roi),
+                                        "density": density, "reference": deepcopy(datum),
+                                        "camera_id": str(camera.id), "cell_id": str(cell_id),
+                                        "calibration_id": association["calibration_id"],
+                                        "timestamp_ns": frame["captured_timestamp_ns"]}
                             reading = detect_interface(transformed, config, roi, density,
-                                                       diagnostics=want_diag, vertical_reference=datum)
+                                diagnostics=want_diag, vertical_reference=datum,
+                                temporal_state=self._temporal_live)
                         except Exception as error:
                             reading = {"valid": False, "error": str(error),
                                        "froth_surface_cm": None, "pulp_froth_interface_cm": None,
@@ -709,6 +731,7 @@ class VisionService:
         original_enabled = camera.analysis_enabled
         camera.analysis_enabled = True
         recording_metrics = {}
+        temporal_benchmark = TemporalBoundaryFilter()
         try:
             # Exercise the actual encoder together with lores. Keep the test
             # cadence equal to the user's target acquisition interval.
@@ -732,7 +755,8 @@ class VisionService:
                             density = maps["size"][0] / (roi[2] - roi[0])
                             is_final = index == count + warmup - 1
                             reading = detect_interface(patch, config, roi, density,
-                                                       diagnostics=is_final, vertical_reference=datum)
+                                diagnostics=is_final, vertical_reference=datum,
+                                temporal_state=temporal_benchmark)
                             diagnostic = reading.pop("_diagnostics", None)
                             if index >= warmup:
                                 valid_count += int(reading["valid"])
