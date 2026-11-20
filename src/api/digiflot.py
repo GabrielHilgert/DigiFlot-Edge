@@ -545,6 +545,21 @@ def discover_devices(request: Request):
         except Exception as error:
             result["errors"].append({"source": kind, "error": str(error)})
 
+    # A newly installed RS-485 meter may not expose the older WAGO register
+    # offsets probed above. Show unused ports for explicit, unverified setup.
+    for endpoint in inventory:
+        port = endpoint["port"]
+        if port in reserved:
+            continue
+        result["wago"].append({
+            "port": port, "driver": "wago", "detected": False,
+            "configured": False, "configurable": True, "slave_id": 1,
+            "baudrate": 9600, "parity": "N", "verified_model": False,
+            "name": "Unidentified serial device",
+            "evidence": "No Modbus identification; configure only if this is a WAGO RS-485 connection",
+            "connection": connection_from_port(endpoint, transport="rs485"),
+        })
+
     print("[DigiFlot] Device discovery complete")
     print(
         "[DigiFlot] Cameras: "
