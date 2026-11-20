@@ -135,6 +135,35 @@ def sensor_event_stream(kind, source, sensor_id):
         yield "event: measurement\n" f"data: {json.dumps(snapshot)}\n\n"
 
 
+def multiplex_sensor_events(request: Request):
+    """Multiplex sensor snapshots in one SSE connection without affecting acquisition."""
+    previous = {}
+    keepalive_at = time.monotonic() + 10.0
+    while True:
+        for snapshot in list_all_sensors(request):
+            sensor_id = str(snapshot.get("id", ""))
+            if not sensor_id:
+                continue
+            payload = json.dumps(snapshot, default=str)
+            if previous.get(sensor_id) != payload:
+                previous[sensor_id] = payload
+                yield "event: measurement\n" f"data: {payload}\n\n"
+        now = time.monotonic()
+        if now >= keepalive_at:
+            yield ": keepalive\n\n"
+            keepalive_at = now + 10.0
+        time.sleep(0.5)
+
+
+@router.get("/stream")
+def multiplex_sensor_stream(request: Request):
+    return StreamingResponse(
+        multiplex_sensor_events(request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("")
 def sensors(request: Request):
     return {"sensors": list_all_sensors(request)}

@@ -654,21 +654,14 @@ class VisionService:
                     raise RuntimeError("HIFIE diagnostics belong to another browser tab.")
                 return {"enabled": False, "revision": self._diagnostic_revision}
         if not enabled:
-            # Stop must not hang indefinitely on a stalled Picamera2 capture.
-            if not self._roi_snapshot_lock.acquire(timeout=6):
-                raise RuntimeError("A camera capture is still running. Retry camera release.")
-            try:
-                with self._lock:
-                    self._diagnostic_until = 0.0
-                    self._diagnostic_owner_id = None
-                    self._diagnostic_latest = None
-                    self._diagnostic_temporal = TemporalBoundaryFilter()
-                    self._diagnostic_temporal_key = None
-                with self.digiflot.lock:
-                    if owner_id and self.digiflot.preview_owner_id == str(owner_id):
-                        self.digiflot.stop_preview(owner_id=owner_id)
-            finally:
-                self._roi_snapshot_lock.release()
+            # Changing Live/Frozen view must not tear down the shared Picamera2 stream.
+            # The calibration modal's tune-release owns the final camera teardown.
+            with self._lock:
+                self._diagnostic_until = 0.0
+                self._diagnostic_owner_id = None
+                self._diagnostic_latest = None
+                self._diagnostic_temporal = TemporalBoundaryFilter()
+                self._diagnostic_temporal_key = None
             return {"enabled": False, "revision": self._diagnostic_revision}
         if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
             raise RuntimeError("Live diagnostics are available only during HIFIE calibration")
