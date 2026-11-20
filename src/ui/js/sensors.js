@@ -792,10 +792,11 @@ function finishVirtualRoiDrag(event) {
         const lo=[Math.min(start[0],end[0]),Math.min(start[1],end[1])];
         const hi=[Math.max(start[0],end[0]),Math.max(start[1],end[1])];
         virtualDraft.detection_roi_cm=[...virtualRoiPixelToCm(...lo),...virtualRoiPixelToCm(...hi)];
-        virtualRoiDirty=true;
+        virtualRoiDirty=true;virtualReferenceRows=[null,null];
         virtualBenchmarkMarkup(null);
+        virtualTuningStatus("ROI changed · Save to remap the next lores frame");
         document.getElementById("virtual_diagnostics_status").textContent=
-            "Detection ROI changed. Save settings and run the calibration test again.";
+            "Detection ROI changed. Save settings to check previous validation or test the new configuration.";
     }
     renderVirtualRoiCaption();drawVirtualRoiOverlay();
 }
@@ -1787,13 +1788,13 @@ document.getElementById("virtual_named_reference").addEventListener("change",()=
     virtualDraft.vertical_reference_confirmed=false;
     document.getElementById("virtual_reference_confirm").checked=false;
     virtualBenchmarkMarkup(null);renderVirtualTestTimeline([]);renderVerticalReference();
-    drawVirtualRoiOverlay();
+    drawVirtualRoiOverlay();scheduleVirtualTuning();
 });
 document.getElementById("virtual_reference_mode").addEventListener("change",()=>{
     if(!virtualDraft)return;
     virtualDraft.vertical_reference_mode=document.getElementById("virtual_reference_mode").value;
     virtualDraft.vertical_reference_y_cm=null;
-    invalidateVerticalReference();
+    invalidateVerticalReference();scheduleVirtualTuning();
 });
 document.getElementById("virtual_reference_y").addEventListener("input",()=>{
     if(!virtualDraft)return;
@@ -1803,7 +1804,8 @@ document.getElementById("virtual_reference_y").addEventListener("input",()=>{
     document.getElementById("virtual_reference_confirm").checked=false;
     virtualBenchmarkMarkup(null);renderVirtualTestTimeline([]);
     document.getElementById("virtual_reference_description").textContent=
-        "Reference coordinate modified. Review and confirm it before the next calibration test.";
+        "Reference modified. Review it before saving and checking validation.";
+    scheduleVirtualTuning();
 });
 document.getElementById("virtual_reference_confirm").addEventListener("change",event=>{
     if(virtualDraft)virtualDraft.vertical_reference_confirmed=event.target.checked;
@@ -1835,6 +1837,7 @@ document.getElementById("virtual_roi_refresh").addEventListener("click", async e
 document.getElementById("virtual_roi_reset").addEventListener("click", () => {
     if(!virtualDraft)return;
     virtualDraft.detection_roi_cm=null;virtualRoiDirty=true;
+    virtualReferenceRows=[null,null];
     virtualTuningStatus("Detection ROI changed · Save to refresh its rectified image");
     virtualBenchmarkMarkup(null);
     renderVirtualRoiCaption();drawVirtualRoiOverlay();
