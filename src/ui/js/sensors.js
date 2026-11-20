@@ -302,6 +302,9 @@ function invalidateVerticalReference() {
 let virtualDiagnostic = null, virtualTestSeries = [];
 let virtualDiagnosticsActive = false, virtualDiagnosticsTimer = null, virtualDiagBusy = false, virtualDiagRevision = 0;
 let virtualDiagRequest = null;
+let virtualReferenceRows=[null,null], virtualTuningDirty=false, virtualTuningEpoch=0;
+let virtualTuningTimer=null, virtualTuningInFlight=false, virtualFitInFlight=false;
+
 
 function paletteColor(name, fallback) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -336,6 +339,21 @@ function drawVirtualOverlays() {
             }
         }
         const markerColors=virtualInterfaceColors();
+        // Dotted lines show the prior used by the temporal filter. They never
+        // overwrite the measured boundaries (solid) or manual references.
+        for(let i=0;i<2;i++) {
+            const y=d.temporal_prior_rows_px?.[i];
+            if(y==null||!Number.isFinite(Number(y)))continue;
+            ctx.beginPath();ctx.moveTo(0,Number(y));ctx.lineTo(width,Number(y));
+            ctx.strokeStyle=i===0?markerColors.surface:markerColors.pulp;
+            ctx.lineWidth=1.3;ctx.setLineDash([3,5]);ctx.stroke();ctx.setLineDash([]);
+        }
+        for(let i=0;i<2;i++) {
+            const y=virtualReferenceRows[i];
+            if(y==null||!Number.isFinite(Number(y)))continue;
+            ctx.beginPath();ctx.moveTo(0,Number(y));ctx.lineTo(width,Number(y));
+            ctx.strokeStyle="#fff";ctx.lineWidth=1.4;ctx.setLineDash([9,4]);ctx.stroke();ctx.setLineDash([]);
+        }
         const rows = [["froth_row_px",markerColors.surface],["pulp_row_px",markerColors.pulp]];
         for (const [key,color] of rows) {
             if (d[key] == null || !Number.isFinite(Number(d[key]))) continue;
@@ -469,6 +487,92 @@ function drawVirtualTestTimeline() {
     });
 }
 
+function virtualTuningStatus(message) {
+    const node=document.getElementById("virtual_tuning_status");
+    if(node)node.textContent=message;
+}
+
+function scheduleVirtualTuning(delay=350) {
+    virtualTuningDirty=true;
+    ++virtualTuningEpoch;
+    if(virtualTuningTimer)window.clearTimeout(virtualTuningTimer);
+    virtualTuningTimer=window.setTimeout(runVirtualTuning,delay);
+}
+
+async function runVirtualTuning() {
+    virtualTuningTimer=null;
+    if(virtualTuningInFlight||virtualFitInFlight)return;
+    if(!virtualDiagnosticsActive||!virtualDiagnostic||!virtualDraft){
+        virtualTuningStatus("Waiting for a live ROI frame");return;
+    }
+    if(!document.getElementById("virtual_panel").open)return;
+    const epoch=virtualTuningEpoch,session=virtualSessionGeneration;
+    let config;
+    try {config=virtualCollectInputs();}
+    catch(error){virtualTuningStatus(error.message);return;}
+    virtualTuningInFlight=true;
+    virtualTuningStatus("Recalculating cached ROI…");
+    try {
+        const data=await requestJson("/api/vision/virtual-sensors/froth-interface/tune-preview",{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({config,reference_rows_px:virtualReferenceRows})
+        });
+        if(epoch===virtualTuningEpoch&&session===virtualSessionGeneration){
+            renderVirtualDiagnostic(data.diagnostic,"Unsaved processing preview");
+            virtualTuningStatus("Preview updated · no camera request");
+        }
+    } catch(error) {
+        if(epoch===virtualTuningEpoch)virtualTuningStatus(error.message);
+    } finally {
+        virtualTuningInFlight=false;
+        if(epoch!==virtualTuningEpoch&&session===virtualSessionGeneration)
+            scheduleVirtualTuning(120);
+    }
+}
+
+function virtualMarkReference(event) {
+    if(!virtualDiagnostic)return;
+    const rect=event.currentTarget.getBoundingClientRect();
+    if(!rect.height)return;
+    const row=Math.max(0,Math.min(virtualDiagnostic.image_size[1]-1,
+        (event.clientY-rect.top)/rect.height*virtualDiagnostic.image_size[1]));
+    const index=document.getElementById("virtual_reference_target").value==="froth"?0:1;
+    virtualReferenceRows[index]=Number(row.toFixed(2));
+    const labels=virtualReferenceRows.map(x=>x==null?"—":x.toFixed(1)+" px");
+    document.getElementById("virtual_fit_status").textContent=
+        "Manual references: froth "+labels[0]+" · pulp "+labels[1];
+    drawVirtualOverlays();scheduleVirtualTuning();
+}
+
+async function virtualFitParameters() {
+    if(virtualFitInFlight||virtualTuningInFlight)return;
+    if(virtualReferenceRows.every(x=>x==null)){
+        document.getElementById("virtual_fit_status").textContent="Mark at least one interface on the image first.";return;
+    }
+    virtualFitInFlight=true;
+    const button=document.getElementById("virtual_fit_parameters"),status=document.getElementById("virtual_fit_status");
+    const session=virtualSessionGeneration;
+    button.disabled=true;status.textContent="Testing nearby filter parameters on the cached ROI…";
+    try {
+        const result=await requestJson("/api/vision/virtual-sensors/froth-interface/tune-fit",{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({config:virtualCollectInputs(),reference_rows_px:virtualReferenceRows,
+                include_thresholds:document.getElementById("virtual_fit_thresholds").checked})
+        });
+        if(session!==virtualSessionGeneration)return;
+        const changed=Object.keys(result.suggested||{});
+        if(changed.length) {
+            virtualDraft={...virtualDraft,...result.suggested};
+            renderVirtualFields();
+            scheduleVirtualTuning(10);
+        }
+        status.textContent=changed.length ?
+            `Suggested: ${changed.join(", ")} · reference error ${result.baseline_error_px} → ${result.fitted_error_px} px (${result.evaluations} trials). Review before saving.` :
+            `No clear improvement found (${result.evaluations} trials). Kept existing parameters.`;
+    } catch(error){status.textContent="Fit unavailable: "+error.message;}
+    finally{virtualFitInFlight=false;button.disabled=false;}
+}
+
 async function pollVirtualDiagnostics() {
     if(!virtualDiagnosticsActive||virtualDiagBusy||document.hidden||!document.getElementById("virtual_panel").open)return;
     virtualDiagBusy=true;
@@ -480,7 +584,11 @@ async function pollVirtualDiagnostics() {
         virtualDiagRequest=pending;
         const payload=await pending;
         if(!virtualDiagnosticsActive)return;
-        if(payload.diagnostic){virtualDiagRevision=payload.revision;renderVirtualDiagnostic(payload.diagnostic,"Live preview");}
+        if(payload.diagnostic){
+            virtualDiagRevision=payload.revision;
+            if(virtualTuningDirty)scheduleVirtualTuning(120);
+            else renderVirtualDiagnostic(payload.diagnostic,"Live preview");
+        }
         if(payload.error)document.getElementById("virtual_diagnostics_status").textContent=
             "Diagnostic rendering error: "+payload.error+" (sensor acquisition continues).";
         else if(!virtualDiagnostic)document.getElementById("virtual_diagnostics_status").textContent=
