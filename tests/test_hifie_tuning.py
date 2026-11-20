@@ -30,14 +30,14 @@ class TuningTests(unittest.TestCase):
         rng=np.random.default_rng(1)
         image=rng.integers(35,210,(100,100,3),dtype=np.uint8)
         image[40:65]=90
-        vision._tuning_frame={"image":image,"roi":roi,"density":10.,
+        vision._reference_frame={"image":image,"roi":roi,"density":10.,
                               "reference":{"mode":"cell_bottom","direction":"up","y_cm":12.},
                               "camera_id":"1","cell_id":str(cell["id"]),
                               "calibration_id":cal["id"] if "id" in cal else
                                   vision.registry.association(1,cell["id"])["calibration_id"],
                               "timestamp_ns":time.time_ns(),"received_at":time.monotonic()}
         vision._diagnostic_until=time.monotonic()+20.
-        vision._diagnostic_owner_id="tab-a"
+        vision._reference_owner_id="tab-a"
         return vision,config
 
     def test_sliders_recompute_without_camera_or_profile_mutation(self):
@@ -79,7 +79,12 @@ class TuningTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"Mark at least one reference"):
                 vision.fit_virtual_tuning({"config":config},"tab-a")
             vision._diagnostic_until=0.
-            with self.assertRaisesRegex(RuntimeError,"Start live diagnostics"):
+            # Frozen references are independent of the live diagnostic lease.
+            self.assertTrue(vision.preview_virtual_tuning({"config":config},"tab-a")["cached_frame"])
+            vision.release_virtual_reference("tab-b")
+            self.assertTrue(vision.preview_virtual_tuning({"config":config},"tab-a")["cached_frame"])
+            vision.release_virtual_reference("tab-a")
+            with self.assertRaisesRegex(ValueError,"Capture a reference image"):
                 vision.preview_virtual_tuning({"config":config},"tab-a")
 
 
