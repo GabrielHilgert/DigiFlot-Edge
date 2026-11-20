@@ -921,13 +921,14 @@ function cleanupVirtualSession() {
     if(virtualTuningTimer)window.clearTimeout(virtualTuningTimer);
     virtualTuningTimer=null;virtualTuningDirty=false;
     virtualReferenceReady=false;virtualDiagnosticSource="reference";
-    void requestJson("/api/vision/virtual-sensors/froth-interface/tune-release",
+    const release=requestJson("/api/vision/virtual-sensors/froth-interface/tune-release",
         {method:"POST"}).catch(()=>{});
     virtualRoiController?.abort();virtualRoiController=null;virtualRoiTask=null;
     virtualDiagnosticsDesired=false;
     const stop=stopVirtualDiagnostics();
     virtualCleanup=virtualCleanup.catch(()=>{}).then(async()=>{
         await stop;
+        await release;
         if(virtualBenchmarkTask)await virtualBenchmarkTask.catch(()=>{});
         await releaseVirtualCamera();
     });
@@ -1807,12 +1808,16 @@ virtualDialog.addEventListener("cancel", event => {event.preventDefault();reques
 // Clicking the backdrop must never dismiss calibration during an active camera request.
 document.getElementById("virtual_close").addEventListener("click", requestVirtualClose);
 document.getElementById("virtual_diagnostics_toggle").addEventListener("click", () => {
-    if(virtualDiagnosticsActive) {
+    if(virtualDiagnosticsActive){
         virtualDiagnosticsDesired=false;
-        void stopVirtualDiagnostics();
+        void stopVirtualDiagnostics().finally(showVirtualReference);
     } else {
+        virtualDiagnosticSource="live";
         virtualDiagnosticsDesired=true;
-        startVirtualDiagnostics().catch(error=>showToast(error.message));
+        startVirtualDiagnostics().catch(error=>{
+            virtualDiagnosticSource="reference";
+            showToast(error.message);showVirtualReference();
+        });
     }
 });
 document.getElementById("virtual_preset_restore").addEventListener("click", () => {
@@ -1857,6 +1862,8 @@ document.getElementById("virtual_reference_clear").addEventListener("click",()=>
     drawVirtualOverlays();scheduleVirtualTuning();
 });
 document.getElementById("virtual_fit_parameters").addEventListener("click",virtualFitParameters);
+document.getElementById("virtual_reference_show").addEventListener("click",showVirtualReference);
+document.getElementById("virtual_reference_capture").addEventListener("click",captureVirtualReference);
 document.getElementById("virtual_show_grid").addEventListener("change", () => {
     drawVirtualOverlays();drawVirtualRoiOverlay();
 });
