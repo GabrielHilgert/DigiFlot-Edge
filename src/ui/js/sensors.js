@@ -505,6 +505,40 @@ function hifieWorkflow(step, status, message) {
     }
 }
 
+function hifieUpdateNavigation() {
+    const captured=Boolean(virtualRoiPlane), ready=Boolean(virtualReferenceReady);
+    const confirmed=Boolean(document.getElementById("virtual_reference_confirm").checked);
+    const indicator=document.getElementById("virtual_camera_ready");
+    if(indicator){
+        indicator.hidden=!captured;
+        indicator.querySelector("strong").textContent=ready ? "Camera image and detector reference ready" :
+            "Camera image captured; detector reference unavailable";
+        indicator.querySelector("span").textContent=ready ?
+            "Keep the ROI unchanged if it looks correct. Confirm the physical reference, then continue." :
+            "The camera works, but the detector ROI could not be prepared. Check the ROI or continue to test the saved configuration.";
+    }
+    const hint=document.getElementById("virtual_validation_hint");
+    if(hint){
+        const passed=document.getElementById("virtual_benchmark").dataset.passed==="true";
+        hint.textContent=!captured ? "Capture or retry the camera in step 1." :
+            !confirmed ? "Before running the test, confirm the physical vertical reference in step 1." :
+            virtualRoiDirty ? "The Detection ROI changed. Running the test will save this configuration; recapture if you need an updated frozen-image preview." :
+            passed ? "An identical passing calibration is available. You can Confirm without retesting." :
+            ready ? "Reference and physical datum are ready. Run the calibration test, or review parameters first." :
+            "The frozen detector preview is unavailable. You can still test the saved configuration, or recapture the ROI.";
+        hint.dataset.state=confirmed ? "ready" : "check";
+    }
+}
+
+function hifieGoToStep(step) {
+    const ids={camera:"virtual_camera_step",detector:"virtual_detector_step",validation:"virtual_validation_step"};
+    const current=document.getElementById(ids[step]);
+    if(!current)return;
+    Object.entries(ids).forEach(([name,id])=>{document.getElementById(id).open=name===step;});
+    hifieUpdateNavigation();
+    current.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
 function scheduleVirtualTuning(delay=350) {
     virtualTuningDirty=true;
     ++virtualTuningEpoch;
@@ -516,13 +550,15 @@ async function runVirtualTuning() {
     virtualTuningTimer=null;
     if(virtualTuningInFlight||virtualFitInFlight)return;
     if(!virtualReferenceReady||!virtualDraft){
-        virtualTuningStatus("Capture a reference image to preview detector settings");return;
+        virtualTuningStatus("Detector preview unavailable. Capture / Retry camera in step 1, or continue to validation.");
+        hifieWorkflow("detector","no cached ROI");
+        return false;
     }
-    if(!document.getElementById("virtual_panel").open)return;
+    if(!document.getElementById("virtual_panel").open)return false;
     const epoch=virtualTuningEpoch,session=virtualSessionGeneration;
     let config;
     try {config=virtualCollectInputs();}
-    catch(error){virtualTuningStatus(error.message);return;}
+    catch(error){virtualTuningStatus(error.message);return false;}
     virtualTuningInFlight=true;
     virtualTuningStatus("Recalculating cached ROI…");
     try {
@@ -536,11 +572,18 @@ async function runVirtualTuning() {
             virtualTuningDirty=false;
             if(virtualDiagnosticSource==="reference")renderVirtualDiagnostic(data.diagnostic,"Frozen reference image");
             virtualTuningStatus(data.approximate_resolution ?
-                "Reference preview uses cached pixels; Save rebuilds the ROI map" :
-                "Reference preview updated · no camera request");
+                "Preview ready on cached pixels. Save will rebuild the ROI map; you may proceed." :
+                "Detector preview ready. No changes required? Continue to validation.");
+            hifieWorkflow("detector","ready");
+            hifieUpdateNavigation();
         }
+        return true;
     } catch(error) {
-        if(epoch===virtualTuningEpoch)virtualTuningStatus(error.message);
+        if(epoch===virtualTuningEpoch) {
+            virtualTuningStatus("Preview unavailable: "+error.message+". You can still continue to validation.");
+            hifieWorkflow("detector","preview unavailable");
+        }
+        return false;
     } finally {
         virtualTuningTask=null;virtualTuningInFlight=false;
         if(epoch!==virtualTuningEpoch&&session===virtualSessionGeneration)
@@ -860,6 +903,7 @@ async function loadVirtualRoiPlane() {
         stage.style.removeProperty("max-width");
         image.src="data:image/jpeg;base64,"+payload.jpeg_base64;
         renderVirtualRoiCaption();drawVirtualRoiOverlay();
+        hifieUpdateNavigation();
         return true;
     })();
     virtualRoiTask=task;
@@ -871,6 +915,7 @@ async function loadVirtualRoiPlane() {
                 label.textContent="Camera unavailable: "+error.message+". Click Capture / Retry camera.";
             hifieWorkflow("camera","retry","The camera did not return a plane. Retry here without reloading the page.");
             document.getElementById("virtual_camera_step").open=true;
+            hifieUpdateNavigation();
         }
         return false;
     }
@@ -988,6 +1033,9 @@ async function openVirtualCalibration() {
         missing.hidden=true;editor.hidden=false;
         document.getElementById("virtual_modal_footer").hidden=false;
         document.getElementById("virtual_method_section").open=false;
+        document.getElementById("virtual_camera_step").open=true;
+        document.getElementById("virtual_detector_step").open=false;
+        document.getElementById("virtual_validation_step").open=false;
         renderVirtualFields();renderVerticalReference();
         virtualTuningStatus("Reference not captured yet. Use Capture / Retry camera if needed.");
         hifieWorkflow("camera","preparing","One snapshot is captured for editing; no sensor worker starts.");
@@ -997,6 +1045,7 @@ async function openVirtualCalibration() {
         virtualSavedConfig=virtualCollectInputs();
         virtualRoiPlane=null;virtualRoiDirty=false;
         document.getElementById("virtual_roi_stage").hidden=true;
+        hifieUpdateNavigation();
         renderVirtualRoiCaption();
         virtualBenchmarkMarkup(profile.test);renderVirtualTestTimeline(profile.test?.series||[]);
         // A historical benchmark image is not the frozen reference frame.
@@ -1006,18 +1055,20 @@ async function openVirtualCalibration() {
         // never a prerequisite for showing the controls or diagnostics button.
         void loadVirtualRoiPlane().then(async planeReady => {
             if(generation!==virtualSessionGeneration || !panel.open)return;
-            if(planeReady && virtualReferenceReady) {
-                await runVirtualTuning();
-                if(generation!==virtualSessionGeneration || !panel.open)return;
-                document.getElementById("virtual_fit_status").textContent=
-                    "Frozen reference ready. Mark one or both lines, then Fit filters.";
-                hifieWorkflow("detector","ready");
-                // Keep required physical datum confirmation visible.
-                const datumChecked=document.getElementById("virtual_reference_confirm").checked;
-                document.getElementById("virtual_camera_step").open=!datumChecked;
-                document.getElementById("virtual_detector_step").open=true;
-                if(!datumChecked)hifieWorkflow("camera","check datum",
-                    "Reference image captured. Confirm the physical vertical datum before running the test.");
+            if(planeReady){
+                if(virtualReferenceReady) {
+                    await runVirtualTuning();
+                    if(generation!==virtualSessionGeneration || !panel.open)return;
+                    document.getElementById("virtual_fit_status").textContent=
+                        "Frozen reference available. Mark boundaries only if you want to use Fit filters.";
+                }
+                hifieUpdateNavigation();
+                // Keep the physical-reference checkbox visible until the user
+                // has checked it; the detector can be reached via Continue.
+                if(document.getElementById("virtual_reference_confirm").checked)
+                    hifieGoToStep("detector");
+                else hifieWorkflow("camera","check datum",
+                    "Image captured. Confirm the vertical reference or use Continue to detector.");
             }
         }).catch(error => {
             if(generation===virtualSessionGeneration && panel.open) {
@@ -1061,6 +1112,7 @@ async function virtualSaveConfiguration() {
         scheduleVirtualTuning(150);
     }
     await refreshDigiFlotState();
+    hifieUpdateNavigation();
 }
 
 async function virtualRunTest() {
@@ -1086,6 +1138,8 @@ async function virtualRunTest() {
             result.diagnostic_error||"The test ran, but no diagnostic entropy map was produced.";
         state.digiflot=await requestJson("/api/digiflot/state");
         hifieWorkflow("test",result.passed?"passed":"review","The sensor remains inactive until Confirm.");
+        hifieUpdateNavigation();
+        hifieGoToStep("validation");
         if(result.passed) {
             try {
                 const fresh=await requestJson("/api/vision/virtual-sensors/froth-interface/profile");
@@ -1102,7 +1156,10 @@ async function virtualRunTest() {
         }
     } catch(error) {
         if(generation===virtualSessionGeneration && panel.open) {
-            virtualBenchmarkMarkup(null);showToast(error.message);
+            virtualBenchmarkMarkup(null);
+            hifieGoToStep("validation");
+            hifieUpdateNavigation();
+            showToast(error.message);
         }
     } finally {
         virtualTestBusy=false;
@@ -1993,6 +2050,7 @@ document.getElementById("virtual_reference_y").addEventListener("input",()=>{
 });
 document.getElementById("virtual_reference_confirm").addEventListener("change",event=>{
     if(virtualDraft)virtualDraft.vertical_reference_confirmed=event.target.checked;
+    hifieUpdateNavigation();
     if(event.target.checked && virtualReferenceReady){
         hifieWorkflow("camera","ready","Camera and physical reference confirmed.");
         document.getElementById("virtual_camera_step").open=false;
@@ -2017,19 +2075,31 @@ document.getElementById("virtual_roi_refresh").addEventListener("click", async e
         if(virtualDiagnosticsActive)await stopVirtualDiagnostics();
         const loaded=await loadVirtualRoiPlane();
         if(!document.getElementById("virtual_panel").open || generation!==virtualSessionGeneration)return;
-        if(loaded && virtualReferenceReady){
-            await runVirtualTuning();
+        if(loaded){
+            if(virtualReferenceReady)await runVirtualTuning();
+            hifieUpdateNavigation();
+            if(document.getElementById("virtual_reference_confirm").checked)
+                hifieGoToStep("detector");
+            else hifieWorkflow("camera","check datum",
+                "Image captured. Confirm the physical reference, then continue.");
             if(resume && virtualEffectiveRoi()){
                 virtualDiagnosticSource="live";
                 virtualDiagnosticsDesired=true;
                 await startVirtualDiagnostics();
             }
-        } else if(!loaded) {
-            showToast("The rectified plane could not be loaded. Use Refresh to try again.");
+        } else {
+            showToast("Camera capture failed. Retry without reloading the page.");
         }
     } catch(error){if(generation===virtualSessionGeneration)showToast(error.message);}
     finally{button.disabled=false;}
 });
+document.getElementById("virtual_camera_continue").addEventListener("click", () => {
+    hifieGoToStep("detector");
+    if(virtualReferenceReady && !virtualDiagnostic) scheduleVirtualTuning(10);
+});
+document.getElementById("virtual_tuning_continue").addEventListener("click", () => hifieGoToStep("validation"));
+document.getElementById("virtual_validation_test").addEventListener("click", () =>
+    document.getElementById("virtual_test").click());
 document.getElementById("virtual_roi_reset").addEventListener("click", () => {
     if(!virtualDraft)return;
     virtualDraft.detection_roi_cm=null;virtualRoiDirty=true;
@@ -2037,6 +2107,7 @@ document.getElementById("virtual_roi_reset").addEventListener("click", () => {
     virtualTuningStatus("Detection ROI changed · Save to refresh its rectified image");
     virtualBenchmarkMarkup(null);
     renderVirtualRoiCaption();drawVirtualRoiOverlay();
+    hifieUpdateNavigation();
 });
 const virtualRoiCanvas=document.getElementById("virtual_roi_canvas");
 virtualRoiCanvas.addEventListener("pointerdown", event=>{
