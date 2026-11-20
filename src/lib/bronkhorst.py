@@ -65,6 +65,16 @@ class Bronkhorst:
         except Exception:
             pass
 
+    @staticmethod
+    def _open_instrument(port, address, baudrate):
+        instrument = propar.instrument(port, address=address, baudrate=baudrate)
+        # propar caches one master per port. Discovery closes its serial handle;
+        # a new instrument on the same port reuses that stopped master.
+        serial_handle = getattr(getattr(instrument.master, "propar", None), "serial", None)
+        if serial_handle is not None and not serial_handle.is_open:
+            instrument.master.start()
+        return instrument
+
     @classmethod
     def _identify(cls, instrument):
         device_id = instrument.id
@@ -93,7 +103,7 @@ class Bronkhorst:
                 continue
             instrument = None
             try:
-                instrument = propar.instrument(port, address=int(address), baudrate=int(baudrate))
+                instrument = cls._open_instrument(port, int(address), int(baudrate))
                 data = cls._identify(instrument)
                 found.append({**data, "port": port, "driver": cls.DRIVER, "detected": True,
                               "connection": endpoint.get("connection") or {},
@@ -201,7 +211,7 @@ class Bronkhorst:
                 if self._instrument is None:
                     if propar is None:
                         raise RuntimeError("bronkhorst-propar package not installed")
-                    instrument = propar.instrument(self.port, address=self.address, baudrate=self.baudrate)
+                    instrument = self._open_instrument(self.port, self.address, self.baudrate)
                     info = self._identify(instrument)
                     expected = self.identity.get("device_serial")
                     if expected and info.get("device_serial") and str(expected) != str(info["device_serial"]):
