@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114hifieflow1">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261120hifieflow2">
     <script defer src="{{ url_for('static', path='js/plugin-displays.js') }}?v=20261120plugins1"></script>
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261120hifieflow1"></script>
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261120hifieflow2"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -85,6 +85,11 @@
                         <canvas id="virtual_roi_canvas" aria-label="Drag here to select Detection ROI on the calibrated plane"></canvas>
                     </div>
                     <div id="virtual_roi_label" class="virtual-roi-caption">Camera not captured yet. Use Capture / Retry camera.</div>
+                    <div id="virtual_camera_ready" class="hifie-step-result" role="status" hidden>
+                        <strong>Camera image captured</strong>
+                        <span>If the image and Detection ROI are correct, keep them unchanged. You do not need another capture.</span>
+                        <button id="virtual_camera_continue" type="button" class="button button-primary">Continue to detector</button>
+                    </div>
                     <div class="virtual-reference-levels"><strong>Cell reference levels</strong>
                         <div id="virtual_roi_reference_levels" class="virtual-reference-level-list" aria-live="polite">Physical reference lines will appear after the rectified image is loaded.</div>
                     </div>
@@ -131,8 +136,8 @@
                     </div>
                     <div id="virtual_quick_fields" class="virtual-quick-grid"></div>
                     <div class="virtual-tuning-actions">
-                        <button id="virtual_tune_refresh" type="button" class="button button-secondary" data-icon="refresh-cw">Recalculate preview</button>
-                        <span>Resolution and Detection ROI changes need a new ROI remap, not a new lores stream.</span>
+                        <button id="virtual_tune_refresh" type="button" class="button button-secondary" data-icon="refresh-cw">Update preview (optional)</button>
+                        <span>No parameter changes? Skip this. The preview and Fit filters are not required to proceed.</span>
                     </div>
                     <details id="virtual_method_section" class="virtual-method-section">
                         <summary><span><strong>Method &amp; acquisition</strong><small>Detector method, sampling rate and advanced parameters</small></span></summary>
@@ -194,8 +199,21 @@
                     </div>
                     <div id="virtual_diagnostic_positions" class="virtual-diagnostic-positions" hidden></div>
                 </section>
-
-
+                    <div class="hifie-step-result hifie-detector-next">
+                        <span>Detector settings can be left unchanged. A live benchmark verifies the saved configuration.</span>
+                        <button id="virtual_tuning_continue" type="button" class="button button-primary">Continue to validation</button>
+                    </div>
+                    </div>
+                </details>
+                <details id="virtual_validation_step" class="hifie-step">
+                    <summary><strong>3 · Validate &amp; confirm</strong><span>Save or reuse verified settings, then run the test if needed</span></summary>
+                    <div class="hifie-step-body">
+                        <p class="hifie-step-intro">If the camera image, Detection ROI and detector settings look correct, you do not need to change anything. Confirm the vertical reference in step 1. Then test this configuration, or confirm it directly if an identical successful benchmark is available.</p>
+                        <p id="virtual_validation_hint" class="hifie-validation-hint" role="status">Capture a camera image and review the physical reference to proceed.</p>
+                        <div class="hifie-validation-actions">
+                            <button id="virtual_validation_test" type="button" class="button button-primary" data-icon="play">Run calibration test</button>
+                            <span>Save and Confirm also remain available in the footer.</span>
+                        </div>
                     </div>
                 </details>
                 <div id="virtual_benchmark" class="virtual-message" role="status">Save a configuration to check for an existing passing benchmark.</div>
