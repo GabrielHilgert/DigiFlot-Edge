@@ -383,3 +383,21 @@ a { color: inherit; text-decoration: none; }
     .hifie-step .virtual-quick-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:580px) { .hifie-step .virtual-quick-grid { grid-template-columns:1fr; }
     .hifie-step > summary { flex-direction:column; align-items:flex-start; } }
+
+/* HIFIE calibration: explicit actions after capture, optional detector tuning. */
+.hifie-step-result { display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+    margin:13px 0 4px; padding:12px 14px; border:1px solid var(--border);
+    border-radius:var(--radius-md); background:var(--surface-soft); }
+.hifie-step-result[hidden] { display:none !important; }
+.hifie-step-result strong { font-size:.88rem; }
+.hifie-step-result span { flex:1 1 220px; color:var(--text-soft); font-size:.8rem; line-height:1.4; }
+.hifie-step-result > button { margin-left:auto; white-space:nowrap; }
+.hifie-validation-hint { color:var(--text); background:var(--surface-soft);
+    border-left:3px solid var(--accent); border-radius:var(--radius-sm);
+    padding:11px 14px; margin:13px 0; font-size:.85rem; }
+.hifie-validation-hint[data-state="check"] { border-left-color:var(--warning); }
+.hifie-step-intro { max-width:950px; font-size:.84rem; line-height:1.55; color:var(--text-soft); }
+.hifie-validation-actions { display:flex; align-items:center; flex-wrap:wrap; gap:13px; }
+.hifie-validation-actions span { font-size:.78rem; color:var(--text-soft); }
+.hifie-detector-next { margin-top:17px; }
+@media(max-width:700px) { .hifie-step-result > button { width:100%; margin:0; } }
