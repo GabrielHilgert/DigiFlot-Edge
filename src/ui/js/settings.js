@@ -678,7 +678,8 @@ async function refreshPlugins() {
     target.innerHTML = (result.plugins || []).map(item => {
         const pending = item.enabled !== item.loaded;
         const status = item.error ? "Error" : pending ? "Restart required" :
-            item.loaded ? "Running" : "Disabled";
+            item.loaded ? (item.runtime_status === "connected" ? "Online" :
+                (item.runtime_status || "Loaded")) : "Disabled";
         const display = (item.display || []).map(component => component.type + ": " + component.label).join(" · ");
         return `<article class="plugin-row">
             <div class="plugin-info">
