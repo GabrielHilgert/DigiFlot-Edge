@@ -19,6 +19,19 @@ class Scale:
         return unit in {"g", "kg", "mg"}
 
     @classmethod
+    def has_live_weight(cls, snapshot, max_age_s=10.0):
+        """Confirm recent weight readings, not just an open serial handle."""
+        if snapshot.get("status") != "connected" or snapshot.get("value") is None:
+            return False
+        if not cls._is_weight_unit(snapshot.get("unit")):
+            return False
+        try:
+            age_ns = time.time_ns() - int(snapshot["timestamp_ns"])
+        except (ValueError, TypeError, KeyError):
+            return False
+        return 0 <= age_ns < int(float(max_age_s) * 1e9)
+
+    @classmethod
     def discover_available(
         cls,
         configured_ports=None,
@@ -74,16 +87,7 @@ class Scale:
                     item["runtime_status"] = snapshot.get("status")
                     item["sample"] = snapshot.get("raw")
                     unit = snapshot.get("unit")
-                    timestamp_ns = snapshot.get("timestamp_ns")
-                    fresh = False
-                    try:
-                        fresh = timestamp_ns is not None and (
-                            0 <= time.time_ns() - int(timestamp_ns) < 10_000_000_000
-                        )
-                    except (ValueError, TypeError):
-                        pass
-                    if (snapshot.get("status") == "connected" and fresh
-                            and snapshot.get("value") is not None and cls._is_weight_unit(unit)):
+                    if cls.has_live_weight(snapshot):
                         item["scale_detected"] = True
                         item["probable_scale"] = True
                         item["detected"] = True

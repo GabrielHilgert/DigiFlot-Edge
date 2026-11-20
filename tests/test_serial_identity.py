@@ -50,6 +50,12 @@ class SerialIdentityTests(unittest.TestCase):
         saved = [{"id": "scale_1", "port": "/dev/ttyUSB2"}]
         self.assertEqual(resolve_runtime_ports(saved, [self.endpoint("/dev/ttyUSB2")]), {})
 
+    def test_open_serial_without_live_weight_allows_reassociation(self):
+        from lib.scale import Scale
+        self.assertFalse(Scale.has_live_weight({"status": "connected", "value": None, "unit": None}))
+        self.assertFalse(Scale.has_live_weight({"status": "connected", "value": 20, "unit": "g", "timestamp_ns": "1"}))
+        self.assertFalse(Scale.has_live_weight({"status": "offline", "value": 20, "unit": "g", "timestamp_ns": "1"}))
+
     def test_offline_cached_weight_does_not_confirm_scale(self):
         from lib.scale import Scale
         endpoint = self.endpoint("/dev/ttyUSB0")

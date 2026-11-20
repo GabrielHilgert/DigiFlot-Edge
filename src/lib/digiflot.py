@@ -3487,8 +3487,8 @@ class DigiFlot:
                 if any(str(item.get("port")) == port and item is not target for item in scale_configs):
                     raise ValueError(f"Port {port} is already assigned to another scale.")
                 runtime = self.scales.get(sensor_id)
-                if runtime is not None and runtime.snapshot().get("status") == "connected":
-                    raise ValueError(f"Disconnect the previous connection for {sensor_id} first.")
+                if runtime is not None and Scale.has_live_weight(runtime.snapshot()):
+                    raise ValueError(f"Scale {sensor_id} still reports recent mass on its previous channel.")
                 target["port"] = port
                 target["connection"] = detected["connection"]
                 target.setdefault("identity", {"protocol": "mass_stream", "device_serial": None})
