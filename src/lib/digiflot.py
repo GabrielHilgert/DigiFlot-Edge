@@ -16,6 +16,7 @@ from picamera2 import Picamera2
 from lib.atlasScientific import AtlasScientific
 from lib.camera import Camera
 from lib.scale import Scale
+from lib.serial_identity import serial_inventory, resolve_runtime_ports
 from lib.pulp_preparation import planned_inputs, derived_metrics
 from lib.storage_estimator import StorageEstimator
 from lib.scraping_gpio import ScrapingGPIO, ALLOWED_GPIO_PINS, validate_gpio_pin
@@ -265,6 +266,7 @@ class DigiFlot:
             "scales",
             self.config.get("scales", []),
         )
+        resolved_scale_ports = resolve_runtime_ports(scale_configs, serial_inventory())
         for scale_config in scale_configs:
             if not bool(scale_config.get("enabled", True)):
                 print(
@@ -272,7 +274,10 @@ class DigiFlot:
                     "is disabled in config. Skipping."
                 )
                 continue
-            scale = Scale.from_config(scale_config)
+            runtime_config = deepcopy(scale_config)
+            runtime_key = str(scale_config.get("id") or scale_config.get("port"))
+            runtime_config["port"] = resolved_scale_ports.get(runtime_key, runtime_config["port"])
+            scale = Scale.from_config(runtime_config)
             scale.set_context_provider(self.acquisition_context)
             self.scales[scale.id] = scale
 
@@ -3240,9 +3245,15 @@ class DigiFlot:
                 for item in (self.atlas.sensors if self.atlas is not None else [])
                 if item.get("address") is not None
             }
+            scale_ports_changed = any(
+                str(item.get("port")) != str(self.scales[str(item["id"])].port)
+                for item in sensor_config.get("scales", [])
+                if bool(item.get("enabled", True)) and str(item.get("id")) in self.scales
+            )
             hardware_restart_required = (
                 desired_scale_ids != runtime_scale_ids
                 or desired_atlas_addresses != runtime_atlas_addresses
+                or scale_ports_changed
             )
 
             return {
@@ -3424,6 +3435,7 @@ class DigiFlot:
 
             added = {"cameras": [], "scales": [], "atlas": []}
             updated = {"scales": [], "atlas": []}
+            reassigned = []
 
             config_cameras = self.config.setdefault("cameras", [])
             existing_camera_ids = {int(item["id"]) for item in config_cameras}
@@ -3446,29 +3458,80 @@ class DigiFlot:
 
             sensors = self.config.setdefault("sensors", {})
             scale_configs = sensors.setdefault("scales", [])
-            existing_ports = {str(item.get("port")) for item in scale_configs}
             existing_scale_ids = {str(item.get("id")) for item in scale_configs}
+            by_id = {str(item.get("id")): item for item in scale_configs}
+            reassignments = payload.get("reassignments") or []
+            remembered = payload.get("remember_connections") or []
+            new_scales = payload.get("scales") or []
+            scanned = {}
+            if reassignments or remembered or new_scales:
+                runtime_by_port = {str(scale.port): scale for scale in self.scales.values()}
+                scanned = {item["port"]: item for item in Scale.discover_available(
+                    configured_ports={str(item.get("port")) for item in scale_configs},
+                    runtime_scales=runtime_by_port,
+                )}
+            used_targets, used_ports = set(), set()
+            for request in reassignments:
+                sensor_id, port = str(request.get("sensor_id")), str(request.get("port"))
+                if not request.get("confirmed"):
+                    raise ValueError("Scale reassignment requires explicit operator confirmation.")
+                if sensor_id not in by_id or sensor_id in used_targets or port in used_ports:
+                    raise ValueError("Unknown or duplicate scale reassignment.")
+                target, detected = by_id[sensor_id], scanned.get(port)
+                if not detected or not detected.get("scale_detected"):
+                    raise ValueError(f"Cannot confirm scale at {port}: no live weight evidence.")
+                if any(str(item.get("port")) == port and item is not target for item in scale_configs):
+                    raise ValueError(f"Port {port} is already assigned to another scale.")
+                runtime = self.scales.get(sensor_id)
+                if runtime is not None and runtime.snapshot().get("status") == "connected":
+                    raise ValueError(f"Disconnect the previous connection for {sensor_id} first.")
+                target["port"] = port
+                target["connection"] = detected["connection"]
+                target.setdefault("identity", {"protocol": "mass_stream", "device_serial": None})
+                used_targets.add(sensor_id)
+                used_ports.add(port)
+                reassigned.append({"id": sensor_id, "port": port})
+                updated["scales"].append({"id": sensor_id, "port": port, "reassigned": True})
+
+            for sensor_id in remembered:
+                sensor_id = str(sensor_id)
+                config = by_id.get(sensor_id)
+                if config is None:
+                    raise ValueError(f"Unknown scale: {sensor_id}")
+                runtime = self.scales.get(sensor_id)
+                port = str(runtime.port) if runtime is not None else str(config.get("port"))
+                detected = scanned.get(port)
+                if not detected or not detected.get("scale_detected"):
+                    raise ValueError(f"Cannot remember {sensor_id}: no live weight evidence.")
+                connection = detected["connection"]
+                if config.get("connection") != connection or str(config.get("port")) != port:
+                    config["port"] = port
+                    config["connection"] = connection
+                    config.setdefault("identity", {"protocol": "mass_stream", "device_serial": None})
+                    updated["scales"].append({"id": sensor_id, "port": port, "remembered": True})
+
+            existing_ports = {str(item.get("port")) for item in scale_configs}
             next_scale = 1
 
-            for item in payload.get("scales", []) or []:
+            for item in new_scales:
                 port = str(item["port"])
                 if port in existing_ports:
                     continue
-                if not bool(item.get("scale_detected")):
-                    print(
-                        f"[DigiFlot] Ignoring serial device {port}: "
-                        "it was not confirmed as a scale."
-                    )
+                verified = scanned.get(port)
+                if not verified or not verified.get("scale_detected"):
+                    print(f"[DigiFlot] Ignoring serial device {port}: no live weight evidence.")
                     continue
                 while f"scale_{next_scale}" in existing_scale_ids:
                     next_scale += 1
                 sensor_id = f"scale_{next_scale}"
                 scale_config = Scale.config_from_detection(
-                    item,
+                    verified,
                     sensor_id=sensor_id,
                     name=f"Scale {next_scale}",
                 )
                 scale_config["enabled"] = True
+                scale_config["connection"] = verified["connection"]
+                scale_config["identity"] = {"protocol": "mass_stream", "device_serial": None}
                 scale_configs.append(scale_config)
                 existing_ports.add(port)
                 existing_scale_ids.add(sensor_id)
@@ -3566,6 +3629,7 @@ class DigiFlot:
             return {
                 "added": added,
                 "updated": updated,
+                "reassigned": reassigned,
                 "changed": changed,
                 "restart_required": changed,
                 "saved_to": paths,

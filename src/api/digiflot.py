@@ -362,6 +362,13 @@ def discover_devices(request: Request):
     configured_scales = sensor_config.get("scales", [])
     configured_ports = {str(item.get("port")) for item in configured_scales}
     configured_scale_by_port = {str(item.get("port")): item for item in configured_scales}
+    configured_scale_by_id = {str(item.get("id")): item for item in configured_scales}
+    # Boot may have resolved a stable USB endpoint to a new tty path.
+    for runtime_scale in digiflot.scales.values():
+        config = configured_scale_by_id.get(str(runtime_scale.id))
+        if config is not None:
+            configured_ports.add(str(runtime_scale.port))
+            configured_scale_by_port[str(runtime_scale.port)] = config
 
     atlas_config = sensor_config.get("atlas_scientific") or {}
     atlas_bus = int(atlas_config.get("bus", 1))
@@ -418,8 +425,12 @@ def discover_devices(request: Request):
         serial_ports = {str(item["port"]) for item in result["scales"]}
         for item in result["scales"]:
             item["config"] = configured_scale_by_port.get(str(item["port"]))
+        present_config_ids = {
+            str(item["config"].get("id")) for item in result["scales"] if item.get("config")
+        }
         for port, config in configured_scale_by_port.items():
-            if port not in serial_ports:
+            if port not in serial_ports and str(config.get("id")) not in present_config_ids:
+                present_config_ids.add(str(config.get("id")))
                 result["scales"].append({
                     "port": port,
                     "configured": True,

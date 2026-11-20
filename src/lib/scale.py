@@ -4,7 +4,7 @@ import threading
 from pathlib import Path
 
 import serial
-from serial.tools import list_ports
+from lib.serial_identity import serial_inventory, connection_from_port
 
 
 _VALUE_PATTERN = re.compile(
@@ -41,8 +41,8 @@ class Scale:
         }
         devices = []
 
-        for port in list_ports.comports():
-            device = str(port.device)
+        for port in serial_inventory():
+            device = port["port"]
             runtime_scale = runtime_scales.get(device)
             item = {
                 "port": device,
@@ -53,11 +53,15 @@ class Scale:
                 # the device was confirmed as a scale, not merely a serial port.
                 "detected": False,
                 "probable_scale": False,
-                "description": port.description,
-                "manufacturer": port.manufacturer,
-                "vid": port.vid,
-                "pid": port.pid,
-                "serial_number": port.serial_number,
+                "description": port.get("description"),
+                "manufacturer": port.get("manufacturer"),
+                "vid": port.get("vid"),
+                "pid": port.get("pid"),
+                "serial_number": port.get("adapter_serial"),
+                "usb_id": port.get("usb_id"),
+                "usb_path": port.get("usb_path"),
+                "interface": port.get("interface"),
+                "connection": connection_from_port(port),
                 "sample": None,
                 "runtime_status": None,
                 "evidence": None,

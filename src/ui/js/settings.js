@@ -210,7 +210,7 @@ function sensorEnableControl(kind, item) {
         </label>`;
 }
 
-function row(kind, item, label, detail, selectable = true) {
+function row(kind, item, label, detail, selectable = true, controls = "") {
     const [status, cls] = deviceStatus(kind, item);
     const key = kind === "camera" ? item.id : kind === "scale" ? item.port : item.address;
     const canSelect = Boolean(selectable && !item.configured && item.detected);
@@ -229,8 +229,29 @@ function row(kind, item, label, detail, selectable = true) {
                 ${hint}
                 ${enableControl}
             </span>
+            ${controls}
             <span class="device-status ${cls}">${esc(status)}</span>
         </div>`;
+}
+
+function scaleIdentityControls(item) {
+    if (item.configured) {
+        if (!item.scale_detected || item.config?.connection?.usb_id || item.config?.connection?.adapter_serial) return "";
+        return `<label class="scale-identity-controls"><input type="checkbox" class="remember-scale-connection"
+            data-sensor-id="${esc(item.config?.id)}" checked> Remember this serial connection</label>`;
+    }
+    if (!item.scale_detected) return "";
+    const offline = (state.discovery?.scales || []).filter(other =>
+        other.configured && !other.scale_detected && other.config?.id);
+    if (!offline.length) return "";
+    const options = offline.map(other =>
+        `<option value="${esc(other.config.id)}">${esc(other.config.name || other.config.id)}</option>`).join("");
+    return `<div class="scale-identity-controls">
+        <label>Existing scale <select class="scale-reassignment" data-port="${esc(item.port)}">
+            <option value="">Register as new scale</option>${options}</select></label>
+        <label class="scale-confirm-label" hidden><input type="checkbox" class="scale-confirm">
+            I verified this scale by changing its load and checking the new reading.</label>
+    </div>`;
 }
 
 function render() {
@@ -257,6 +278,7 @@ function render() {
             item.config?.name || item.port,
             details.filter(Boolean).join(" · "),
             Boolean(item.scale_detected),
+            scaleIdentityControls(item),
         );
     }).join("") || '<p class="muted">No configured scales. Run auto-detect to scan serial devices.</p>';
 
@@ -278,12 +300,28 @@ function render() {
 }
 
 function updateSaveButton() {
-    const selected = document.querySelectorAll(".device-select:checked");
+    const linkSelectors = [...document.querySelectorAll(".scale-reassignment")];
+    linkSelectors.forEach(select => {
+        const card = select.closest(".device-row"), active = Boolean(select.value);
+        const box = card?.querySelector(".device-select");
+        if (box) {
+            if (active) box.checked = false;
+            box.disabled = active;
+            card.dataset.selectable = String(!active);
+        }
+        const confirmation = card?.querySelector(".scale-confirm-label");
+        if (confirmation) confirmation.hidden = !active;
+        if (!active && confirmation) confirmation.querySelector("input").checked = false;
+    });
+    const selected = [...document.querySelectorAll(".device-select:checked")];
     const sensorStateChanged = [...document.querySelectorAll(".sensor-enabled")].some(box =>
-        box.checked !== (box.dataset.initial === "true")
-    );
-    el.save_devices.disabled = selected.length === 0 && !sensorStateChanged;
-
+        box.checked !== (box.dataset.initial === "true"));
+    const remembered = [...document.querySelectorAll(".remember-scale-connection:checked")];
+    const assigned = linkSelectors.filter(select => select.value);
+    const confirmed = assigned.filter(select => select.closest(".device-row")?.querySelector(".scale-confirm:checked"));
+    const uniqueTargets = new Set(assigned.map(select => select.value)).size === assigned.length;
+    const incomplete = confirmed.length !== assigned.length || !uniqueTargets;
+    el.save_devices.disabled = incomplete || !(selected.length || sensorStateChanged || remembered.length || confirmed.length);
     document.querySelectorAll(".device-row-selectable").forEach(card => {
         const checkbox = card.querySelector(".device-select");
         card.classList.toggle("selected", Boolean(checkbox?.checked));
@@ -299,6 +337,8 @@ function selectedHardware() {
         atlas: [],
         atlas_bus: state.discovery?.atlas_bus ?? 1,
         sensor_enabled: { scales: [], atlas: [] },
+        reassignments: [],
+        remember_connections: [],
     };
 
     document.querySelectorAll(".device-select:checked").forEach(box => {
@@ -331,6 +371,14 @@ function selectedHardware() {
             });
         }
     });
+
+    document.querySelectorAll(".scale-reassignment").forEach(select => {
+        if (!select.value) return;
+        const confirmed = Boolean(select.closest(".device-row")?.querySelector(".scale-confirm:checked"));
+        out.reassignments.push({ sensor_id: select.value, port: select.dataset.port, confirmed });
+    });
+    document.querySelectorAll(".remember-scale-connection:checked").forEach(box =>
+        out.remember_connections.push(box.dataset.sensorId));
 
     return out;
 }
@@ -439,7 +487,8 @@ el.autodetect.addEventListener("click", async () => {
 
 document.addEventListener("click", event => {
     const card = event.target.closest(".device-row-selectable");
-    if (!card || event.target.matches("input, label, span.sensor-enable-control")) return;
+    if (!card || event.target.closest(".scale-identity-controls") ||
+        event.target.matches("input, label, select, span.sensor-enable-control")) return;
     const checkbox = card.querySelector(".device-select");
     if (!checkbox) return;
     checkbox.checked = !checkbox.checked;
@@ -447,7 +496,8 @@ document.addEventListener("click", event => {
 });
 
 document.addEventListener("change", event => {
-    if (event.target.classList?.contains("device-select") || event.target.classList?.contains("sensor-enabled")) {
+    if (["device-select", "sensor-enabled", "scale-reassignment", "scale-confirm",
+        "remember-scale-connection"].some(cls => event.target.classList?.contains(cls))) {
         updateSaveButton();
     }
 });
