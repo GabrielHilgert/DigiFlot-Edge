@@ -60,6 +60,13 @@ class TuningTests(unittest.TestCase):
                 second=vision.preview_virtual_tuning({"config":{**config,"entropy_bins":20}},"tab-a")
             self.assertTrue(first["cached_frame"])
             self.assertTrue(second["cached_frame"])
+            # Changing the ROI and processing width must also use the same
+            # original camera frame, not a Save or a second Picamera2 capture.
+            changed={**config,"detection_roi_cm":[3.,2.,12.,12.],"resolution_px":80}
+            with patch.object(vision,"_capture",side_effect=AssertionError("No second camera capture")):
+                remapped=vision.preview_virtual_tuning({"config":changed},"tab-a")
+            self.assertTrue(remapped["cached_frame"])
+            self.assertTrue(remapped["diagnostic"]["image_size"][0] > 0)
             self.assertIs(vision._reference_frame,frozen, "Sliders must never replace the reference frame")
 
     def test_sliders_recompute_without_camera_or_profile_mutation(self):
@@ -96,7 +103,7 @@ class TuningTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"this tab"):
                 vision.preview_virtual_tuning({"config":config},"tab-b")
             altered={**config,"detection_roi_cm":[3.,2.,12.,12.]}
-            with self.assertRaisesRegex(ValueError,"Save the new Detection ROI"):
+            with self.assertRaisesRegex(ValueError,"Cached image cannot be remapped"):
                 vision.preview_virtual_tuning({"config":altered},"tab-a")
             with self.assertRaisesRegex(ValueError,"Mark at least one reference"):
                 vision.fit_virtual_tuning({"config":config},"tab-a")

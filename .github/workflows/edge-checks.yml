@@ -46,6 +46,7 @@ jobs:
           node tests/test_hifie_coordinate_plots.js
           node tests/test_hifie_interactive_tuning.js
           node tests/test_hifie_camera_retry.js
+          node tests/test_hifie_preview_ui.js
       - name: Compile Python sources
         run: python -m compileall -q src tests
       - name: Test persistent serial sensor identity

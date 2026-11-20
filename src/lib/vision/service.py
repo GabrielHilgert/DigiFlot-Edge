@@ -486,9 +486,7 @@ class VisionService:
             raise RuntimeError("Interactive tuning is available only during sensor calibration")
         camera, cell_id, association, profile = self._virtual_context()
         config = normalized_config((payload or {}).get("config") or profile["config"])
-        expected_roi = detection_roi(profile["config"], association)
-        if detection_roi(config, association) != expected_roi:
-            raise ValueError("Save the new Detection ROI and wait for a matching live diagnostic frame")
+        requested_roi = detection_roi(config, association)
         with self._lock:
             cached = self._reference_frame
             owner = self._reference_owner_id
@@ -496,12 +494,27 @@ class VisionService:
             raise ValueError("Capture a reference image in this tab before fitting")
         if (cached is None or cached["camera_id"] != str(camera.id)
                 or cached["cell_id"] != str(cell_id)
-                or cached["calibration_id"] != association["calibration_id"]
-                or cached["roi"] != expected_roi):
-            raise ValueError("Reference image is unavailable for this ROI. Capture it again")
-        # Freeze the image and the image-space coordinates; do not borrow a
-        # newer live diagnostic or its temporal votes during a single-frame fit.
+                or cached["calibration_id"] != association["calibration_id"]):
+            raise ValueError("Reference image expired or geometry changed. Capture one new frame.")
+        # Re-map from the SAME frozen frame when ROI or processing width changes.
+        # The current camera stream and saved profile are not modified.
         frame = dict(cached)
+        if (list(requested_roi) != list(cached["roi"]) or
+                ("resolution_px" in cached and config["resolution_px"] != cached["resolution_px"])):
+            if "source_image" not in cached or "source_frame" not in cached:
+                raise ValueError("Cached image cannot be remapped. Capture one new reference frame.")
+            from math import sqrt
+            span_x, span_y = requested_roi[2] - requested_roi[0], requested_roi[3] - requested_roi[1]
+            source_w, source_h = cached["source_frame"]["size"]
+            density = min(float(config["resolution_px"]) / span_x,
+                          min(source_w, 1280) / span_x, min(source_h, 960) / span_y,
+                          sqrt(1_000_000 / (span_x * span_y)))
+            maps = compile_roi_maps(association["calibration"], association["camera_profile"],
+                                    cached["source_frame"], requested_roi, px_per_cm=density,
+                                    max_pixels=1_000_000)
+            frame.update({"image": remap_roi(cached["source_image"], maps),
+                          "roi": list(requested_roi), "density": maps["size"][0] / span_x,
+                          "resolution_px": config["resolution_px"]})
         frame["reference"] = resolve_vertical_reference(config, association)
         return frame, config, TemporalBoundaryFilter()
 
@@ -554,8 +567,8 @@ class VisionService:
                                                     cached["timestamp_ns"])
             return {"diagnostic": diagnostic, "cached_frame": True,
                     "processing_only": True, "requires_camera_reconfiguration": False,
-                    "approximate_resolution": config["resolution_px"] != cached.get("resolution_px"),
-                    "note": "Resolution preview reuses mapped pixels; saving rebuilds the ROI map"}
+                    "approximate_resolution": False,
+                    "note": "ROI and processing width are remapped from the frozen camera frame"}
         finally:
             self._tuning_lock.release()
 
@@ -641,8 +654,10 @@ class VisionService:
                     raise RuntimeError("HIFIE diagnostics belong to another browser tab.")
                 return {"enabled": False, "revision": self._diagnostic_revision}
         if not enabled:
-            # Shutdown must not stop Picamera2 while a plane capture uses it.
-            with self._roi_snapshot_lock:
+            # Stop must not hang indefinitely on a stalled Picamera2 capture.
+            if not self._roi_snapshot_lock.acquire(timeout=6):
+                raise RuntimeError("A camera capture is still running. Retry camera release.")
+            try:
                 with self._lock:
                     self._diagnostic_until = 0.0
                     self._diagnostic_owner_id = None
@@ -652,6 +667,8 @@ class VisionService:
                 with self.digiflot.lock:
                     if owner_id and self.digiflot.preview_owner_id == str(owner_id):
                         self.digiflot.stop_preview(owner_id=owner_id)
+            finally:
+                self._roi_snapshot_lock.release()
             return {"enabled": False, "revision": self._diagnostic_revision}
         if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
             raise RuntimeError("Live diagnostics are available only during HIFIE calibration")
@@ -962,6 +979,11 @@ class VisionService:
         # Reserve the camera before stopping preview to avoid the live worker
         # racing to restart Picamera2 while the main encoder is being prepared.
         self._benchmarking = True
+        # Serialize the recording transition with any pending live diagnostic
+        # capture; otherwise stopping Preview can block against Picamera2.
+        if not self._roi_snapshot_lock.acquire(timeout=6):
+            self._benchmarking = False
+            raise RuntimeError("Camera preview has not released. Stop Live camera and retry the test.")
         try:
             if self.digiflot.preview_camera_id is not None:
                 self.digiflot.stop_preview()
@@ -970,6 +992,8 @@ class VisionService:
         except Exception:
             self._benchmarking = False
             raise
+        finally:
+            self._roi_snapshot_lock.release()
         self._map_key, self._roi_map = None, None
         interval = float(config["sampling_interval_s"])
         self._benchmark_series, self._benchmark_diagnostic = [], None
@@ -1437,7 +1461,8 @@ class VisionService:
                           "camera_id": str(camera.id), "cell_id": str(cell_id),
                           "calibration_id": calibrated["calibration_id"],
                           "resolution_px": config["resolution_px"],
-                          "timestamp_ns": frame["captured_timestamp_ns"]}
+                          "timestamp_ns": frame["captured_timestamp_ns"],
+                          "source_image": image.copy(), "source_frame": dict(frame)}
             except (ValueError, RuntimeError, KeyError) as exc:
                 error = str(exc)
             with self._lock:

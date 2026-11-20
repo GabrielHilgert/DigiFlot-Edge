@@ -303,7 +303,7 @@ function invalidateVerticalReference() {
 
 let virtualDiagnostic = null, virtualTestSeries = [];
 let virtualDiagnosticsActive = false, virtualDiagnosticsTimer = null, virtualDiagBusy = false, virtualDiagRevision = 0;
-let virtualDiagRequest = null;
+let virtualDiagRequest = null, virtualDiagController = null, virtualDiagStopTask = null;
 let virtualReferenceRows=[null,null], virtualTuningDirty=false, virtualTuningEpoch=0;
 let virtualTuningTimer=null, virtualTuningInFlight=false, virtualFitInFlight=false;
 let virtualReferenceReady=false, virtualDiagnosticSource="reference", virtualTuningTask=null;
@@ -418,7 +418,15 @@ function drawVirtualProfiles() {
 }
 
 function renderVirtualDiagnostic(diagnostic, label) {
-    if (!diagnostic || !diagnostic.image_jpeg_base64 || !diagnostic.entropy_jpeg_base64) return;
+    if (!diagnostic || !diagnostic.image_jpeg_base64 || !diagnostic.entropy_jpeg_base64) {
+        document.getElementById("virtual_diagnostics_status").textContent=
+            "No detector image was returned. Click Apply & preview, or Retake frame.";
+        const empty=document.getElementById("virtual_diagnostic_empty");
+        empty.hidden=false;
+        empty.querySelector("strong").textContent="Detector preview unavailable";
+        empty.querySelector("span").textContent="The camera works, but detector processing returned no image.";
+        return false;
+    }
     virtualDiagnostic=diagnostic;
     document.getElementById("virtual_diagnostic_grid").hidden=false;
     const w=diagnostic.image_size[0],h=diagnostic.image_size[1];
@@ -433,7 +441,9 @@ function renderVirtualDiagnostic(diagnostic, label) {
         "<span>Pulp–froth <strong>"+value(diagnostic.pulp_froth_interface_cm)+"</strong></span>";
     const time=diagnostic.timestamp_ns ? new Date(diagnostic.timestamp_ns/1e6).toLocaleTimeString() : "—";
     document.getElementById("virtual_diagnostics_status").textContent=label+" · "+time+" · "+diagnostic.method.replaceAll("_"," ");
+    document.getElementById("virtual_diagnostic_empty").hidden=true;
     window.requestAnimationFrame(drawVirtualOverlays);
+    return true;
 }
 
 function renderVirtualTestTimeline(series=[]) {
@@ -540,6 +550,10 @@ function hifieGoToStep(step) {
 }
 
 function scheduleVirtualTuning(delay=350) {
+    // An edit always previews the frozen frame, not a competing live camera.
+    if(virtualDiagnosticsActive)void stopVirtualDiagnostics().catch(error =>
+        virtualTuningStatus("Live camera stop: "+error.message));
+    virtualDiagnosticSource="reference";
     virtualTuningDirty=true;
     ++virtualTuningEpoch;
     if(virtualTuningTimer)window.clearTimeout(virtualTuningTimer);
@@ -559,8 +573,11 @@ async function runVirtualTuning() {
     let config;
     try {config=virtualCollectInputs();}
     catch(error){virtualTuningStatus(error.message);return false;}
+    virtualDiagnosticSource="reference";
     virtualTuningInFlight=true;
-    virtualTuningStatus("Recalculating cached ROI…");
+    virtualTuningStatus("Applying detector settings to the frozen camera frame…");
+    const previewButton=document.getElementById("virtual_tune_refresh");
+    previewButton.disabled=true;
     try {
         const task=requestJson("/api/vision/virtual-sensors/froth-interface/tune-preview",{
             method:"POST",headers:{"Content-Type":"application/json"},
@@ -570,7 +587,11 @@ async function runVirtualTuning() {
         const data=await task;
         if(epoch===virtualTuningEpoch&&session===virtualSessionGeneration){
             virtualTuningDirty=false;
-            if(virtualDiagnosticSource==="reference")renderVirtualDiagnostic(data.diagnostic,"Frozen reference image");
+            // Always show the result requested by Update preview, even if a
+            // previous live-camera session selected a different image source.
+            virtualDiagnosticSource="reference";
+            if(!renderVirtualDiagnostic(data.diagnostic,"Frozen detector preview"))
+                throw new Error("Detector returned no preview images.");
             virtualTuningStatus(data.approximate_resolution ?
                 "Preview ready on cached pixels. Save will rebuild the ROI map; you may proceed." :
                 "Detector preview ready. No changes required? Continue to validation.");
@@ -580,12 +601,21 @@ async function runVirtualTuning() {
         return true;
     } catch(error) {
         if(epoch===virtualTuningEpoch) {
-            virtualTuningStatus("Preview unavailable: "+error.message+". You can still continue to validation.");
+            const message="Detector preview failed: "+error.message;
+            virtualTuningStatus(message);
+            document.getElementById("virtual_diagnostics_status").textContent=message;
+            const empty=document.getElementById("virtual_diagnostic_empty");
+            if(!virtualDiagnostic){
+                empty.hidden=false;
+                empty.querySelector("strong").textContent="Cannot process captured frame";
+                empty.querySelector("span").textContent=error.message+" — retry Apply & preview or Retake frame.";
+            }
             hifieWorkflow("detector","preview unavailable");
         }
         return false;
     } finally {
         virtualTuningTask=null;virtualTuningInFlight=false;
+        previewButton.disabled=false;
         if(epoch!==virtualTuningEpoch&&session===virtualSessionGeneration)
             scheduleVirtualTuning(120);
     }
@@ -611,6 +641,8 @@ function virtualMarkReference(event) {
 }
 
 function showVirtualReference() {
+    if(virtualDiagnosticsActive)void stopVirtualDiagnostics().catch(error =>
+        virtualTuningStatus("Live camera stop: "+error.message));
     virtualDiagnosticSource="reference";
     if(!virtualReferenceReady) {
         virtualTuningStatus("Capture a reference image to start fitting");
@@ -655,7 +687,10 @@ async function virtualFitParameters() {
         return;
     }
     if(virtualReferenceRows.every(x=>x==null)){
-        status.textContent="Mark at least one interface on the reference image first.";return;
+        status.textContent="Select Frozen frame, then click the froth or pulp boundary directly on the image. Fit needs at least one marked line.";
+        document.getElementById("virtual_detector_step").open=true;
+        showVirtualReference();
+        return;
     }
     virtualFitInFlight=true;
     ++virtualTuningEpoch;
@@ -696,9 +731,12 @@ async function virtualFitParameters() {
 async function pollVirtualDiagnostics() {
     if(!virtualDiagnosticsActive||virtualDiagBusy||document.hidden||!document.getElementById("virtual_panel").open)return;
     virtualDiagBusy=true;
+    const controller=new AbortController();
+    virtualDiagController=controller;
+    const timer=window.setTimeout(()=>controller.abort(),12000);
     try {
         const pending=requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
-            method:"POST",headers:{"Content-Type":"application/json"},
+            method:"POST",headers:{"Content-Type":"application/json"},signal:controller.signal,
             body:JSON.stringify({enabled:true,last_revision:virtualDiagRevision,config:virtualCollectInputs()})
         });
         virtualDiagRequest=pending;
@@ -716,17 +754,24 @@ async function pollVirtualDiagnostics() {
         else if(payload.error)document.getElementById("virtual_diagnostics_status").textContent=
             "Diagnostic preview error: "+payload.error+" (no measurement worker is running).";
         else if(!virtualDiagnostic)document.getElementById("virtual_diagnostics_status").textContent=
-            "Live diagnostics are acquiring a preview frame; no measurement worker is running.";
+            "Waiting for live camera. The current camera frame is not yet available.";
     } catch(error){
-        document.getElementById("virtual_diagnostics_status").textContent="Live preview: "+error.message;
+        document.getElementById("virtual_diagnostics_status").textContent=
+            error.name==="AbortError" ? "Live camera frame timed out. Return to Frozen frame or retry the camera." :
+            "Live camera: "+error.message;
         if(/another browser tab|another calibration tab|belong to another/i.test(error.message)){
             virtualDiagnosticsDesired=false;
             void stopVirtualDiagnostics();
         }
-    } finally {virtualDiagBusy=false;virtualDiagRequest=null;}
+    } finally {
+        window.clearTimeout(timer);
+        if(virtualDiagController===controller)virtualDiagController=null;
+        virtualDiagBusy=false;virtualDiagRequest=null;
+    }
 }
 
 async function startVirtualDiagnostics() {
+    if(virtualDiagStopTask)await virtualDiagStopTask;
     if(virtualDiagnosticsActive)return;
     // Diagnostics acquire a frame on demand. The backend returns "waiting"
     // during a reference capture instead of spawning a measurement worker.
@@ -734,29 +779,43 @@ async function startVirtualDiagnostics() {
     if(!virtualDraft)throw new Error("Detector configuration is still loading");
     if(!virtualEffectiveRoi())throw new Error("Select a Detection ROI before starting live diagnostics");
     virtualDiagnosticsActive=true;virtualDiagRevision=0;
-    document.getElementById("virtual_diagnostics_toggle").textContent="Stop live diagnostics";
+    document.getElementById("virtual_diagnostics_toggle").textContent="Stop live camera";
+    document.getElementById("virtual_diagnostics_status").textContent="Capturing live camera preview…";
     window.DigiFlotIcons?.enhance(document.getElementById("virtual_diagnostics_toggle"));
     await pollVirtualDiagnostics();
     if(virtualDiagnosticsActive)virtualDiagnosticsTimer=window.setInterval(pollVirtualDiagnostics,3000);
 }
 
 function stopVirtualDiagnostics() {
+    if(virtualDiagStopTask)return virtualDiagStopTask;
     virtualDiagnosticsActive=false;
     if(virtualDiagnosticsTimer){window.clearInterval(virtualDiagnosticsTimer);virtualDiagnosticsTimer=null;}
-    document.getElementById("virtual_diagnostics_toggle").textContent="Start live diagnostics";
+    document.getElementById("virtual_diagnostics_toggle").textContent="View live camera";
     window.DigiFlotIcons?.enhance(document.getElementById("virtual_diagnostics_toggle"));
-    // A pending enable request must finish BEFORE disable, otherwise the old
-    // response can re-enable preview after closing the modal or starting a test.
+    virtualDiagController?.abort();
     const pending=virtualDiagRequest;
-    return (async()=>{
-        if(pending)await pending.catch(()=>{});
-        if(virtualRoiTask)await virtualRoiTask.catch(()=>{});
-        await requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
-            method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:false})
-        }).catch(()=>{});
+    const action=(async()=>{
+        // Do not block an experiment forever on a stalled camera request.
+        if(pending)await Promise.race([
+            pending.catch(()=>{}),
+            new Promise((_,reject)=>window.setTimeout(
+                ()=>reject(new Error("Camera preview still busy; retry after it stops.")),8000))
+        ]);
+        const controller=new AbortController();
+        const timer=window.setTimeout(()=>controller.abort(),8000);
+        try {
+            await requestJson("/api/vision/virtual-sensors/froth-interface/diagnostics",{
+                method:"POST",headers:{"Content-Type":"application/json"},signal:controller.signal,
+                body:JSON.stringify({enabled:false})
+            });
+        } catch(error) {
+            if(error.name==="AbortError")throw new Error("Camera release timed out; use Retake frame or reset camera.");
+            throw error;
+        } finally {window.clearTimeout(timer);}
     })();
+    virtualDiagStopTask=action.finally(()=>{virtualDiagStopTask=null;});
+    return virtualDiagStopTask;
 }
-
 
 let virtualRoiPlane = null, virtualRoiDrag = null, virtualRoiDirty = false;
 
@@ -894,6 +953,7 @@ async function loadVirtualRoiPlane() {
         virtualDiagnosticSource=virtualDiagnosticsActive ? "live" : "reference";
         virtualDiagnostic=null;
         document.getElementById("virtual_diagnostic_grid").hidden=true;
+        document.getElementById("virtual_diagnostic_empty").hidden=false;
         virtualTuningStatus(virtualReferenceReady ?
             "Frozen reference captured · no live diagnostics required" :
             "Reference unavailable: "+(payload.reference_error||"Select a valid Detection ROI"));
@@ -1101,12 +1161,10 @@ async function virtualSaveConfiguration() {
     renderVirtualRoiCaption();
     virtualBenchmarkMarkup(refreshed.test);
     renderVirtualTestTimeline(refreshed.test?.series || []);
-    virtualDiagnostic=null;
-    document.getElementById("virtual_diagnostic_grid").hidden=true;
-    document.getElementById("virtual_diagnostic_positions").hidden=true;
+    // Saving the profile must not erase the last valid detector preview.
     document.getElementById("virtual_diagnostics_status").textContent=
-        refreshed.test?.reused ? "Previous passing benchmark matches these settings. A new test is optional." :
-            "Settings updated. Waiting for a diagnostic frame with the new parameters.";
+        refreshed.test?.reused ? "Saved. An identical passing benchmark can be reused." :
+            "Configuration saved. The detector preview stays visible; run a test when ready.";
     if(virtualDiagnosticsActive) {
         virtualTuningStatus("Saved · waiting for updated detector frame");
         scheduleVirtualTuning(150);
@@ -1117,13 +1175,23 @@ async function virtualSaveConfiguration() {
 
 async function virtualRunTest() {
     const panel=document.getElementById("virtual_panel"),generation=virtualSessionGeneration;
-    const button=document.getElementById("virtual_test"),resumeDiagnostics=virtualDiagnosticsDesired;
+    const button=document.getElementById("virtual_test");
     virtualTestBusy=true;
     button.disabled=true;button.textContent="Running test…";
+    const started=performance.now();
+    const timer=window.setInterval(()=>{
+        if(generation===virtualSessionGeneration && panel.open)
+            document.getElementById("virtual_validation_hint").textContent=
+                "Running camera and detector benchmark · "+Math.round((performance.now()-started)/1000)+
+                " s elapsed. Recording and processing are being verified.";
+    },1000);
+    document.getElementById("virtual_validation_hint").textContent="Preparing camera for calibration benchmark…";
     // The main camera encoder and diagnostic preview must never run concurrently.
     virtualRoiController?.abort();
     try {
-        if(virtualDiagnosticsActive)await stopVirtualDiagnostics();
+        virtualDiagnosticsDesired=false;
+        if(virtualDiagnosticsActive || virtualDiagRequest || virtualDiagStopTask)
+            await stopVirtualDiagnostics();
         if(!document.getElementById("virtual_reference_confirm").checked)
             throw new Error("Select and confirm a physical vertical reference before the calibration test");
         await virtualSaveConfiguration();
@@ -1162,11 +1230,11 @@ async function virtualRunTest() {
             showToast(error.message);
         }
     } finally {
+        window.clearInterval(timer);
         virtualTestBusy=false;
         button.disabled=false;button.textContent="Run test";
         window.DigiFlotIcons?.enhance(button);
-        if(resumeDiagnostics && virtualDiagnosticsDesired && generation===virtualSessionGeneration && panel.open)
-            await startVirtualDiagnostics().catch(error=>showToast(error.message));
+        if(generation===virtualSessionGeneration && panel.open)hifieUpdateNavigation();
     }
 }
 

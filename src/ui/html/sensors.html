@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Sensors</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114hifieflow3">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/sensors.css') }}?v=20261114hifieflow4">
     <script defer src="{{ url_for('static', path='js/plugin-displays.js') }}?v=20261120plugins1"></script>
-    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261120hifieflow2"></script>
+    <script defer src="{{ url_for('static', path='js/sensors.js') }}?v=20261120hifieflow4"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -126,18 +126,18 @@
                     </div>
                 </details>
                 <details id="virtual_detector_step" class="hifie-step" open>
-                    <summary><strong>2 · Detector tuning &amp; diagnostics</strong><span>One cached frame for sliders and Fit; optional live inspection</span></summary>
+                    <summary><strong>2 · Detector preview</strong><span>Adjust on one captured image, then inspect live if needed</span></summary>
                     <div class="hifie-step-body">
                 <section class="virtual-tuning" aria-labelledby="virtual_tuning_title">
                     <div class="virtual-tuning-heading">
                         <div><h3 id="virtual_tuning_title">Adjust detection</h3>
-                            <p>Adjust parameters on the frozen reference image. Sliders do not restart the camera or save the sensor.</p></div>
+                            <p>The captured frame is used for every slider adjustment. Changes update the preview automatically, without reopening the camera.</p></div>
                         <span id="virtual_tuning_status" role="status">Waiting for an ROI frame</span>
                     </div>
                     <div id="virtual_quick_fields" class="virtual-quick-grid"></div>
                     <div class="virtual-tuning-actions">
-                        <button id="virtual_tune_refresh" type="button" class="button button-secondary" data-icon="refresh-cw">Update preview (optional)</button>
-                        <span>No parameter changes? Skip this. The preview and Fit filters are not required to proceed.</span>
+                        <button id="virtual_tune_refresh" type="button" class="button button-secondary" data-icon="refresh-cw">Apply &amp; preview</button>
+                        <span>Use this button to retry an automatic preview. No changes? Continue directly to validation.</span>
                     </div>
                     <details id="virtual_method_section" class="virtual-method-section">
                         <summary><span><strong>Method &amp; acquisition</strong><small>Detector method, sampling rate and advanced parameters</small></span></summary>
@@ -162,26 +162,30 @@
 
                 <section class="virtual-diagnostics">
                     <div class="virtual-diagnostics-heading">
-                        <div><h3>Detection diagnostics</h3><p>Inspect the frozen reference or request optional live preview frames. The HIFIE measurement worker starts only after calibration is confirmed.</p></div>
+                        <div><h3>Camera &amp; detector preview</h3><p>The same rectified image, entropy map and row profiles update together. Live camera is optional and never starts operational measurements.</p></div>
                         <div class="virtual-diagnostics-actions">
                             <label class="virtual-grid-option"><input id="virtual_show_grid" type="checkbox" checked> Physical grid</label>
-                            <button id="virtual_diagnostics_toggle" class="button button-secondary" type="button" data-icon="activity">Start live diagnostics</button>
+                            <button id="virtual_diagnostics_toggle" class="button button-secondary" type="button" data-icon="activity">View live camera</button>
                         </div>
                     </div>
                     <div class="virtual-reference-fit">
                         <div class="virtual-reference-fit-controls">
                             <label for="virtual_reference_target">Reference line</label>
                             <select id="virtual_reference_target"><option value="froth">Froth surface</option><option value="pulp">Pulp–froth interface</option></select>
-                            <button id="virtual_reference_show" type="button" class="button button-secondary" data-icon="image">Reference image</button>
-                            <button id="virtual_reference_capture" type="button" class="button button-secondary" data-icon="refresh-cw">New reference</button>
+                            <button id="virtual_reference_show" type="button" class="button button-secondary" data-icon="image">Frozen frame</button>
+                            <button id="virtual_reference_capture" type="button" class="button button-secondary" data-icon="refresh-cw">Retake frame</button>
                             <button id="virtual_reference_clear" type="button" class="button button-secondary" data-icon="x">Clear marks</button>
-                            <button id="virtual_fit_parameters" type="button" class="button button-secondary" data-icon="sliders">Fit filters</button>
+                            <button id="virtual_fit_parameters" type="button" class="button button-secondary" data-icon="sliders">Fit to marks</button>
                             <label class="virtual-grid-option"><input id="virtual_fit_thresholds" type="checkbox"> Include thresholds (optional)</label>
                         </div>
-                        <p>Fit filters uses only the frozen reference image. Mark the froth surface and/or pulp interface on that image. New reference captures one frame; sliders and Fit never capture again.</p>
-                        <span id="virtual_fit_status" role="status">Mark one or both interface levels to enable a guided fit.</span>
+                        <p><strong>To fit:</strong> select Froth surface or Pulp–froth interface, click that line on the rectified image below, then select Fit to marks. At least one marked line is required; fitting is optional.</p>
+                        <span id="virtual_fit_status" role="status">Select Frozen frame and click an interface on the image to fit.</span>
                     </div>
-                    <div id="virtual_diagnostics_status" class="virtual-diagnostic-status" role="status">Load one reference frame to inspect and tune the detector. Live diagnostics are optional.</div>
+                    <div id="virtual_diagnostics_status" class="virtual-diagnostic-status" role="status">Capturing a camera frame. The detector preview will appear automatically.</div>
+                    <div id="virtual_diagnostic_empty" class="virtual-diagnostic-empty" role="status">
+                        <strong>Preparing detector preview</strong>
+                        <span>Capture a camera frame in step 1. If the frame is visible but no analysis appears, click Apply &amp; preview. Any error will be shown here.</span>
+                    </div>
                     <div id="virtual_diagnostic_grid" class="virtual-diagnostic-grid" hidden>
                         <figure class="virtual-diagnostic-figure">
                             <figcaption>Rectified ROI <small>Input image · physical grid</small></figcaption>

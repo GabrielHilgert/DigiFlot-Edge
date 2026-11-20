@@ -124,3 +124,25 @@ recording stream activation and acquisition flags. The existing vision
 benchmark and modal/ROI tests cover compatibility and request serialization.
 Validation with the real Pi camera remains necessary to verify pixel formats,
 driver timing and two-camera throughput.
+
+## Operator-facing detector workflow (November 2026)
+
+The HIFIE calibration modal first captures a calibrated camera plane, then
+processes a **frozen frame** to show the Rectified ROI, Entropy map and Row
+profiles together. Slider changes automatically recompute that preview.
+**Apply & preview** retries an unsuccessful update; it never captures a frame.
+ROI and processing-width changes remap the original cached camera frame and
+never require a Save or a new lores camera stream. **Retake frame** is the
+only action that explicitly replaces the frozen camera image.
+
+**Live camera** samples the same configured camera on demand; it is optional.
+Changing a detector control switches back to the frozen-frame preview so the
+result is always visible. Fitting uses a marked froth or pulp boundary on that
+frozen frame and never starts the operational HIFIE worker. The user can go
+directly to the calibration benchmark without changing any filter.
+
+Before starting the benchmark, live camera requests must be stopped. Client
+requests and server-side camera transitions use bounded waits; the UI shows
+errors instead of waiting indefinitely if Picamera2 does not release a frame.
+The benchmark itself takes samples at the configured acquisition rate and
+publishes the elapsed test time in the modal.

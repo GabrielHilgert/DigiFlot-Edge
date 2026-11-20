@@ -29,7 +29,8 @@ const refresh=sensors.slice(sensors.indexOf('document.getElementById("virtual_ro
     sensors.indexOf('document.getElementById("virtual_roi_reset").addEventListener'));
 assert.ok(refresh.indexOf("await stopVirtualDiagnostics()") < refresh.indexOf("await loadVirtualRoiPlane()"));
 assert.ok(refresh.indexOf("await loadVirtualRoiPlane()") < refresh.indexOf("await startVirtualDiagnostics()"));
-assert.match(sensors,/const pending=virtualDiagRequest;[\s\S]*?if\(pending\)await pending\.catch/);
+assert.match(sensors,/const pending=virtualDiagRequest;[\s\S]*?if\(pending\)await Promise\.race/);
+assert.match(sensors,/virtualDiagController\?\.abort\(\)/);
 assert.match(sensors,/virtualRoiController\?\.abort\(\)/);
 assert.match(sensors,/const timeout=window\.setTimeout\(\(\)=>\{timedOut=true;controller\.abort\(\);\},18000\)/);
 assert.match(sensors,/window\.clearTimeout\(timeout\)/);
