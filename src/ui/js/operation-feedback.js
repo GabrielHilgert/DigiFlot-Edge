@@ -4,7 +4,7 @@
     if (window.DigiFlotOperations) return;
     const originalFetch = window.fetch.bind(window);
     const tabId = (window.crypto?.randomUUID?.() || "tab-" + Date.now() + "-" + Math.random().toString(36).slice(2));
-    const passive = /\/(?:monitor|stream|diagnostics|tune-preview|tune-fit|preview\/stop|storage\/estimate|performance\/evaluate|performance\/virtual-workload)(?:\/|$)/;
+    const passive = /\/(?:monitor|stream|diagnostics|tune-preview|tune-fit|tune-release|preview\/stop|storage\/estimate|performance\/evaluate|performance\/virtual-workload)(?:\/|$)/;
     const current = {count:0, exclusive:0, anchor:null, clickedAt:0, panel:null, text:null, timer:null, slow:null};
     let leaseTimer = null, ownedPreview = null;
 
