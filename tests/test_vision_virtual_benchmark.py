@@ -297,6 +297,33 @@ class VirtualBenchmarkTests(unittest.TestCase):
             self.assertEqual(peak, 1, "Parallel ROI requests must never rectify simultaneously")
             self.assertEqual(run.preview_owner_id, "tab-a")
 
+    def test_first_preview_frame_recovers_without_reopening_calibration(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = FakeRun()
+            vision = VisionService(run, root)
+            cell = vision.registry.save_cell({"name": "Warmup retry"})
+            run.cell_profile = {"physical_cell_id": cell["id"]}
+            geom = source_geometry([900, 920], [0, 0, 900, 920])
+            cal = calibrate(run.cameras[1].image, DEFAULT_LAYOUT, frame_geometry=geom)
+            vision.registry.save_association(1, cell["id"], cal)
+            vision.registry.save_analysis_roi(1, cell["id"], [2, 2, 10, 10])
+            vision.save_virtual_profile({"method": "mean_derivative", "resolution_px": 128})
+            original_capture = vision._capture
+            attempts = []
+
+            def transient_first_frame(camera_id):
+                attempts.append(camera_id)
+                if len(attempts) == 1:
+                    raise RuntimeError("Camera not ready after starting preview")
+                return original_capture(camera_id)
+
+            with patch.object(vision, "_capture", side_effect=transient_first_frame):
+                payload = vision.virtual_detection_roi_preview(owner_id="tab-warmup")
+            self.assertEqual(len(attempts), 2)
+            self.assertTrue(payload["reference_ready"])
+            self.assertEqual(run.preview_owner_id, "tab-warmup")
+            self.assertIsNone(vision._thread, "Calibration should not start measurements")
+
     def test_diagnostic_lease_is_owned_and_full_plane_remap_releases_run_lock(self):
         with tempfile.TemporaryDirectory() as root:
             run = FakeRun()
