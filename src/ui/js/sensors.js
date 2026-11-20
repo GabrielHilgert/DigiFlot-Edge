@@ -305,6 +305,7 @@ let virtualDiagnosticsActive = false, virtualDiagnosticsTimer = null, virtualDia
 let virtualDiagRequest = null;
 let virtualReferenceRows=[null,null], virtualTuningDirty=false, virtualTuningEpoch=0;
 let virtualTuningTimer=null, virtualTuningInFlight=false, virtualFitInFlight=false;
+let virtualReferenceReady=false, virtualDiagnosticSource="reference", virtualTuningTask=null;
 
 
 function paletteColor(name, fallback) {
@@ -503,8 +504,8 @@ function scheduleVirtualTuning(delay=350) {
 async function runVirtualTuning() {
     virtualTuningTimer=null;
     if(virtualTuningInFlight||virtualFitInFlight)return;
-    if(!virtualDiagnosticsActive||!virtualDiagnostic||!virtualDraft){
-        virtualTuningStatus("Waiting for a live ROI frame");return;
+    if(!virtualReferenceReady||!virtualDraft){
+        virtualTuningStatus("Capture a reference image to preview detector settings");return;
     }
     if(!document.getElementById("virtual_panel").open)return;
     const epoch=virtualTuningEpoch,session=virtualSessionGeneration;
@@ -514,27 +515,35 @@ async function runVirtualTuning() {
     virtualTuningInFlight=true;
     virtualTuningStatus("Recalculating cached ROI…");
     try {
-        const data=await requestJson("/api/vision/virtual-sensors/froth-interface/tune-preview",{
+        const task=requestJson("/api/vision/virtual-sensors/froth-interface/tune-preview",{
             method:"POST",headers:{"Content-Type":"application/json"},
             body:JSON.stringify({config,reference_rows_px:virtualReferenceRows})
         });
+        virtualTuningTask=task;
+        const data=await task;
         if(epoch===virtualTuningEpoch&&session===virtualSessionGeneration){
-            renderVirtualDiagnostic(data.diagnostic,"Unsaved processing preview");
+            virtualTuningDirty=false;
+            if(virtualDiagnosticSource==="reference")renderVirtualDiagnostic(data.diagnostic,"Frozen reference image");
             virtualTuningStatus(data.approximate_resolution ?
-                "Resolution preview uses cached pixels; Save rebuilds the ROI map" :
-                "Preview updated · no camera request");
+                "Reference preview uses cached pixels; Save rebuilds the ROI map" :
+                "Reference preview updated · no camera request");
         }
     } catch(error) {
         if(epoch===virtualTuningEpoch)virtualTuningStatus(error.message);
     } finally {
-        virtualTuningInFlight=false;
+        virtualTuningTask=null;virtualTuningInFlight=false;
         if(epoch!==virtualTuningEpoch&&session===virtualSessionGeneration)
             scheduleVirtualTuning(120);
     }
 }
 
 function virtualMarkReference(event) {
-    if(!virtualDiagnostic)return;
+    if(virtualDiagnosticSource!=="reference"){
+        document.getElementById("virtual_fit_status").textContent=
+            "Switch to Reference image before marking interfaces for Fit.";
+        return;
+    }
+    if(!virtualDiagnostic||!virtualReferenceReady)return;
     const rect=event.currentTarget.getBoundingClientRect();
     if(!rect.height)return;
     const row=Math.max(0,Math.min(virtualDiagnostic.image_size[1]-1,
@@ -852,6 +861,9 @@ function cleanupVirtualSession() {
     ++virtualSessionGeneration;++virtualTuningEpoch;
     if(virtualTuningTimer)window.clearTimeout(virtualTuningTimer);
     virtualTuningTimer=null;virtualTuningDirty=false;
+    virtualReferenceReady=false;virtualDiagnosticSource="reference";
+    void requestJson("/api/vision/virtual-sensors/froth-interface/tune-release",
+        {method:"POST"}).catch(()=>{});
     virtualRoiController?.abort();virtualRoiController=null;virtualRoiTask=null;
     virtualDiagnosticsDesired=false;
     const stop=stopVirtualDiagnostics();
@@ -873,6 +885,8 @@ async function openVirtualCalibration() {
     document.getElementById("virtual_modal_footer").hidden=true;
     virtualRoiDirty=false;virtualSavedConfig=null;
     virtualReferenceRows=[null,null];virtualTuningDirty=false;++virtualTuningEpoch;
+    virtualReferenceReady=false;virtualDiagnosticSource="reference";virtualDiagnostic=null;
+    document.getElementById("virtual_diagnostic_grid").hidden=true;
     try {
         await virtualCleanup;
         if(generation!==virtualSessionGeneration || !panel.open)return;
