@@ -20,7 +20,16 @@ assert.match(js,/const config=virtualCollectInputs\(\)|config=virtualCollectInpu
 assert.match(backend,/def preview_virtual_tuning\(/);
 assert.match(backend,/def fit_virtual_tuning\(/);
 assert.match(backend,/self\._tuning_frame = \{"image": transformed\.copy\(\)/);
-assert.match(backend,/time\.monotonic\(\) - cached\["received_at"\]/);
+assert.match(backend,/cached = self\._reference_frame/);
+assert.match(backend,/str\(owner_id\) != owner/);
+assert.doesNotMatch(backend.slice(backend.indexOf("def _tuning_input("),
+    backend.indexOf("def _reference_rows(")),/self\._diagnostic_until|self\._diagnostic_owner_id|received_at/);
+assert.match(backend,/def release_virtual_reference\(/);
+assert.match(backend,/result\["reference_ready"\] = frozen is not None/);
+assert.match(js,/if\(virtualTuningTask\)/);
+assert.match(js,/await virtualTuningTask\.catch/);
+assert.match(js,/function captureVirtualReference\(/);
+assert.match(html,/id="virtual_reference_capture"/);
 assert.match(api,/froth-interface\/tune-preview/);
 assert.match(api,/froth-interface\/tune-fit/);
 assert.match(backend,/if not self\._tuning_lock\.acquire\(blocking=False\):/);
