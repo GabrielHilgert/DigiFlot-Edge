@@ -356,3 +356,30 @@ a { color: inherit; text-decoration: none; }
   .virtual-quick-grid { grid-template-columns:repeat(auto-fit,minmax(135px,1fr)); }
   .virtual-reference-fit-controls { align-items:flex-start; }
 }
+
+/* HIFIE: explicit three-stage setup. Keep the existing detector controls intact. */
+.hifie-workflow { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0 0 16px; }
+.hifie-workflow > div { display:flex; flex-direction:column; gap:4px; padding:11px 13px;
+    background:var(--surface-soft); border:1px solid var(--border); border-radius:var(--radius-md); min-width:0; }
+.hifie-workflow strong { color:var(--text); font-size:.84rem; }
+.hifie-workflow strong[data-state="ready"], .hifie-workflow strong[data-state="passed"],
+.hifie-workflow strong[data-state="confirmed"] { color:var(--success-text); }
+.hifie-workflow strong[data-state="retry"] { color:var(--warning-text); }
+.hifie-workflow span { color:var(--text-soft); font-size:.76rem; line-height:1.4; }
+.hifie-step { border:1px solid var(--border); border-radius:var(--radius-md); margin:0 0 13px; overflow:clip; }
+.hifie-step > summary { display:flex; flex-wrap:wrap; gap:8px 16px; justify-content:space-between;
+    align-items:center; cursor:pointer; padding:14px 17px; background:var(--surface-soft); color:var(--text); }
+.hifie-step > summary strong { font-size:.98rem; }
+.hifie-step > summary span { font-size:.77rem; color:var(--text-soft); }
+.hifie-step[open] > summary { border-bottom:1px solid var(--border); }
+.hifie-step-body { padding:12px 13px; }
+.hifie-step .virtual-roi-config, .hifie-step .virtual-tuning { margin:0; }
+.hifie-step .virtual-diagnostics { margin-top:14px; }
+.hifie-step .virtual-tuning-heading { align-items:center; }
+.hifie-step .virtual-quick-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.hifie-step #virtual_roi_refresh { white-space:nowrap; }
+.hifie-step #virtual_roi_label { min-height:25px; }
+@media(max-width:900px) { .hifie-workflow { grid-template-columns:1fr; }
+    .hifie-step .virtual-quick-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:580px) { .hifie-step .virtual-quick-grid { grid-template-columns:1fr; }
+    .hifie-step > summary { flex-direction:column; align-items:flex-start; } }

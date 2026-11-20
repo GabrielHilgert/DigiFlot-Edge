@@ -60,7 +60,8 @@ def froth_interface_monitor(request: Request, payload: dict | None = None):
 def froth_interface_diagnostics(request: Request, payload: dict | None = None):
     options = payload or {}
     return _invoke(service(request).diagnostic_preview, bool(options.get("enabled", True)),
-                   int(options.get("last_revision") or 0), request.headers.get("X-DigiFlot-Tab-Id"))
+                   int(options.get("last_revision") or 0), request.headers.get("X-DigiFlot-Tab-Id"),
+                   options.get("config"))
 
 
 @router.post("/virtual-sensors/froth-interface/tune-release")

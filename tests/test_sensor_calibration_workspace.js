@@ -18,10 +18,11 @@ assert.match(sensors,/workflowLink\.href=state\.calibrationMode \? "\/cells" : "
 // One initial frame provides the static reference and full camera plane.
 const modal=sensors.slice(sensors.indexOf("async function openVirtualCalibration()"),
     sensors.indexOf("async function virtualSaveConfiguration()"));
-assert.ok(modal.includes("await loadVirtualRoiPlane()"));
+assert.ok(modal.includes("void loadVirtualRoiPlane().then("),
+    "The modal must show controls before camera capture completes.");
 assert.ok(modal.includes("await runVirtualTuning()"));
-assert.ok(modal.indexOf("await loadVirtualRoiPlane()") < modal.indexOf("await runVirtualTuning()"));
-assert.doesNotMatch(modal,/await startVirtualDiagnostics\(\)|void loadVirtualRoiPlane\(\)/);
+assert.ok(modal.indexOf("void loadVirtualRoiPlane().then(") < modal.indexOf("await runVirtualTuning()"));
+assert.doesNotMatch(modal,/await startVirtualDiagnostics\(\)|const planeReady=await loadVirtualRoiPlane\(\)/);
 
 // Subsequent manual refresh and modal close also quiesce the live request first.
 const refresh=sensors.slice(sensors.indexOf('document.getElementById("virtual_roi_refresh").addEventListener'),
@@ -30,7 +31,7 @@ assert.ok(refresh.indexOf("await stopVirtualDiagnostics()") < refresh.indexOf("a
 assert.ok(refresh.indexOf("await loadVirtualRoiPlane()") < refresh.indexOf("await startVirtualDiagnostics()"));
 assert.match(sensors,/const pending=virtualDiagRequest;[\s\S]*?if\(pending\)await pending\.catch/);
 assert.match(sensors,/virtualRoiController\?\.abort\(\)/);
-assert.match(sensors,/const timeout=window\.setTimeout\(\(\)=>\{timedOut=true;controller\.abort\(\);\},25000\)/);
+assert.match(sensors,/const timeout=window\.setTimeout\(\(\)=>\{timedOut=true;controller\.abort\(\);\},18000\)/);
 assert.match(sensors,/window\.clearTimeout\(timeout\)/);
 assert.match(sensors,/if\(planeReady && virtualReferenceReady\)/);
 

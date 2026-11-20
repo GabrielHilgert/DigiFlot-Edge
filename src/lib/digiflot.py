@@ -1801,6 +1801,8 @@ class DigiFlot:
 
             item["status"] = "pending"
             item["confirmed_at"] = None
+            if sensor_id == "froth_interface" and self.vision is not None and hasattr(self.vision, "deactivate_sensor"):
+                self.vision.deactivate_sensor()
             item.pop("skip_reason", None)
             item.pop("error", None)
             self.state = self.CAMERA_CALIBRATION
@@ -1885,6 +1887,8 @@ class DigiFlot:
             self._mark_calibration_changed_unlocked("camera", camera_id)
             item["status"] = "skipped"
             item["confirmed_at"] = _utc_now()
+            if sensor_id == "froth_interface" and self.vision is not None and hasattr(self.vision, "deactivate_sensor"):
+                self.vision.deactivate_sensor()
             item["skip_reason"] = str(reason or "Operator skipped calibration")
             self._touch_unlocked(
                 "CAMERA_CALIBRATION_SKIPPED",
@@ -1905,6 +1909,8 @@ class DigiFlot:
             if item.get("status") == "passed" and not valid:
                 self._invalidate_virtual_calibration_unlocked(
                     "Saved HIFIE calibration no longer matches verified conditions")
+            elif item.get("status") == "passed" and valid and hasattr(self.vision, "activate_sensor"):
+                self.vision.activate_sensor()
             edit = self.calibration_edit
             if (edit and edit.get("kind") == "sensor" and edit.get("id") == "froth_interface"
                     and edit.get("previous", {}).get("status") == "passed" and not valid):
@@ -1927,6 +1933,8 @@ class DigiFlot:
         item["status"] = "pending"
         item["confirmed_at"] = None
         item.pop("benchmark", None)
+        if self.vision is not None and hasattr(self.vision, "deactivate_sensor"):
+            self.vision.deactivate_sensor()
         if self.state == self.READY:
             self.state = self.SENSOR_CALIBRATION
             self.stage_state = self.STAGE_WAITING
@@ -1968,6 +1976,10 @@ class DigiFlot:
                 raise RuntimeError("The previous HIFIE calibration is no longer valid for these conditions. Retest or skip the sensor.")
             records = self.camera_calibration if kind == "camera" else self.sensor_calibration
             records[key] = deepcopy(edit["previous"])
+            if (kind == "sensor" and key == "froth_interface" and
+                    self.vision is not None and hasattr(self.vision, "activate_sensor") and
+                    records[key].get("status") == "passed"):
+                self.vision.activate_sensor()
             self.calibration_edit = None
             self.state = self.READY
             self.stage_state = self.STAGE_WAITING
@@ -2024,6 +2036,7 @@ class DigiFlot:
                 try:
                     if not self.vision.ensure_live_preview():
                         raise RuntimeError("The source camera is busy. Close other previews and retry.")
+                    self.vision.activate_sensor()
                 except Exception:
                     item["status"] = "pending"
                     item["confirmed_at"] = None
@@ -2587,6 +2600,8 @@ class DigiFlot:
             return self.status
 
     def _finish_experiment_unlocked(self):
+        if self.vision is not None and hasattr(self.vision, "deactivate_sensor"):
+            self.vision.deactivate_sensor()
         self._request_airflow_stop_unlocked("completed")
         self.scraping_gpio.cancel_pending()
         self.next_scraping_deadline = None
@@ -2612,6 +2627,8 @@ class DigiFlot:
             if self.state == self.IDLE:
                 return self.status
 
+            if self.vision is not None and hasattr(self.vision, "deactivate_sensor"):
+                self.vision.deactivate_sensor()
             if hasattr(self, "_request_airflow_stop_unlocked"):
                 self._request_airflow_stop_unlocked("aborted")
             self.scraping_gpio.cancel_pending()

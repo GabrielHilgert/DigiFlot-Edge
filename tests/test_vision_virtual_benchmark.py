@@ -84,7 +84,7 @@ class FakeRun:
         self.preview_owner_id = owner_id
         self.preview_owner_until = time.monotonic() + 35.
         return {"camera_id": camera.id}
-    def stop_preview(self):
+    def stop_preview(self, owner_id=None):
         if self.preview_camera_id is not None:
             self.cameras[self.preview_camera_id].stop_preview()
             self.preview_camera_id = None
@@ -307,8 +307,11 @@ class VirtualBenchmarkTests(unittest.TestCase):
             cal = calibrate(run.cameras[1].image, DEFAULT_LAYOUT, frame_geometry=geom)
             vision.registry.save_association(1, cell["id"], cal)
             vision.registry.save_analysis_roi(1, cell["id"], [2,2,10,10])
+            vision.save_virtual_profile({"method":"mean_derivative", "resolution_px":128})
 
+            self.assertIsNone(vision._thread)
             self.assertTrue(vision.diagnostic_preview(True, owner_id="tab-a")["enabled"])
+            self.assertIsNone(vision._thread, "Calibration diagnostics must not start the operational worker")
             self.assertEqual(run.preview_owner_id, "tab-a")
             with self.assertRaises(RuntimeError):
                 vision.diagnostic_preview(True, owner_id="tab-b")
@@ -348,6 +351,8 @@ class VirtualBenchmarkTests(unittest.TestCase):
                 self.assertEqual(run.cameras[1].state, run.cameras[1].PREVIEW)
                 self.assertEqual(run.preview_camera_id, 1)
                 vision.start()
+                self.assertIsNone(vision._thread)
+                vision.activate_sensor()
                 try:
                     deadline=time.monotonic()+3
                     while vision._virtual_sample_count < 2 and time.monotonic() < deadline:

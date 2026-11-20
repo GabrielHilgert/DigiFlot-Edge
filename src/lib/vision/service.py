@@ -120,6 +120,7 @@ class VisionService:
         self._roi_snapshot_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = None
+        self._sensor_stop = None
         self._pending = {}
         self._latest = {"state": "disabled", "updated_at": None}
         self._seen_runs = set()
@@ -166,12 +167,38 @@ class VisionService:
             camera.analysis_enabled = bool(active and settings["enabled"] and str(camera.id) == selected)
 
     def start(self):
-        if self._thread is None:
-            self._thread = threading.Thread(target=self._loop, name="digiflot-vision", daemon=True)
+        """Start the service without starting HIFIE measurements.
+
+        A sensor worker exists only after explicit calibration approval or a
+        restored, frozen experiment. ROI capture and diagnostics are on-demand.
+        """
+        return None
+
+    def activate_sensor(self):
+        """Start the operational sensor, never during unapproved calibration."""
+        with self._lock:
+            if self._stop.is_set():
+                return
+            if self._thread is not None and self._thread.is_alive() and (
+                    self._sensor_stop is None or not self._sensor_stop.is_set()):
+                return
+            stop_signal = threading.Event()
+            self._sensor_stop = stop_signal
+            self._thread = threading.Thread(target=self._loop, args=(stop_signal,),
+                                            name="digiflot-hifie", daemon=True)
             self._thread.start()
+
+    def deactivate_sensor(self):
+        """Signal shutdown without joining under DigiFlot's orchestration lock."""
+        with self._lock:
+            if self._sensor_stop is not None:
+                self._sensor_stop.set()
+            self._last_virtual_measurement = None
+            self._temporal_live_key = None
 
     def stop(self):
         self._stop.set()
+        self.deactivate_sensor()
         if self._thread is not None:
             self._thread.join(timeout=3)
             self._thread = None
@@ -217,8 +244,7 @@ class VisionService:
                 return None
             item = self.digiflot.sensor_calibration.get("froth_interface") or {}
             approved = item.get("status") == "passed" and self.virtual_test_passed()
-            diagnosing = state == self.digiflot.SENSOR_CALIBRATION and time.monotonic() < self._diagnostic_until
-            if not (approved or diagnosing):
+            if not approved:
                 return None
             camera, cell_id, association, profile = self._virtual_context()
             return {"camera": camera, "cell_id": cell_id, "association": association,
@@ -254,10 +280,11 @@ class VisionService:
                 self._diagnostic_preview_camera_id = camera.id
             return True
 
-    def _loop(self):
-        # One frame source; no unbounded queue. Preview and recording share ROI maps.
+    def _loop(self, sensor_stop=None):
+        # Only approved/operational HIFIE may run here. Calibration never uses this loop.
+        sensor_stop = sensor_stop or self._stop
         next_due = time.monotonic()
-        while not self._stop.is_set():
+        while not self._stop.is_set() and not sensor_stop.is_set():
             try:
                 context = self._analysis_context()
                 settings = self.registry.settings() if context is None else None
@@ -275,7 +302,7 @@ class VisionService:
                             and self.digiflot.preview_owner_id is None):
                         self.digiflot.stop_preview()
                     self._diagnostic_preview_camera_id = None
-            if self._stop.wait(max(0, next_due - time.monotonic())):
+            if sensor_stop.wait(max(0, next_due - time.monotonic())) or self._stop.is_set():
                 break
             next_due = max(next_due + interval, time.monotonic())
             if self._benchmarking:
@@ -481,11 +508,22 @@ class VisionService:
         return result
 
     def release_virtual_reference(self, owner_id=None):
-        """Release only this tab's frozen calibration image, without touching Picamera2."""
-        with self._lock:
-            if owner_id and self._reference_owner_id == str(owner_id):
-                self._reference_frame = None
-                self._reference_owner_id = None
+        """Release a tab's reference and preview after any in-flight plane capture."""
+        with self._roi_snapshot_lock:
+            with self._lock:
+                if owner_id and self._reference_owner_id == str(owner_id):
+                    self._reference_frame = None
+                    self._reference_owner_id = None
+            with self.digiflot.lock:
+                if owner_id and self.digiflot.preview_owner_id == str(owner_id):
+                    calibration = self.digiflot.sensor_calibration.get("froth_interface") or {}
+                    if calibration.get("status") == "passed":
+                        # Hand the existing preview to the operational HIFIE.
+                        # Do not tear down Picamera2 just after Confirm.
+                        self.digiflot.preview_owner_id = None
+                        self.digiflot.preview_owner_until = 0.0
+                    else:
+                        self.digiflot.stop_preview(owner_id=owner_id)
         return {"released": True}
 
     def preview_virtual_tuning(self, payload, owner_id=None):
@@ -575,8 +613,12 @@ class VisionService:
         finally:
             self._tuning_lock.release()
 
-    def diagnostic_preview(self, enabled=True, last_revision=0, owner_id=None):
-        """Own a short-lived camera preview lease; another tab cannot clear it."""
+    def diagnostic_preview(self, enabled=True, last_revision=0, owner_id=None, config_override=None):
+        """On-demand calibration preview; never starts the measurement worker.
+
+        One request samples one camera frame and returns its detector diagnostics.
+        Acquisition, processing and saving a test are separate operations.
+        """
         now = time.monotonic()
         with self._lock:
             owner = self._diagnostic_owner_id
@@ -584,32 +626,76 @@ class VisionService:
                 if enabled:
                     raise RuntimeError("HIFIE diagnostics belong to another browser tab.")
                 return {"enabled": False, "revision": self._diagnostic_revision}
-        if owner_id and self.digiflot.preview_owner_id and owner_id != self.digiflot.preview_owner_id:
-            if now < self.digiflot.preview_owner_until:
-                if enabled:
-                    raise RuntimeError("Camera preview belongs to another browser tab; close it there before opening diagnostics.")
-                return {"enabled": False, "revision": self._diagnostic_revision}
-        if enabled and self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
-            raise RuntimeError("Diagnostic preview is only available while calibrating sensors")
-        if enabled:
-            camera, _, association, profile = self._virtual_context()
-            if self._benchmarking:
-                raise RuntimeError("Calibration test is using the camera; diagnostics will resume when it finishes")
-            # Configure lores before opening Picamera2, regardless of whether
-            # Diagnostics or ROI was the first client to request this camera.
+        if not enabled:
+            with self._lock:
+                self._diagnostic_until = 0.0
+                self._diagnostic_owner_id = None
+                self._diagnostic_latest = None
+                self._diagnostic_temporal = TemporalBoundaryFilter()
+                self._diagnostic_temporal_key = None
             with self.digiflot.lock:
+                if owner_id and self.digiflot.preview_owner_id == str(owner_id):
+                    self.digiflot.stop_preview(owner_id=owner_id)
+            return {"enabled": False, "revision": self._diagnostic_revision}
+        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
+            raise RuntimeError("Live diagnostics are available only during HIFIE calibration")
+        if self._benchmarking:
+            return {"enabled": True, "waiting": True, "message": "Calibration test owns the camera"}
+        # Never block a full-plane reference capture or reconfigure Picamera2
+        # while it is in progress. The browser can retry without reloading.
+        if not self._roi_snapshot_lock.acquire(blocking=False):
+            return {"enabled": True, "waiting": True,
+                    "message": "Finishing the reference capture…"}
+        try:
+            with self.digiflot.lock:
+                camera, cell_id, association, profile = self._virtual_context()
+                config = normalized_config(config_override or profile["config"])
                 self.digiflot.start_preview(camera.id, owner_id=owner_id)
-        with self._lock:
-            self._diagnostic_until = time.monotonic() + 12.0 if enabled else 0.0
-            self._diagnostic_owner_id = str(owner_id) if enabled and owner_id else None
-            if not enabled:
-                return {"enabled": False, "revision": self._diagnostic_revision}
-            snapshot = self._diagnostic_latest
-            if snapshot is not None and int(last_revision or 0) != self._diagnostic_revision:
-                return {"enabled": True, "interval_s": 5, "diagnostic": deepcopy(snapshot),
-                        "revision": self._diagnostic_revision, "error": self._diagnostic_error}
-            return {"enabled": True, "interval_s": 5, "revision": self._diagnostic_revision,
-                    "error": self._diagnostic_error}
+                color = config["method"] in COLOR_METHODS
+                try:
+                    image, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
+                except Exception:
+                    if owner_id and self.digiflot.preview_owner_id == str(owner_id):
+                        try:
+                            self.digiflot.stop_preview(owner_id=owner_id)
+                        except Exception:
+                            pass
+                    raise
+            roi = detection_roi(config, association)
+            compiled = self._compiled_roi(camera, cell_id, association, frame, config)
+            transformed = (remap_yuv420_roi(image, compiled, frame["size"]) if color
+                           else remap_roi(image, compiled))
+            density = compiled["size"][0] / (roi[2] - roi[0])
+            datum = resolve_vertical_reference(config, association)
+            key = (str(camera.id), str(cell_id), association["calibration_id"],
+                   json.dumps(config, sort_keys=True))
+            with self._lock:
+                if key != getattr(self, "_diagnostic_temporal_key", None):
+                    self._diagnostic_temporal = TemporalBoundaryFilter()
+                    self._diagnostic_temporal_key = key
+                prior = self._diagnostic_temporal
+            reading = detect_interface(transformed, config, roi, density, diagnostics=True,
+                                       vertical_reference=datum, temporal_state=prior)
+            result = build_interface_diagnostic(transformed, reading, roi,
+                                                frame["captured_timestamp_ns"])
+            if result is None:
+                raise RuntimeError("Detector did not produce a diagnostic image")
+            with self._lock:
+                self._diagnostic_revision += 1
+                self._diagnostic_latest = {**result, "revision": self._diagnostic_revision}
+                self._diagnostic_error = None
+                self._diagnostic_owner_id = str(owner_id) if owner_id else None
+                self._diagnostic_until = time.monotonic() + 12.0
+                return {"enabled": True, "interval_s": 3,
+                        "diagnostic": deepcopy(self._diagnostic_latest),
+                        "revision": self._diagnostic_revision, "error": None,
+                        "measurement_active": False}
+        except Exception as error:
+            with self._lock:
+                self._diagnostic_error = str(error)
+            raise
+        finally:
+            self._roi_snapshot_lock.release()
 
     def _virtual_context(self):
         camera_id = self.digiflot.virtual_camera_id
@@ -761,9 +847,10 @@ class VisionService:
         camera = self.digiflot.cameras.get(int(camera_id)) if camera_id is not None else None
         reading = self._last_virtual_measurement or {}
         test = self.virtual_test_result()
-        active_state = self.digiflot.state in (self.digiflot.SENSOR_CALIBRATION, self.digiflot.READY,
-                                                self.digiflot.RUNNING, self.digiflot.PAUSED,
-                                                self.digiflot.COMPLETED)
+        approved = (self.digiflot.sensor_calibration.get("froth_interface") or {}).get("status") == "passed"
+        active_state = bool(self._run_virtual or approved) and self.digiflot.state in (
+            self.digiflot.SENSOR_CALIBRATION, self.digiflot.READY,
+            self.digiflot.RUNNING, self.digiflot.PAUSED, self.digiflot.COMPLETED)
         timestamp = reading.get("timestamp_ns")
         age_s = (time.time_ns() - int(timestamp)) / 1e9 if timestamp else None
         current = bool(active_state and timestamp and str(reading.get("camera_id")) == str(camera_id)
@@ -775,14 +862,14 @@ class VisionService:
         return {"id": "froth_interface", "name": "HIFIE | Froth Interface Detection",
                 "type": "virtual_froth_interface", "virtual": True,
                 "source_camera_id": camera_id, "physical_cell_id": cell_id,
-                "status": "connected" if camera else "offline",
+                "status": ("connected" if active_state else "stopped") if camera else "offline",
                 "value": reading.get("froth_thickness_cm") if valid else None,
                 "unit": "cm", "decimals": 2,
                 "channels": {key: reading.get(key) for key in
                              ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm")} if current else None,
                 "reference": deepcopy(reading.get("vertical_reference")) if current else None,
                 "reading_valid": valid,
-                "measurement_mode": live_mode if current else "waiting",
+                "measurement_mode": live_mode if current else ("waiting" if active_state else "inactive"),
                 "timestamp_ms": int(timestamp / 1e6) if current else None,
                 "sample_count": reading.get("sample_count", 0) if current else 0,
                 "revision": reading.get("sample_count", 0) if current else 0,
@@ -1028,6 +1115,7 @@ class VisionService:
                              "association": deepcopy(association),
                              "cell_id": cell_id, "directory": str(directory)}
         self._sync_camera_flags()
+        self.activate_sensor()
         return snapshot
 
     def restore_run_config(self, directory):
@@ -1062,9 +1150,11 @@ class VisionService:
                              "cell_id": cell_id, "directory": str(directory)}
         self._sync_camera_flags()
         self._map_key, self._roi_map = None, None
+        self.activate_sensor()
         return True
 
     def disable_run_sensor(self):
+        self.deactivate_sensor()
         self._run_virtual = None
         self._virtual_sample_count = 0
         self._last_virtual_measurement = None
@@ -1286,7 +1376,17 @@ class VisionService:
                 # No ROI-dependent resolution changes: the same preconfigured
                 # lores supports first-time selection, diagnostics and live view.
                 self.digiflot.start_preview(camera.id, owner_id=owner_id)
-                image, frame = self._capture(camera.id)
+                try:
+                    image, frame = self._capture(camera.id)
+                except Exception:
+                    # A preview can have a stale Picamera2 stream even if its
+                    # state says PREVIEW. Force a clean camera state for Retry.
+                    if owner_id and self.digiflot.preview_owner_id == str(owner_id):
+                        try:
+                            self.digiflot.stop_preview(owner_id=owner_id)
+                        except Exception:
+                            pass
+                    raise
                 optics = self.registry.camera_profile(camera.id)
                 calibrated = deepcopy(association)
 

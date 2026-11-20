@@ -20,8 +20,8 @@ but configuration by itself does **not** start the sensor or camera.
   stream or restarts Picamera2.
 - All `capture_analysis_frame()` operations use the camera's existing lock;
   no second camera worker, parallel stream, frame queue, or transcoding is
-  introduced by this design. The VisionService's existing periodic worker is
-  retained for explicitly requested diagnostics or approved sensor operation.
+  introduced by this design. The operational HIFIE worker is started only
+  after calibration approval or restoration of a frozen run configuration.
 
 The detector's requested `resolution_px` is a **processing target**. Map
 compilation clamps the remapped ROI to available lores pixels. An extremely
@@ -33,28 +33,37 @@ before increasing it on Raspberry Pi 5.
 
 1. Selecting the camera/cell only prepares the camera-owned configuration.
    The operational HIFIE recording stream remains disabled.
-2. Opening the HIFIE modal explicitly starts camera preview on demand.
-3. The full-plane snapshot and live diagnostics use the **same lores stream**.
-   The plane snapshot uses a short per-camera locked capture, then rectifies
-   outside the run controller lock. Concurrent plane requests are serialized.
-4. The existing worker computes diagnostic measurements only while an active
-   calibration subscriber requests them, or when an approved HIFIE requires
-   live readings. It never causes a Picamera2 resolution change.
+2. Opening HIFIE calibration displays the full editor immediately. A single
+   reference capture starts camera preview on demand. Failed captures are
+   recoverable with **Capture / Retry camera**, without reloading the browser.
+3. The full-plane snapshot and live diagnostics use the **same camera-owned
+   lores stream**, but never create a sensor measurement worker before approval.
+   The plane snapshot uses a short locked camera acquisition, then rectifies
+   outside the run controller lock. Multiple plane requests are serialized.
+4. Live diagnostics are independent on-demand camera requests at a low rate:
+   each request captures one frame and processes the detector in preview-only
+   mode. An in-progress reference capture returns a waiting state rather than
+   blocking the UI. It does not update operational measurements.
+   The periodic HIFIE worker starts only after Confirm; reopen/skip, abort,
+   completion and reset stop that worker.
 5. A calibration benchmark is different: it temporarily stops Preview and
    enters Recording. Only this explicit transition changes Picamera2 mode.
 6. Starting an experiment freezes the approved sensor configuration and
    enables recording lores; resetting the run disables it again. Global passing
    profiles remain stored for reuse by a later experiment.
-7. The modal cancels the browser request on close, and a 25-second timeout
+7. The modal cancels the browser request on close, and an 18-second timeout
    releases its client-side loading state. Server-side capture/rectification
-   is not presumed canceled when HTTP is aborted; pending requests are
-   serialized and their late results are ignored.
+   is not presumed canceled when HTTP is aborted. Cleanup is serialized with
+   the plane capture, releases only its own preview lease, and leaves an
+   approved operational stream running after Confirm.
 
 
 ## Interactive calibration and temporal stabilization
 
-The HIFIE modal exposes method-dependent quick sliders before the Detection
-ROI editor. Opening the calibration captures one camera frame for the full
+The HIFIE modal has Camera & Geometry, Detector & Diagnostics, and Validation
+steps. The reference/ROI view comes first and collapses after a successful
+capture; advanced method controls remain available but do not block initial
+camera access. Opening the calibration captures one camera frame for the full
 rectified plane **and** a frozen detector ROI. Dragging sliders or selecting
 **Fit filters** recomputes exclusively from that frozen reference image. The
 endpoints do not start Picamera2, capture another frame, require live diagnostics,

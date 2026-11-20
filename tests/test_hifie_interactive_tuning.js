@@ -6,7 +6,12 @@ const backend=read("src/lib/vision/service.py"),api=read("src/api/vision.py");
 const interfaceCode=read("src/lib/virtual_sensors/interface.py");
 const temporal=read("src/lib/virtual_sensors/temporal.py");
 assert.ok(html.indexOf('class="virtual-tuning"') < html.indexOf('class="virtual-diagnostics"'));
-assert.ok(html.indexOf('class="virtual-tuning"') < html.indexOf('class="virtual-roi-config"'));
+assert.ok(html.indexOf('id="virtual_camera_step"') < html.indexOf('class="virtual-roi-config"'));
+assert.ok(html.indexOf('class="virtual-roi-config"') < html.indexOf('class="virtual-tuning"'));
+assert.ok(html.indexOf('id="virtual_detector_step"') < html.indexOf('class="virtual-diagnostics"'));
+assert.match(js,/void loadVirtualRoiPlane\(\)\.then/);
+assert.doesNotMatch(js.slice(js.indexOf("async function startVirtualDiagnostics()"),
+    js.indexOf("function stopVirtualDiagnostics()")),/await virtualRoiTask/);
 for(const id of ["virtual_quick_fields","virtual_tuning_status","virtual_reference_target",
     "virtual_fit_parameters","virtual_fit_thresholds","virtual_fit_status"])assert.match(html,new RegExp('id="'+id+'"'));
 assert.match(js,/function virtualQuickSlider\(/);
