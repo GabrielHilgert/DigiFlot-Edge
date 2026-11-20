@@ -21,6 +21,8 @@ jobs:
           node tests/test_run_dom.js
           node tests/test_scraping_alert.js
           node --check src/ui/js/settings.js
+          node --check src/ui/js/plugin-displays.js
+          node tests/test_plugin_displays.js
           bash -n src/install.sh
           bash tests/test_deployment_maintenance.sh
           node tests/test_run_layout.js
@@ -49,6 +51,8 @@ jobs:
         run: |
           python -m pip install -q pyserial
           PYTHONPATH=src python -m unittest discover -s tests -p 'test_serial_identity.py' -v
+      - name: Optional plugin loader and synthetic sensor tests
+        run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_plugins.py' -v
       - name: Process sensor drivers (mock hardware)
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_process_sensors.py' -v
       - name: Results video preview cache tests

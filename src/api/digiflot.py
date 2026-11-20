@@ -330,6 +330,24 @@ def update_settings(request: Request, payload: dict | None = None):
         raise api_error(error) from error
 
 
+@router.get("/plugins")
+def plugins(request: Request):
+    digiflot = get_digiflot(request)
+    return {"plugins": digiflot.plugin_catalog.list_installed(),
+            "state": digiflot.state}
+
+
+@router.post("/plugins/{plugin_id}/enabled")
+def configure_plugin(plugin_id: str, request: Request, payload: dict | None = None):
+    try:
+        values = payload or {}
+        if "enabled" not in values:
+            raise ValueError("enabled must be supplied")
+        return get_digiflot(request).set_plugin_enabled(plugin_id, values["enabled"])
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.post("/restart", status_code=202)
 def restart_local(request: Request, background_tasks: BackgroundTasks):
     digiflot = get_digiflot(request)

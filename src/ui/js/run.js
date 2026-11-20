@@ -459,6 +459,7 @@ function sensorSnapshots(state) {
         ...(state.atlas || []),
         ...(state.bronkhorst || []),
         ...(state.wago || []),
+        ...(state.plugins || []),
         ...(state.virtual_sensors || []),
     ].filter((item) => item && item.id != null);
 }
@@ -674,6 +675,9 @@ function renderLiveSensors(state) {
                     Number(setpoint).toFixed(2) + " L/min") +
                     " · " + (sensor.control_state || "read-only");
                 processDetails.hidden = false;
+            } else if (sensor.type === "plugin_sensor") {
+                processDetails.innerHTML = window.DigiFlotPluginDisplays?.render(sensor, "run") || "";
+                processDetails.hidden = !processDetails.innerHTML;
             } else if (sensor.type === "wago") {
                 processDetails.textContent = "Stage " + (channels.stage_energy_wh == null ?
                     "—" : Number(channels.stage_energy_wh).toFixed(2) + " Wh") +

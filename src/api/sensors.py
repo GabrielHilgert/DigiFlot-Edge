@@ -46,6 +46,7 @@ def list_all_sensors(request: Request):
         snapshots.extend(atlas.sensor_snapshots())
     digiflot = request.app.state.digiflot
     snapshots.extend(device.snapshot() for device in (*digiflot.bronkhorst.values(), *digiflot.wago.values()))
+    snapshots.extend(digiflot.plugin_catalog.sensors_snapshots())
     if digiflot.virtual_camera_id is not None:
         snapshots.append(request.app.state.vision.virtual_sensor_snapshot())
     return snapshots
@@ -70,6 +71,9 @@ def get_sensor(request: Request, sensor_id: str):
                    *request.app.state.digiflot.wago.values()):
         if str(device.id) == sensor_id:
             return "process", device
+    device = request.app.state.digiflot.plugin_sensors.get(sensor_id)
+    if device is not None:
+        return "plugin", (request.app.state.digiflot.plugin_catalog, device)
     raise HTTPException(status_code=404, detail="Sensor not found.")
 
 
@@ -78,6 +82,9 @@ def sensor_snapshot(kind, source, sensor_id):
         return scale_snapshot(source)
     if kind == "process":
         return source.snapshot()
+    if kind == "plugin":
+        catalog, device = source
+        return catalog.snapshot(device)
     if kind == "virtual":
         return source.virtual_sensor_snapshot()
     return source.snapshot(sensor_id)
@@ -112,6 +119,10 @@ def sensor_event_stream(kind, source, sensor_id):
             })
         elif kind == "process":
             snapshot = source.wait_for_update(last_revision, timeout=5.0)
+        elif kind == "plugin":
+            catalog, device = source
+            device.wait_for_update(last_revision, timeout=5.0)
+            snapshot = catalog.snapshot(device)
         else:
             snapshot = source.wait_for_update(sensor_id, last_revision, timeout=5.0)
 

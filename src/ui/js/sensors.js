@@ -1227,7 +1227,9 @@ function calibrationMarkup(snapshot) {
 }
 
 function sensorCalibrationEntry(snapshot) {
-    const markup = calibrationMarkup(snapshot);
+    const generic = snapshot.type === "plugin_sensor" && state.calibrationMode ?
+        (window.DigiFlotPluginDisplays?.render(snapshot, "calibration") || "") : "";
+    const markup = generic + calibrationMarkup(snapshot);
     if (!markup) return "";
     // Only pH and HIFIE need full editors. Other sensors keep their original
     // inline checks, including Passed/Skipped badges and completion actions.
@@ -1329,6 +1331,8 @@ function sensorCard(snapshot) {
                 <div><span>Pulp–froth interface</span><strong class="virtual-pulp">—</strong></div>
                 <div><span>Froth thickness</span><strong class="virtual-thickness">—</strong></div>
             </div><div class="virtual-chart-legend"><span class="virtual-legend-froth">Froth surface</span><span class="virtual-legend-pulp">Pulp–froth interface</span><small>Live · cm</small></div>` : ""}
+            ${snapshot.type === "plugin_sensor" && !state.calibrationMode ?
+                `<div class="plugin-display-host">${window.DigiFlotPluginDisplays?.render(snapshot, "sensors") || ""}</div>` : ""}
             <div class="chart-frame">
                 <canvas class="sensor-chart" aria-label="Live signal for ${escapeHtml(snapshot.name || snapshot.id)}"></canvas>
                 <div class="chart-empty">${status === "offline" ? "Sensor offline" : virtual ? "Live acquisition starts after confirmation. Test frames are not plotted." : "Waiting for measurements…"}</div>
@@ -1394,6 +1398,8 @@ function updateCard(snapshot) {
     card.querySelector(".last-update").textContent = snapshot.timestamp_ms ? new Date(snapshot.timestamp_ms).toLocaleTimeString() : "—";
     card.querySelector(".sample-count").textContent = snapshot.sample_count ?? 0;
     const channels = snapshot.channels || {};
+    const pluginHost = card.querySelector(".plugin-display-host");
+    if (pluginHost) pluginHost.innerHTML = window.DigiFlotPluginDisplays?.render(snapshot, "sensors") || "";
     if (snapshot.type === "bronkhorst") {
         const target = card.querySelector(".process-setpoint");
         const control = card.querySelector(".process-control-state");

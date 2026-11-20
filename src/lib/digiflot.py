@@ -16,6 +16,7 @@ from picamera2 import Picamera2
 from lib.atlasScientific import AtlasScientific
 from lib.bronkhorst import Bronkhorst
 from lib.wago import Wago
+from lib.plugins import PluginCatalog
 from lib.camera import Camera
 from lib.scale import Scale
 from lib.serial_identity import serial_inventory, resolve_runtime_ports
@@ -158,6 +159,11 @@ class DigiFlot:
         self.bronkhorst = {}
         self.wago = {}
         self._load_sensors()
+        self.plugin_catalog = PluginCatalog(Path(__file__).resolve().parents[1] / "plugins",
+                                            self.config.setdefault("plugins", {}))
+        self.plugin_sensors = self.plugin_catalog.sensors
+        for device in self.plugin_sensors.values():
+            device.set_context_provider(self.acquisition_context)
 
         # Optional subsystem. Its failure must never prevent DigiFlot startup.
         self.performance = None
@@ -338,6 +344,12 @@ class DigiFlot:
             except Exception as error:
                 print(f"[DigiFlot] Could not start {device.name}: {error}")
 
+        for device in self.plugin_sensors.values():
+            try:
+                device.start()
+            except Exception as error:
+                self.plugin_catalog.errors[device.id.removeprefix("plugin_")] = str(error)
+
         self._discover_incomplete_run()
         if self.performance is not None:
             try:
@@ -394,6 +406,12 @@ class DigiFlot:
                 errors.append((self.atlas.name, error))
 
         for device in (*self.bronkhorst.values(), *self.wago.values()):
+            try:
+                device.stop()
+            except Exception as error:
+                errors.append((device.name, error))
+
+        for device in self.plugin_sensors.values():
             try:
                 device.stop()
             except Exception as error:
@@ -590,6 +608,7 @@ class DigiFlot:
             ),
             "bronkhorst": [device.snapshot() for device in self.bronkhorst.values()],
             "wago": [device.snapshot() for device in self.wago.values()],
+            "plugins": self.plugin_catalog.sensors_snapshots(),
             "cell_selection": {"selected": bool((self.cell_profile or {}).get("physical_cell_id")),
                                "cell_id": (self.cell_profile or {}).get("physical_cell_id"),
                                "camera_id": self.virtual_camera_id,
@@ -705,6 +724,7 @@ class DigiFlot:
             "atlas": atlas,
             "bronkhorst": [device.snapshot() for device in self.bronkhorst.values()],
             "wago": [device.snapshot() for device in self.wago.values()],
+            "plugins": self.plugin_catalog.sensors_snapshots(),
         }
 
     @staticmethod
@@ -877,6 +897,9 @@ class DigiFlot:
         for device in (*self.bronkhorst.values(), *self.wago.values()):
             if str(device.id) == sensor_id:
                 return device.snapshot()
+        device = self.plugin_sensors.get(sensor_id)
+        if device is not None:
+            return self.plugin_catalog.snapshot(device)
         raise KeyError(f"Sensor not found: {sensor_id}")
 
     def measurements_payload(self):
@@ -1700,6 +1723,20 @@ class DigiFlot:
                 "mode": "manual_check", "status": "pending", "confirmed_at": None,
             }
 
+        for device in self.plugin_sensors.values():
+            snapshot = self.plugin_catalog.snapshot(device)
+            policy = snapshot.get("calibration_policy", "none")
+            if policy == "none":
+                continue
+            optional = policy == "optional"
+            sensor_calibration[str(device.id)] = {
+                "id": device.id, "name": device.name, "type": "plugin_sensor",
+                "mode": "manual_check", "optional": optional,
+                "status": "skipped" if optional else "pending",
+                "skip_reason": "Optional verification" if optional else None,
+                "confirmed_at": None,
+            }
+
         self.sensor_calibration = sensor_calibration
 
     def _sensor_calibration_resolved_unlocked(self):
@@ -2125,6 +2162,10 @@ class DigiFlot:
         for device in (*self.bronkhorst.values(), *self.wago.values()):
             if str(device.id) == sensor_id:
                 return device.snapshot()
+
+        device = self.plugin_sensors.get(sensor_id)
+        if device is not None:
+            return self.plugin_catalog.snapshot(device)
 
         raise KeyError(f"Sensor '{sensor_id}' not found.")
 
@@ -3167,6 +3208,20 @@ class DigiFlot:
                 self._add_warning_unlocked("sensor", f"Could not record {device.name}: {error}",
                                            {"sensor_id": device.id})
 
+        for device in self.plugin_sensors.values():
+            snapshot = self.plugin_catalog.snapshot(device)
+            if snapshot.get("status") != "connected":
+                self._append_event_unlocked("SENSOR_RECORDING_SKIPPED", {
+                    "sensor_id": device.id, "reason": snapshot.get("error") or snapshot.get("status")})
+                continue
+            try:
+                path = device.start_recording(output_dir=directory, file_stem=_safe_path_name(device.id))
+                self._append_event_unlocked("SENSOR_RECORDING_STARTED",
+                                            {"sensor_id": device.id, "path": str(path)})
+            except Exception as error:
+                self._add_warning_unlocked("sensor", f"Could not record {device.name}: {error}",
+                                           {"sensor_id": device.id})
+
     def _stop_sensor_recording_unlocked(self):
         for scale in self.scales.values():
             try:
@@ -3205,6 +3260,15 @@ class DigiFlot:
                     self._append_event_unlocked("SENSOR_RECORDING_STOPPED", {"sensor_id": device.id})
             except Exception as error:
                 self._add_warning_unlocked("sensor", f"Could not close {device.name}: {error}",
+                                           {"sensor_id": device.id})
+
+        for device in self.plugin_sensors.values():
+            try:
+                if device.recording or device.writer_active:
+                    device.stop_recording()
+                    self._append_event_unlocked("SENSOR_RECORDING_STOPPED", {"sensor_id": device.id})
+            except Exception as error:
+                self._add_warning_unlocked("sensor", f"Could not stop {device.name}: {error}",
                                            {"sensor_id": device.id})
 
     # ------------------------------------------------------------------
@@ -3376,6 +3440,8 @@ class DigiFlot:
                 desired_scale_ids != runtime_scale_ids
                 or desired_atlas_addresses != runtime_atlas_addresses
                 or scale_ports_changed
+                or any(bool((self.config.get("plugins", {}).get(item["id"]) or {}).get("enabled", False))
+                       != bool(item["loaded"]) for item in self.plugin_catalog.list_installed())
                 or any(set(str(item.get("id")) for item in sensor_config.get(key, []) if item.get("enabled", True))
                        != set(runtime) for key, runtime in (("bronkhorst", self.bronkhorst),
                                                              ("wago", self.wago)))
@@ -3426,6 +3492,22 @@ class DigiFlot:
                     "wago": deepcopy(sensor_config.get("wago", [])),
                 },
             }
+
+    def set_plugin_enabled(self, plugin_id: str, enabled: bool):
+        if type(enabled) is not bool:
+            raise ValueError("enabled must be a boolean")
+        with self.lock:
+            if self.state != self.IDLE:
+                raise RuntimeError("Plugins can only be changed while DigiFlot is idle.")
+            if not self.plugin_catalog.contains(plugin_id):
+                raise KeyError(f"Plugin not installed or invalid: {plugin_id}")
+            options = self.config.setdefault("plugins", {}).setdefault(plugin_id, {})
+            changed = bool(options.get("enabled", False)) != enabled
+            if changed:
+                options["enabled"] = enabled
+                self.save_config()
+            return {"id": plugin_id, "enabled": enabled, "changed": changed,
+                    "restart_required": changed, "plugins": self.plugin_catalog.list_installed()}
 
     def update_system_settings(self, payload: dict):
         with self.lock:

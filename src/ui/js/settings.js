@@ -655,4 +655,80 @@ el.restart_program.addEventListener("click", async () => {
     }
 });
 
-load(true).catch(error => toast(error.message, 5000));
+// Optional plugins are managed separately; no native device is moved to a plugin.
+let activeSettingsTab = "general";
+
+function showSettingsTab(tab, updateHash = true) {
+    activeSettingsTab = tab === "plugins" ? "plugins" : "general";
+    for (const name of ["general", "plugins"]) {
+        const selected = name === activeSettingsTab;
+        document.getElementById("settings_" + name).hidden = !selected;
+        const button = document.getElementById("settings_tab_" + name);
+        button.setAttribute("aria-selected", String(selected));
+        button.tabIndex = selected ? 0 : -1;
+    }
+    if (updateHash) history.replaceState(null, "", activeSettingsTab === "plugins" ? "#plugins" : "#general");
+    if (activeSettingsTab === "plugins") refreshPlugins().catch(error => toast(error.message, 5000));
+}
+
+async function refreshPlugins() {
+    const target = document.getElementById("plugin_list");
+    const result = await json("/api/digiflot/plugins", {cache: "no-store"});
+    const idle = result.state === "Idle";
+    target.innerHTML = (result.plugins || []).map(item => {
+        const pending = item.enabled !== item.loaded;
+        const status = item.error ? "Error" : pending ? "Restart required" :
+            item.loaded ? "Running" : "Disabled";
+        const display = (item.display || []).map(component => component.type + ": " + component.label).join(" · ");
+        return `<article class="plugin-row">
+            <div class="plugin-info">
+                <div class="plugin-title"><strong>${esc(item.name)}</strong>
+                    <span class="device-status ${item.loaded ? "configured" : "disabled"}">${esc(status)}</span></div>
+                <small>${esc(item.id)}${item.version ? " · v" + esc(item.version) : ""}</small>
+                <p>${esc(item.description || "No description supplied.")}</p>
+                <div class="plugin-meta"><span>Calibration: ${esc(item.calibration)}</span>
+                    <span>Display: ${esc(display || "Generic sensor card")}</span></div>
+                ${item.error ? `<p class="plugin-error">${esc(item.error)}</p>` : ""}
+            </div>
+            <label class="plugin-switch">
+                <span>${item.enabled ? "Enabled" : "Disabled"}</span>
+                <input class="plugin-enabled" type="checkbox" data-plugin-id="${esc(item.id)}"
+                    ${item.enabled ? "checked" : ""} ${!idle || (item.error && !item.enabled) ? "disabled" : ""}>
+            </label>
+        </article>`;
+    }).join("") || '<p class="muted">No plugins installed. Add one in src/plugins/.</p>';
+    const pending = (result.plugins || []).some(item => item.enabled !== item.loaded);
+    document.getElementById("plugins_notice").hidden = !pending;
+    document.getElementById("plugins_restart").hidden = !pending || !idle;
+    document.getElementById("plugins_restart").disabled = !idle;
+    window.DigiFlotIcons?.decorate(document.getElementById("settings_plugins"));
+}
+
+document.querySelectorAll("[data-settings-tab]").forEach(button =>
+    button.addEventListener("click", () => showSettingsTab(button.dataset.settingsTab)));
+document.getElementById("plugins_refresh").addEventListener("click", () =>
+    refreshPlugins().catch(error => toast(error.message, 5000)));
+document.getElementById("plugins_restart").addEventListener("click", () => el.restart_program.click());
+
+document.getElementById("plugin_list").addEventListener("change", async event => {
+    const box = event.target.closest(".plugin-enabled");
+    if (!box) return;
+    const enabled = box.checked;
+    box.disabled = true;
+    try {
+        await json("/api/digiflot/plugins/" + encodeURIComponent(box.dataset.pluginId) + "/enabled", {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({enabled}),
+        });
+        await load(false);
+        await refreshPlugins();
+        toast(enabled ? "Plugin enabled. Restart required." : "Plugin disabled. Restart required.");
+    } catch (error) {
+        box.checked = !enabled;
+        toast(error.message, 5000);
+        await refreshPlugins().catch(() => {});
+    } finally { box.disabled = false; }
+});
+
+load(true).then(() => showSettingsTab(location.hash === "#plugins" ? "plugins" : "general", false))
+    .catch(error => toast(error.message, 5000));

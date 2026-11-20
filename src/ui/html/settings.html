@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot Edge | Settings</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20261114hfds1">
-    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20261120serialprocess1"></script>
+    <link rel="stylesheet" href="{{ url_for('static', path='css/settings.css') }}?v=20261120plugins1">
+    <script defer src="{{ url_for('static', path='js/settings.js') }}?v=20261120plugins1"></script>
 </head>
 <body>
     {% include "_navbar.html" %}
@@ -19,6 +19,12 @@
             </div>
             <span id="settings_state" class="state-badge">Loading</span>
         </header>
+
+        <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
+            <button class="settings-tab" id="settings_tab_general" data-settings-tab="general" role="tab" aria-controls="settings_general" aria-selected="true" type="button">General</button>
+            <button class="settings-tab" id="settings_tab_plugins" data-settings-tab="plugins" role="tab" aria-controls="settings_plugins" aria-selected="false" type="button">Plugins</button>
+        </nav>
+        <div id="settings_general" role="tabpanel" aria-labelledby="settings_tab_general">
 
         <section class="card">
             <div class="card-head">
@@ -151,6 +157,24 @@
                 <button id="restart_program" class="button button-danger" type="button" data-icon="power">Restart DigiFlot</button>
             </div>
             <p id="restart_status" class="field-help"></p>
+        </section>
+        </div>
+
+        <section id="settings_plugins" class="card settings-plugins-panel" role="tabpanel" aria-labelledby="settings_tab_plugins" hidden>
+            <div class="card-head">
+                <div>
+                    <p class="eyebrow">Extensions</p>
+                    <h2>Installed plugins</h2>
+                    <p>Optional third-party sensors. Native DigiFlot devices remain unchanged. Plugins are trusted local Python code and are disabled until explicitly enabled.</p>
+                </div>
+                <div class="button-group">
+                    <button id="plugins_refresh" class="button button-secondary" type="button" data-icon="refresh-cw">Refresh list</button>
+                    <button id="plugins_restart" class="button button-primary" type="button" data-icon="rotate-cw" hidden>Restart to apply</button>
+                </div>
+            </div>
+            <div id="plugin_list" class="plugin-list" aria-live="polite"><p class="muted">Loading plugins…</p></div>
+            <div id="plugins_notice" class="restart-notice" hidden>Plugin configuration changed. Restart DigiFlot while idle to apply the new selection.</div>
+            <p class="field-help">To install a plugin, place a trusted Python module in <code>src/plugins/plugin_name/plugin_name.py</code>. See <code>src/plugins/Templates/README.md</code> for templates and the display contract. Restart after installing or enabling a plugin.</p>
         </section>
     </main>
     <div id="toast" class="toast" role="status"></div>

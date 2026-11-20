@@ -106,3 +106,13 @@ button[data-operation-pending="true"]::after, input[data-operation-pending="true
   .df-icon-only { min-width:38px; min-height:38px; }
   .app-nav-links a { padding:8px 9px; }
 }
+
+/* Generic plugin display: the same component in Sensors, verification and Run. */
+.plugin-display { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:9px; margin:10px 0; }
+.plugin-display-metric, .plugin-display-gauge { min-width:0; padding:9px 11px; border:1px solid var(--border); background:var(--surface-soft); border-radius:var(--radius-sm); }
+.plugin-display-metric span, .plugin-display-gauge span { color:var(--text-soft); font-size:.78rem; }
+.plugin-display-metric strong, .plugin-display-gauge strong { display:block; font-size:.95rem; font-variant-numeric:tabular-nums; }
+.plugin-display-gauge > div:first-child { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.plugin-display-track { height:7px; margin-top:9px; overflow:hidden; border-radius:100px; background:var(--border); }
+.plugin-display-track > span { display:block; height:100%; background:var(--accent); border-radius:inherit; transition:width .2s ease; }
+.plugin-display-calibration { width:100%; }
