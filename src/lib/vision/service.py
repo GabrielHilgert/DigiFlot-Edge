@@ -453,8 +453,11 @@ class VisionService:
                 or cached["calibration_id"] != association["calibration_id"]
                 or cached["roi"] != expected_roi or time.monotonic() - cached["received_at"] > 25):
             raise RuntimeError("Waiting for a fresh ROI frame; keep live diagnostics active")
-        # The cached frame is an immutable ROI image; no new lores stream is created.
-        return cached, config, prior
+        # Re-resolve the draft datum against the unchanged physical geometry:
+        # changing a named reference also needs no new camera frame.
+        frame = dict(cached)
+        frame["reference"] = resolve_vertical_reference(config, association)
+        return frame, config, prior
 
     @staticmethod
     def _reference_rows(payload, height):
