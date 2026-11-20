@@ -298,8 +298,13 @@ class VisionService:
                 started = time.perf_counter()
                 roi = (detection_roi(config, association) if config and association else
                        (association or {}).get("analysis_roi_cm"))
-                color = bool(config and roi and (config["method"] in COLOR_METHODS
-                             or time.monotonic() < self._diagnostic_until))
+                now = time.monotonic()
+                diagnostic_due = bool(config and roi and now < self._diagnostic_until
+                    and now >= self._diagnostic_next_due
+                    and (self._diagnostic_future is None or self._diagnostic_future.done()))
+                # Preserve grayscale-only acquisition between diagnostic frames.
+                # A color frame is cached periodically for rapid method switching.
+                color = bool(config and roi and (config["method"] in COLOR_METHODS or diagnostic_due))
                 image, frame = camera.capture_analysis_frame(grayscale=not color, raw_yuv=color)
                 status = {"state": "running", "mode": "experiment" if active else
                           ("live_preview" if config else "geometry"),
@@ -514,6 +519,8 @@ class VisionService:
                             "entropy_radius", "entropy_bins"}
             limits = __import__("lib.virtual_sensors.interface", fromlist=["LIMITS"]).LIMITS
             count = 0
+            started = time.monotonic()
+            budget_s = 6.0  # Bound Pi CPU use; partial search is still useful.
             def score(candidate):
                 nonlocal count
                 count += 1
@@ -532,12 +539,14 @@ class VisionService:
             # One conservative coordinate search. Keep current values unless the
             # improvement is meaningful: avoid tuning to the noise in one frame.
             for key in keys:
+                if time.monotonic() - started >= budget_s: break
                 original = config[key]
                 lo, hi = limits[key]
                 span = max(abs(original) * .2, 1 if key in integer_keys else .1)
                 if key == "upper_threshold_q": span = 3.
                 if key in {"lower_bias", "threshold_froth", "threshold_pulp"}: span = .12
                 for direction in (-1, 1):
+                    if time.monotonic() - started >= budget_s: break
                     value = max(lo, min(hi, original + direction * span))
                     if key in integer_keys: value = int(round(value))
                     if key == "texture_ksize": value = int(value) | 1
@@ -553,6 +562,7 @@ class VisionService:
             return {"suggested": suggested, "baseline_error_px": round(baseline, 2),
                     "fitted_error_px": round(best_score, 2), "evaluations": count,
                     "reference_rows_px": refs, "thresholds_included": include_thresholds,
+                    "budget_limited": time.monotonic() - started >= budget_s,
                     "applied": False, "note": "One cached frame only; review and retest before confirming"}
         finally:
             self._tuning_lock.release()
