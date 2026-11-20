@@ -142,7 +142,9 @@ class VisionService:
         self._diagnostic_future = None
         self._temporal_live = TemporalBoundaryFilter()
         self._temporal_live_key = None
-        self._tuning_frame = None  # Most recent processed ROI, no new camera acquisition.
+        self._tuning_frame = None  # Live diagnostics, independent of a frozen reference.
+        self._reference_frame = None  # One frozen ROI from a user-requested camera plane.
+        self._reference_owner_id = None
         self._tuning_lock = threading.Lock()
         self._diagnostic_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vision-diagnostic")
         self._monitor_until = 0.
@@ -447,22 +449,20 @@ class VisionService:
         if detection_roi(config, association) != expected_roi:
             raise ValueError("Save the new Detection ROI and wait for a matching live diagnostic frame")
         with self._lock:
-            cached = self._tuning_frame
-            owner = self._diagnostic_owner_id
-            active = time.monotonic() < self._diagnostic_until
-            prior = self._temporal_live.copy()
-        if not active or not owner_id or owner != str(owner_id):
-            raise RuntimeError("Start live diagnostics in this tab before tuning")
+            cached = self._reference_frame
+            owner = self._reference_owner_id
+        if not owner_id or str(owner_id) != owner:
+            raise ValueError("Capture a reference image in this tab before fitting")
         if (cached is None or cached["camera_id"] != str(camera.id)
                 or cached["cell_id"] != str(cell_id)
                 or cached["calibration_id"] != association["calibration_id"]
-                or cached["roi"] != expected_roi or time.monotonic() - cached["received_at"] > 25):
-            raise RuntimeError("Waiting for a fresh ROI frame; keep live diagnostics active")
-        # Re-resolve the draft datum against the unchanged physical geometry:
-        # changing a named reference also needs no new camera frame.
+                or cached["roi"] != expected_roi):
+            raise ValueError("Reference image is unavailable for this ROI. Capture it again")
+        # Freeze the image and the image-space coordinates; do not borrow a
+        # newer live diagnostic or its temporal votes during a single-frame fit.
         frame = dict(cached)
         frame["reference"] = resolve_vertical_reference(config, association)
-        return frame, config, prior
+        return frame, config, TemporalBoundaryFilter()
 
     @staticmethod
     def _reference_rows(payload, height):
@@ -479,6 +479,14 @@ class VisionService:
                     raise ValueError("Reference line is outside the rectified ROI")
                 result.append(value)
         return result
+
+    def release_virtual_reference(self, owner_id=None):
+        """Release only this tab's frozen calibration image, without touching Picamera2."""
+        with self._lock:
+            if owner_id and self._reference_owner_id == str(owner_id):
+                self._reference_frame = None
+                self._reference_owner_id = None
+        return {"released": True}
 
     def preview_virtual_tuning(self, payload, owner_id=None):
         cached, config, prior = self._tuning_input(payload, owner_id)
