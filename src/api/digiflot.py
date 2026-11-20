@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from lib.atlasScientific import AtlasScientific
 from lib.camera import Camera
 from lib.scale import Scale
+from lib.serial_identity import serial_inventory, configured_endpoint_map
 
 
 router = APIRouter(
@@ -360,15 +361,10 @@ def discover_devices(request: Request):
 
     sensor_config = digiflot.config.get("sensors", {})
     configured_scales = sensor_config.get("scales", [])
-    configured_ports = {str(item.get("port")) for item in configured_scales}
-    configured_scale_by_port = {str(item.get("port")): item for item in configured_scales}
-    configured_scale_by_id = {str(item.get("id")): item for item in configured_scales}
-    # Boot may have resolved a stable USB endpoint to a new tty path.
-    for runtime_scale in digiflot.scales.values():
-        config = configured_scale_by_id.get(str(runtime_scale.id))
-        if config is not None:
-            configured_ports.add(str(runtime_scale.port))
-            configured_scale_by_port[str(runtime_scale.port)] = config
+    configured_scale_by_port = configured_endpoint_map(configured_scales, serial_inventory())
+    configured_ports = set(configured_scale_by_port)
+    # Do not associate a previously known sensor with a tty reused by another
+    # converter. An unmatched saved scale is displayed as offline below.
 
     atlas_config = sensor_config.get("atlas_scientific") or {}
     atlas_bus = int(atlas_config.get("bus", 1))
@@ -428,8 +424,9 @@ def discover_devices(request: Request):
         present_config_ids = {
             str(item["config"].get("id")) for item in result["scales"] if item.get("config")
         }
-        for port, config in configured_scale_by_port.items():
-            if port not in serial_ports and str(config.get("id")) not in present_config_ids:
+        for config in configured_scales:
+            port = str(config.get("port"))
+            if str(config.get("id")) not in present_config_ids:
                 present_config_ids.add(str(config.get("id")))
                 result["scales"].append({
                     "port": port,
@@ -445,7 +442,8 @@ def discover_devices(request: Request):
                 })
     except Exception as error:
         result["errors"].append({"source": "scales", "error": str(error)})
-        for port, config in configured_scale_by_port.items():
+        for config in configured_scales:
+            port = str(config.get("port"))
             result["scales"].append({
                 "port": port,
                 "configured": True,

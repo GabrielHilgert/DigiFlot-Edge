@@ -69,6 +69,26 @@ def strong_match(connection, endpoints):
     return None
 
 
+def configured_endpoint_map(configs, endpoints):
+    """Map known scales only to proven endpoints, not to reused tty numbers."""
+    mapping, duplicates = {}, set()
+    for config in configs:
+        connection = config.get("connection") or {}
+        strong_identity = connection.get("usb_id") or (
+            connection.get("adapter_serial") and connection.get("interface")
+        )
+        match = strong_match(connection, endpoints) if strong_identity else None
+        port = match["port"] if match else (None if strong_identity else str(config.get("port")))
+        if port is None or port in duplicates:
+            continue
+        if port in mapping:
+            duplicates.add(port)
+            mapping.pop(port, None)
+        else:
+            mapping[port] = config
+    return mapping
+
+
 def resolve_runtime_ports(configs, endpoints):
     """Resolve saved sensors on boot without changing their logical IDs.
 

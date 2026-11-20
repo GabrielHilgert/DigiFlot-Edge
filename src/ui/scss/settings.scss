@@ -154,3 +154,10 @@ input, select {
     .device-row { grid-template-columns: auto minmax(0, 1fr); }
     .device-status { grid-column: 2; width: fit-content; }
 }
+
+
+.scale-identity-controls { display: grid; gap: 7px; margin-top: 9px; font-size: .75rem; color: var(--text-soft); }
+.scale-identity-controls label { display: flex; align-items: start; flex-wrap: wrap; gap: 7px; }
+.scale-identity-controls select { display: block; width: 100%; max-width: 100%; margin-top: 3px; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 7px; padding: 5px; }
+.scale-identity-controls input[type=checkbox] { flex: 0 0 18px; margin: 0; }
+.scale-confirm-label { line-height: 1.4; }

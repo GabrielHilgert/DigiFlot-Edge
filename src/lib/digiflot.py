@@ -3245,8 +3245,12 @@ class DigiFlot:
                 for item in (self.atlas.sensors if self.atlas is not None else [])
                 if item.get("address") is not None
             }
+            expected_scale_ports = resolve_runtime_ports(
+                sensor_config.get("scales", []), serial_inventory()
+            )
             scale_ports_changed = any(
-                str(item.get("port")) != str(self.scales[str(item["id"])].port)
+                str(expected_scale_ports.get(str(item["id"]), item.get("port"))) !=
+                str(self.scales[str(item["id"])].port)
                 for item in sensor_config.get("scales", [])
                 if bool(item.get("enabled", True)) and str(item.get("id")) in self.scales
             )

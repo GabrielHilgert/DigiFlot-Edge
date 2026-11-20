@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from lib.serial_identity import connection_from_port, resolve_runtime_ports, serial_inventory, strong_match
+from lib.serial_identity import connection_from_port, configured_endpoint_map, resolve_runtime_ports, serial_inventory, strong_match
 
 
 class SerialIdentityTests(unittest.TestCase):
@@ -27,7 +27,8 @@ class SerialIdentityTests(unittest.TestCase):
         b = self.endpoint("/dev/ttyUSB1", interface="B", usb_id="usb-FT4232-if01-port0")
         saved = [{"id": "scale_1", "port": a["port"], "connection": connection_from_port(a)}]
         self.assertIsNone(strong_match(saved[0]["connection"], [b]))
-        self.assertNotEqual(resolve_runtime_ports(saved, [b])["scale_1"], b["port"])
+        self.assertNotEqual(resolve_runtime_ports(saved, [b]).get("scale_1"), b["port"])
+        self.assertNotIn(b["port"], configured_endpoint_map(saved, [b]))
 
     def test_duplicate_converter_identifiers_cannot_match(self):
         previous = self.endpoint("/dev/ttyUSB0")
@@ -35,6 +36,14 @@ class SerialIdentityTests(unittest.TestCase):
         candidates = [self.endpoint("/dev/ttyUSB1"), self.endpoint("/dev/ttyUSB2")]
         self.assertIsNone(strong_match(saved[0]["connection"], candidates))
         self.assertNotIn("scale_1", resolve_runtime_ports(saved, candidates))
+
+    def test_reused_tty_is_not_misclassified_as_saved_scale(self):
+        original = self.endpoint("/dev/ttyUSB0", interface="A", usb_id="usb-original-if00")
+        replacement = self.endpoint("/dev/ttyUSB0", interface="B", usb_id="usb-other-if01")
+        saved = [{"id": "scale_1", "port": original["port"],
+                  "connection": connection_from_port(original)}]
+        self.assertEqual(configured_endpoint_map(saved, [replacement]), {})
+        self.assertNotEqual(resolve_runtime_ports(saved, [replacement])["scale_1"], replacement["port"])
 
     def test_legacy_config_keeps_current_port(self):
         saved = [{"id": "scale_1", "port": "/dev/ttyUSB2"}]

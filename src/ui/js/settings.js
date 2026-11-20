@@ -228,8 +228,8 @@ function row(kind, item, label, detail, selectable = true, controls = "") {
                 <small>${esc(detail)}</small>
                 ${hint}
                 ${enableControl}
+                ${controls}
             </span>
-            ${controls}
             <span class="device-status ${cls}">${esc(status)}</span>
         </div>`;
 }
@@ -487,10 +487,11 @@ el.autodetect.addEventListener("click", async () => {
 
 document.addEventListener("click", event => {
     const card = event.target.closest(".device-row-selectable");
-    if (!card || event.target.closest(".scale-identity-controls") ||
+    if (!card || card.dataset.selectable !== "true" ||
+        event.target.closest(".scale-identity-controls") ||
         event.target.matches("input, label, select, span.sensor-enable-control")) return;
     const checkbox = card.querySelector(".device-select");
-    if (!checkbox) return;
+    if (!checkbox || checkbox.disabled) return;
     checkbox.checked = !checkbox.checked;
     checkbox.dispatchEvent(new Event("change", { bubbles: true }));
 });
