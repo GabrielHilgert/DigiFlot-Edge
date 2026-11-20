@@ -40,6 +40,28 @@ class TuningTests(unittest.TestCase):
         vision._reference_owner_id="tab-a"
         return vision,config
 
+    def test_reference_is_frozen_from_initial_plane_without_live_diagnostics(self):
+        with tempfile.TemporaryDirectory() as root:
+            vision,config=self.make_service(root)
+            vision._reference_frame=None
+            vision._reference_owner_id=None
+            vision._diagnostic_until=0.
+            with patch.object(vision,"_rectify_captured",
+                              return_value={"jpeg_base64":"mock","size":[200,200],"plane":{}}):
+                plane=vision.virtual_detection_roi_preview(owner_id="tab-a")
+            self.assertTrue(plane["reference_ready"], plane)
+            frozen=vision._reference_frame
+            self.assertIsNotNone(frozen)
+            self.assertEqual(vision._reference_owner_id,"tab-a")
+            self.assertTrue(frozen["image"].shape[0]>0)
+            self.assertEqual(frozen["roi"],[2.,2.,12.,12.])
+            with patch.object(vision,"_capture",side_effect=AssertionError("No second camera capture")):
+                first=vision.preview_virtual_tuning({"config":config},"tab-a")
+                second=vision.preview_virtual_tuning({"config":{**config,"entropy_bins":20}},"tab-a")
+            self.assertTrue(first["cached_frame"])
+            self.assertTrue(second["cached_frame"])
+            self.assertIs(vision._reference_frame,frozen, "Sliders must never replace the reference frame")
+
     def test_sliders_recompute_without_camera_or_profile_mutation(self):
         with tempfile.TemporaryDirectory() as root:
             vision,config=self.make_service(root)
