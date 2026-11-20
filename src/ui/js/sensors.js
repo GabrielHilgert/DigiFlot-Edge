@@ -797,6 +797,13 @@ function drawVirtualRoiOverlay() {
 
 async function loadVirtualRoiPlane() {
     if(virtualRoiTask)return virtualRoiTask;
+    if(virtualFitInFlight){
+        virtualTuningStatus("Finish the current fit before recapturing the reference");
+        return false;
+    }
+    ++virtualTuningEpoch;
+    if(virtualTuningTimer)window.clearTimeout(virtualTuningTimer);
+    virtualTuningTimer=null;virtualReferenceReady=false;
     const generation=virtualSessionGeneration, controller=new AbortController();
     let timedOut=false;
     const timeout=window.setTimeout(()=>{timedOut=true;controller.abort();},25000);
@@ -1910,9 +1917,13 @@ document.getElementById("virtual_roi_refresh").addEventListener("click", async e
         if(virtualDiagnosticsActive)await stopVirtualDiagnostics();
         const loaded=await loadVirtualRoiPlane();
         if(!document.getElementById("virtual_panel").open || generation!==virtualSessionGeneration)return;
-        if(loaded && resume && virtualEffectiveRoi()){
-            virtualDiagnosticsDesired=true;
-            await startVirtualDiagnostics();
+        if(loaded && virtualReferenceReady){
+            await runVirtualTuning();
+            if(resume && virtualEffectiveRoi()){
+                virtualDiagnosticSource="live";
+                virtualDiagnosticsDesired=true;
+                await startVirtualDiagnostics();
+            }
         } else if(!loaded) {
             showToast("The rectified plane could not be loaded. Use Refresh to try again.");
         }
