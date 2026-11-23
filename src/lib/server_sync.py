@@ -117,6 +117,7 @@ class ServerSync:
 
         self.next_http_at = time.monotonic()
         self.next_probe_at = time.monotonic() + self.DEEP_OFFLINE_PROBE_S
+        self.next_inventory_poll_at = time.monotonic() + self.INVENTORY_CHECK_S
         self._last_network_signature = self._network_signature()
 
     # ------------------------------------------------------------------
@@ -162,7 +163,7 @@ class ServerSync:
             self._inventory_dirty = True
             self._inventory_change_counter += 1
             if self.connection_state == "connected" and not self.auth_blocked:
-                self.next_http_at = min(self.next_http_at, time.monotonic() + 2)
+                self.next_inventory_poll_at = min(self.next_inventory_poll_at, time.monotonic() + 2)
         self.wake_event.set()
 
     def notify_pending(self):
@@ -554,7 +555,26 @@ class ServerSync:
                 self._attempt_sync(force_catalog=forced)
                 continue
 
+            # A single lightweight request can be processed without relogin,
+            # catalog downloads or another scan of every execution directory.
+            if (self.connection_state == "connected" and self.inventory_provider is not None
+                    and self.server.capabilities.get("device_inventory_v1")
+                    and now >= self.next_inventory_poll_at):
+                try:
+                    self._reconcile_inventory_v2()
+                except Exception as error:
+                    self.inventory_error = str(error)
+                    if isinstance(error, (requests.ConnectionError, requests.Timeout)):
+                        self._register_failure(error)
+                    else:
+                        print(f"[DigiFlot] Inventory refresh deferred: {error}")
+                finally:
+                    self.next_inventory_poll_at = time.monotonic() + self.INVENTORY_CHECK_S
+                continue
+
             wait_candidates = [self.LOCAL_NETWORK_CHECK_S]
+            if self.connection_state == "connected" and self.server.capabilities.get("device_inventory_v1"):
+                wait_candidates.append(max(0.25, self.next_inventory_poll_at-now))
             if not self.auth_blocked and self.next_http_at != float("inf"):
                 wait_candidates.append(max(0.25, self.next_http_at - now))
             wait_candidates.append(max(0.25, self.next_probe_at - now))
@@ -596,7 +616,8 @@ class ServerSync:
                 self.last_error = None
                 self.last_success_at = _utc_now()
                 self.failure_count = 0
-                self.next_http_at = time.monotonic() + (self.INVENTORY_CHECK_S if (login.get("capabilities") or {}).get("device_inventory_v1") else self.CATALOG_REFRESH_S)
+                self.next_http_at = time.monotonic() + self.CATALOG_REFRESH_S
+                self.next_inventory_poll_at = time.monotonic() + self.INVENTORY_CHECK_S
                 self.next_probe_at = time.monotonic() + self.DEEP_OFFLINE_PROBE_S
                 self._persist_state_unlocked()
 
