@@ -162,8 +162,8 @@ class VisionService:
         selected = str(settings["camera_id"]) if settings["camera_id"] is not None else None
         # Persisted settings alone never activate a sensor for a new run.
         # Only a frozen, approved run configuration enables the recording lores.
-        active = (self._run_virtual is not None and self._sensor_stop is not None
-                  and not self._sensor_stop.is_set())
+        signal = getattr(self, "_sensor_stop", None)
+        active = self._run_virtual is not None and signal is not None and not signal.is_set()
         for camera in self.digiflot.cameras.values():
             camera.analysis_enabled = bool(active and settings["enabled"] and str(camera.id) == selected)
 
