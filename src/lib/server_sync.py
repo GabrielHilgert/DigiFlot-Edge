@@ -694,6 +694,9 @@ class ServerSync:
             _atomic_write_json(self.inventory_state_path,state)
         # Independently retry photos if an earlier image upload failed after inventory sync.
         uploaded = dict(state.get("uploaded_photos") or {})
+        if not remote_hash:
+            # Server inventory was recreated: it has no retained cell photos either.
+            uploaded.clear()
         live = set()
         for cell in inventory.get("cells") or []:
             cid = str(cell["id"]); live.add(cid)
