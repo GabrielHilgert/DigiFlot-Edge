@@ -40,6 +40,7 @@
         "eraser":'<path d="m21 13-9 9H7L2 17l11-13 8 8zM7 12l7 7M12 22h10"/>',
         "external-link":'<path d="M14 3h7v7m0-7-10 10M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/>',
         "camera":'<path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="4"/>',
+        "info":'<circle cx="12" cy="12" r="10"/><path d="M12 11v6M12 7h.01"/>',
         "flask":'<path d="M9 2h6M10 2v7L4 19a2 2 0 0 0 2 3h12a2 2 0 0 0 2-3L14 9V2M7 16h10"/>',
         "chevron-left":'<path d="m15 18-6-6 6-6"/>',
         "chevron-right":'<path d="m9 18 6-6-6-6"/>',
