@@ -678,7 +678,8 @@ class ServerSync:
         remote_hash = control.get("inventory_hash")
         changed = digest != state.get("pending_hash")
         remote_revision = int(control.get("inventory_revision") or 0)
-        if changed:
+        if changed or (remote_hash not in (None, digest) and remote_revision >= int(state.get("revision") or 0)):
+            # The Server rejects a different payload with an identical revision.
             state["revision"] = max(int(state.get("revision") or 0), remote_revision) + 1
             state["pending_hash"] = digest
             _atomic_write_json(self.inventory_state_path,state)
