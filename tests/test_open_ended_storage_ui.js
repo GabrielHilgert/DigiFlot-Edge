@@ -20,6 +20,6 @@ assert.equal(vm.runInContext("formatStorageBytes(null)",context),"—");
   assert.match(elements.estimatedVideo.textContent,/variable/);
   assert.match(elements.estimatedNote.textContent,/Manual stages have no fixed storage total/);
   assert.match(elements.estimatedNote.textContent,/3600 seconds/);
-  assert.doesNotMatch(elements.estimatedNote.textContent,/guaranteed recording time\.$/);
+  assert.match(elements.estimatedNote.textContent,/not a guaranteed recording time/);
   console.log("Open-ended storage UI preserves unknown duration and warns about capacity.");
 })().catch(e=>{console.error(e);process.exitCode=1});
