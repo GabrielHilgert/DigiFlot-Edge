@@ -45,6 +45,8 @@ class Fake:
     def _scraping_interval(self,stage):return 5
     def _touch_unlocked(self,event,data=None):self.events.append(event)
     def _sync_execution_state_unlocked(self,*args,**kwargs):pass
+    def _stage_measurement_gate_unlocked(self):
+        return {"blocked":False,"missing":[],"required":[]}
     def _append_event_unlocked(self,event,data):self.events.append(event)
     def _stop_camera_recording_unlocked(self,ignore_errors=False,keep_ids=None):self.video_keep=keep_ids
     def _stop_sensor_recording_unlocked(self,keep_ids=None):self.sensor_keep=keep_ids
