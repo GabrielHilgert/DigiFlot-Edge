@@ -3183,14 +3183,22 @@ class DigiFlot:
         self._stop_camera_recording_unlocked(ignore_errors=True, keep_ids=desired_video)
         self._stop_sensor_recording_unlocked(keep_ids=desired_physical)
         self._start_sensor_recording_unlocked(allowed=desired_physical)
-        if desired_video:
-            self._start_camera_recording_unlocked(stage, selected_ids=desired_video)
         if self.vision is not None:
-            if (selection["hifie"] and (self.sensor_calibration.get("froth_interface") or {}).get("status") == "passed"
-                    and self.vision._run_virtual is not None):
+            virtual_active = (selection["hifie"] and
+                (self.sensor_calibration.get("froth_interface") or {}).get("status") == "passed"
+                and self.vision._run_virtual is not None)
+            if virtual_active:
+                # The encoder must be created with lores if HIFIE is enabled.
+                source_id = int(self.vision._run_virtual["camera_id"])
+                camera = self.cameras.get(source_id)
+                if camera and camera.recording and not camera.analysis_enabled:
+                    self._stop_camera_recording_unlocked(
+                        ignore_errors=True, keep_ids=desired_video - {source_id})
                 self.vision.activate_sensor()
             else:
                 self.vision.deactivate_sensor()
+        if desired_video:
+            self._start_camera_recording_unlocked(stage, selected_ids=desired_video)
         evidence = {"stage_uid": stage.get("uid"), "stage_index": self.current_stage_index,
                     "attempt": self.stage_attempt, "started_at": _utc_now(),
                     "requested": deepcopy(selection),
