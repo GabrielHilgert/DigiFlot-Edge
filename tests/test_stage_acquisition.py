@@ -33,7 +33,7 @@ class Fake:
                 "virtual/froth_interface":False}}}},
             {"uid":"b","type":"flotation","duration":60,"metadata":{}}]}
         self.current_stage_index=0;self.stage_attempt=1;self.stage_state=self.STAGE_TRANSITION;self.state=self.RUNNING
-        self.stage_started_monotonic=None;self.events=[];self.vision=None
+        self.stage_started_monotonic=None;self.events=[];self.stage_history=[];self.vision=None
     @property
     def current_stage(self):return self.experiment["stages"][self.current_stage_index]
     @property
