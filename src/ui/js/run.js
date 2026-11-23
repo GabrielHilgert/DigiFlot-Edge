@@ -268,7 +268,7 @@ function renderCellSelection(state) {
     const selectedId=state.cell_selection?.cell_id || state.execution_inputs?.cell_profile?.physical_cell_id ||
       (planned.cell_mode==='registered'?planned.physical_cell_id:planned.cell_mode==='none'?'none':'');
     const selectedCamera = state.cell_selection?.camera_id ?? state.execution_inputs?.cell_profile?.virtual_camera_id;
-    ui.select_physical_cell.innerHTML = '<option value="">Select a cell</option><option value="none">No physical cell</option>' +
+    ui.select_physical_cell.innerHTML = '<option value="">Select a cell</option><option value="none">Continue without a cell</option>' +
         physicalCells.map(cell => `<option value="${escapeHtml(cell.id)}">${escapeHtml(cell.name)} (${escapeHtml(cell.id)})</option>`).join("");
     ui.select_virtual_camera.innerHTML = '<option value="">Auto-select camera</option><option value="none">No virtual sensor</option>' +
         cameras.map(cam => `<option value="${escapeHtml(cam.id)}">${escapeHtml(cam.name)} · Camera ${escapeHtml(cam.id)}</option>`).join("");

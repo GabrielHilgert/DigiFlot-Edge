@@ -110,7 +110,7 @@ class DigiFlot:
             "scraping": True,
         },
         "custom": {
-            "camera": True,
+            "camera": False,
             "sensors": True,
             "scraping": True,
         },
@@ -3141,7 +3141,7 @@ class DigiFlot:
                     enabled.update(override)
                 break
         video = sorted(int(camera_id) for camera_id in self.cameras
-                       if enabled.get(f"video/{camera_id}", policy["camera"]))
+                       if enabled.get(f"video/{camera_id}", enabled.get("video/all", policy["camera"])))
         physical = []
         for collection in (self.scales, self.bronkhorst, self.wago, self.plugin_sensors):
             physical.extend(str(device.id) for device in collection.values()
