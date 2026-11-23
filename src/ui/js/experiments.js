@@ -2043,7 +2043,7 @@ function renderStages(
             metric(
                 "Duration",
 
-                formatWithUnit(
+                Number(stage.duration) === 0 ? "Manual" : formatWithUnit(
                     stage.duration,
                     "s",
                 )
