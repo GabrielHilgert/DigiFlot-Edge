@@ -49,6 +49,8 @@
     $('cell_height').value = g.height_mm ?? '';
     $('cell_width').value = g.width_mm ?? '';
     $('cell_depth').value = g.depth_mm ?? '';
+    $('cell_collection_height').value = g.collection_height_mm ?? '';
+    renderCellPhoto(cell);
     const ref=cell?.vertical_reference || {};
     $('cell_reference_mode').value = ref.mode || 'aruco_bottom';
     $('cell_top_y_cm').value = ref.cell_top_y_cm ?? '';
@@ -196,9 +198,76 @@
     const shape = $('cell_shape').value;
     return {id: state.cellId || undefined, name: $('cell_name').value.trim(),
       working_volume_l: numeric('cell_volume'),
-      geometry: {shape, height_mm:numeric('cell_height'), width_mm:numeric('cell_width'), depth_mm:numeric('cell_depth')},
+      geometry: {shape, height_mm:numeric('cell_height'), width_mm:numeric('cell_width'), depth_mm:numeric('cell_depth'), collection_height_mm:numeric('cell_collection_height')},
       marker_layout: {dictionary:'DICT_4X4_50', marker_ids:[0,1,2].map(i => Number($(`marker_${i}`).value)),
         marker_size_cm:numeric('marker_size'), span_cm:numeric('marker_span')}};
+  }
+
+  const cellImageFallback='/static/img/flotation-cell-placeholder.svg';
+  let cropSource=null,cropPan={x:0,y:0},dragStart=null;
+  function renderCellPhoto(cell){
+    const hasPhoto=Boolean(cell?.thumbnail?.sha256),image=$('cell_thumbnail_preview');
+    image.src=hasPhoto?`/api/vision/cells/${encodeURIComponent(cell.id)}/thumbnail?v=${cell.thumbnail.revision}`:cellImageFallback;
+    image.onerror=()=>{image.onerror=null;image.src=cellImageFallback};
+    $('cell_photo_status').textContent=hasPhoto?`Photo r${cell.thumbnail.revision}`:'No photo assigned';
+    $('capture_cell_photo').disabled=!cell?.id;
+    $('remove_cell_photo').hidden=!hasPhoto;
+  }
+  function drawCrop(){
+    const canvas=$('cell_photo_canvas'),ctx=canvas.getContext('2d');
+    ctx.clearRect(0,0,512,512);ctx.fillStyle='#f3f6f8';ctx.fillRect(0,0,512,512);
+    if(!cropSource)return;
+    const zoom=Number($('photo_zoom').value),scale=Math.max(512/cropSource.width,512/cropSource.height)*zoom;
+    const w=cropSource.width*scale,h=cropSource.height*scale;
+    const marginX=Math.max(0,(w-512)/2),marginY=Math.max(0,(h-512)/2);
+    cropPan.x=Math.max(-marginX,Math.min(marginX,cropPan.x));
+    cropPan.y=Math.max(-marginY,Math.min(marginY,cropPan.y));
+    ctx.drawImage(cropSource,(512-w)/2+cropPan.x,(512-h)/2+cropPan.y,w,h);
+  }
+  async function takePhotoFrame(){
+    const camera=$('photo_camera').value;if(!camera)throw Error('Choose a camera');
+    $('photo_capture_frame').disabled=true;
+    try{
+      // One frame from the existing camera API, no new stream and no overlays.
+      const result=await api(`/cameras/${encodeURIComponent(camera)}/snapshot`);
+      if(!result.jpeg_base64)throw Error('Camera did not provide a frame');
+      cropSource=new Image();cropPan={x:0,y:0};$('photo_zoom').value='1';
+      await new Promise((resolve,reject)=>{cropSource.onload=resolve;cropSource.onerror=reject;
+        cropSource.src=`data:image/jpeg;base64,${result.jpeg_base64}`});
+      drawCrop();$('photo_save').disabled=false;
+    }finally{$('photo_capture_frame').disabled=false;}
+  }
+  function openPhotoModal(){
+    if(!state.cellId)throw Error('Save the cell before adding a photo');
+    cropSource=null;cropPan={x:0,y:0};$('photo_save').disabled=true;
+    $('photo_camera').innerHTML=state.cameras.map(c=>`<option value="${esc(c.id)}">${esc(c.name||c.id)}</option>`).join('');
+    $('photo_camera').value=state.cameraId==null?String(state.cameras[0]?.id||''):String(state.cameraId);
+    drawCrop();$('cell_photo_modal').showModal();
+  }
+  async function savePhoto(){
+    if(!cropSource||!state.cellId)throw Error('Capture a frame first');
+    const image=$('cell_photo_canvas').toDataURL('image/webp',.76).split(',')[1];
+    $('photo_save').disabled=true;
+    try{
+      const result=await api(`/cells/${encodeURIComponent(state.cellId)}/thumbnail`,
+        {method:'PUT',body:{image_base64:image}});
+      state.cell.thumbnail=result;renderCellPhoto(state.cell);$('cell_photo_modal').close();
+      toast('Cell photo saved and queued for Server synchronization.');
+    }finally{$('photo_save').disabled=false;}
+  }
+  async function removePhoto(){
+    if(!state.cellId)return;
+    await api(`/cells/${encodeURIComponent(state.cellId)}/thumbnail`,{method:'DELETE'});
+    state.cell.thumbnail=null;renderCellPhoto(state.cell);
+    toast('Cell photo removed; default icon will be shown.');
+  }
+  function showDimensionsGuide(){
+    const g=state.cell?.geometry||{},modal=$('cell_dimensions_modal');
+    const fields=[['H · Height',g.height_mm],['L · Width',g.width_mm],
+      ['W · Depth',g.depth_mm],['h_collection',g.collection_height_mm]];
+    $('cell_dimensions_values').innerHTML=fields.map(([key,v])=>
+      `<div><dt>${esc(key)}</dt><dd>${v==null?'—':esc(v)+' mm'}</dd></div>`).join('');
+    modal.showModal();
   }
 
   async function loadCell(id) {
@@ -507,6 +576,22 @@
     await loadCamera($('camera_select').value);
   }
 
+  $('capture_cell_photo').addEventListener('click',action(openPhotoModal));
+  $('remove_cell_photo').addEventListener('click',action(removePhoto));
+  $('photo_capture_frame').addEventListener('click',action(takePhotoFrame));
+  $('photo_save').addEventListener('click',action(savePhoto));
+  $('photo_zoom').addEventListener('input',drawCrop);
+  $('close_cell_photo').addEventListener('click',()=>$('cell_photo_modal').close());
+  $('cell_dimensions_info').addEventListener('click',showDimensionsGuide);
+  $('close_dimensions_guide').addEventListener('click',()=>$('cell_dimensions_modal').close());
+  const cropCanvas=$('cell_photo_canvas');
+  cropCanvas.addEventListener('pointerdown',event=>{if(!cropSource)return;
+    dragStart={x:event.clientX,y:event.clientY,pan:{...cropPan}};cropCanvas.setPointerCapture(event.pointerId)});
+  cropCanvas.addEventListener('pointermove',event=>{if(!dragStart)return;
+    const r=cropCanvas.getBoundingClientRect(),ratio=512/r.width;
+    cropPan={x:dragStart.pan.x+(event.clientX-dragStart.x)*ratio,y:dragStart.pan.y+(event.clientY-dragStart.y)*ratio};drawCrop()});
+  cropCanvas.addEventListener('pointerup',()=>{dragStart=null});
+  cropCanvas.addEventListener('pointercancel',()=>{dragStart=null});
   $('new_cell').addEventListener('click',action(async()=>{ $('cell_select').value='';await loadCell(null);toast('Enter a new physical cell.'); }));
   $('cell_select').addEventListener('change',action(async()=>loadCell($('cell_select').value)));
   $('save_cell').addEventListener('click',action(saveCell));
