@@ -237,6 +237,15 @@ def override_stage_acquisition(request: Request, payload: dict):
         raise api_error(error) from error
 
 
+@router.post("/stages/measurements/ignore")
+def ignore_stage_measurements(request: Request, payload: dict | None = None):
+    try:
+        reason = (payload or {}).get("reason", "Operator confirmed missing stage measurements")
+        return get_digiflot(request).ignore_stage_measurement_requirements(reason)
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.post("/stages/finish-now")
 def finish_stage_now(request: Request, payload: dict | None = None):
     try:
