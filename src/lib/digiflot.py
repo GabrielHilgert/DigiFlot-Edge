@@ -197,6 +197,7 @@ class DigiFlot:
         self.stage_started_at = None
         self.stage_started_monotonic = None
         self.stage_deadline = None
+        self.stage_acquisition_overrides = {}
         self.transition_started_at = None
         self.transition_started_monotonic = None
         self.transition_deadline = None
@@ -612,8 +613,11 @@ class DigiFlot:
             "stage_started_at": self.stage_started_at,
             "stage_elapsed_s": stage_elapsed,
             "stage_remaining_s": stage_remaining,
+            "stage_acquisition_overrides": deepcopy(self.stage_acquisition_overrides),
+            "stage_acquisition": self._stage_acquisition_unlocked(self.current_stage) if self.current_stage else None,
             "transition_started_at": self.transition_started_at,
             "transition_remaining_s": transition_remaining,
+            "stage_transition": self._stage_transition_unlocked(self.current_stage) if self.current_stage else None,
             "pause_started_at": self.pause_started_at,
             "preview_camera_id": self.preview_camera_id,
             "recording": self.recording,
@@ -702,6 +706,7 @@ class DigiFlot:
                     result["reagent"] = deepcopy(reagent)
                     break
         result["policy"] = self.stage_policy(stage)
+        result["acquisition"] = self._stage_acquisition_unlocked(stage)
         return result
 
 
@@ -1553,6 +1558,7 @@ class DigiFlot:
         self.virtual_camera_id = (self.cell_profile or {}).get("virtual_camera_id")
         self._register_virtual_sensor_unlocked()
         self.current_stage_index = runtime.get("current_stage_index")
+        self.stage_acquisition_overrides = deepcopy(runtime.get("stage_acquisition_overrides") or {})
         self.stage_state = runtime.get("stage_state", self.STAGE_NONE)
         self.run_started_at = runtime.get("run_started_at")
         saved_run_elapsed = runtime.get("run_elapsed_s")
@@ -1663,8 +1669,15 @@ class DigiFlot:
                 duration = float(stage.get("duration"))
             except (TypeError, ValueError):
                 raise ValueError(f"Stage {index + 1} has an invalid duration.")
-            if duration <= 0:
-                raise ValueError(f"Stage {index + 1} duration must be positive.")
+            if not math.isfinite(duration) or duration < 0:
+                raise ValueError(f"Stage {index + 1} duration must be zero (manual) or positive.")
+            transition = ((stage.get("metadata") or {}).get("transition") or {})
+            if transition and not isinstance(transition, dict):
+                raise ValueError(f"Stage {index + 1} has an invalid transition policy.")
+            if "timeout_s" in transition:
+                delay = float(transition["timeout_s"])
+                if not math.isfinite(delay) or not 0 < delay <= 3600:
+                    raise ValueError(f"Stage {index + 1} has an invalid transition timeout.")
 
 
     def _reset_run_state_unlocked(self):
@@ -1682,6 +1695,7 @@ class DigiFlot:
         self.run_directory = None
         self.experiment = None
         self.current_stage_index = None
+        self.stage_acquisition_overrides = {}
         self.stage_state = self.STAGE_NONE
         self.run_started_at = None
         self.run_started_monotonic = None
@@ -2418,7 +2432,6 @@ class DigiFlot:
                 self._sync_execution_state_unlocked("running", ensure=True)
 
                 try:
-                    self._start_sensor_recording_unlocked()
                     self._start_performance_telemetry_unlocked()
                     self._start_stage_unlocked(self.current_stage, new_attempt=False)
                 except Exception as error:
@@ -2452,7 +2465,7 @@ class DigiFlot:
         elif self.stage_attempt < 1:
             self.stage_attempt = 1
 
-        duration = float(stage["duration"])
+        duration = float(stage.get("duration", 0))
 
         self.stage_state = self.STAGE_ACTIVE
         self.transition_started_monotonic = None
@@ -2473,18 +2486,14 @@ class DigiFlot:
             if any(device.control_enabled for device in self.bronkhorst.values()):
                 raise
 
-        if self._camera_required(stage):
-            if not self.recording:
-                self._start_camera_recording_unlocked(stage)
-        elif self.recording:
-            self._stop_camera_recording_unlocked(ignore_errors=True)
+        self._reconcile_stage_acquisition_unlocked(stage)
 
         # Only start stage timers once camera configuration, encoders and
         # setpoints have finished. Startup latency must not create past-due pulses.
         now = time.monotonic()
         self.stage_started_monotonic = now
         self.stage_started_at = _utc_now()
-        self.stage_deadline = now + duration
+        self.stage_deadline = (now + duration) if duration > 0 else None
         if self._scraping_required(stage):
             self.next_scraping_deadline = now + self._scraping_interval(stage)
         else:
@@ -2511,7 +2520,7 @@ class DigiFlot:
 
         if skipped:
             event_type = "STAGE_SKIPPED"
-        elif early:
+        elif early and float(stage.get("duration", 0) or 0) > 0:
             event_type = "STAGE_FINISHED_EARLY"
         else:
             event_type = "STAGE_COMPLETED"
@@ -2534,29 +2543,29 @@ class DigiFlot:
             self._finish_experiment_unlocked()
             return
 
-        keep_camera = (
-            self._camera_required(stage)
-            and self._camera_required(next_stage)
-        )
-        if self.recording and not keep_camera:
-            self._stop_camera_recording_unlocked(ignore_errors=True)
+        previous = self._stage_acquisition_unlocked(stage)
+        upcoming = self._stage_acquisition_unlocked(next_stage)
+        shared_video = set(previous["video"]) & set(upcoming["video"])
+        shared_physical = set(previous["physical"]) & set(upcoming["physical"])
+        self._stop_camera_recording_unlocked(ignore_errors=True, keep_ids=shared_video)
+        self._stop_sensor_recording_unlocked(keep_ids=shared_physical)
+        if self.vision is not None and not (previous["hifie"] and upcoming["hifie"]):
+            self.vision.deactivate_sensor()
+        keep_camera = bool(shared_video)
 
         now = time.monotonic()
         self.stage_state = self.STAGE_TRANSITION
         self.transition_started_monotonic = now
         self.transition_started_at = _utc_now()
-        self.transition_deadline = (
-            now + self.transition_timeout_s
-            if self.auto_advance_enabled
-            else None
-        )
+        transition = self._stage_transition_unlocked(stage)
+        self.transition_deadline = now + transition["timeout_s"] if transition["auto_advance"] else None
         self._touch_unlocked(
             "TRANSITION_STARTED",
             {
                 "from_stage_id": stage.get("id"),
                 "to_stage_id": next_stage.get("id"),
-                "timeout_s": (self.transition_timeout_s if self.auto_advance_enabled else None),
-                "automatic_advance": self.auto_advance_enabled,
+                "timeout_s": (transition["timeout_s"] if transition["auto_advance"] else None),
+                "automatic_advance": transition["auto_advance"],
                 "camera_continues": keep_camera,
                 "previous_stage_skipped": skipped,
                 "previous_stage_finished_early": early,
