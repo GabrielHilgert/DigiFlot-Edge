@@ -20,6 +20,12 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(data["cells"][0]["id"],cell["id"])
             self.assertEqual(data["cells"][0]["working_volume_l"],4)
             self.assertIn("HIFIE",{s["short_name"] for s in data["sensors"]})
+            self.assertEqual(data["cameras"],[{"id":"1","name":"Camera 1","type":"camera"}])
+            device.cameras={1:SimpleNamespace(id=1,name="Front camera"),2:SimpleNamespace(id=2,name="Side camera")}
+            device.config={"cameras":[]}
+            refreshed=build_inventory(device)
+            self.assertEqual([cam["id"] for cam in refreshed["cameras"]],["1","2"])
+            self.assertEqual([cam["name"] for cam in refreshed["cameras"]],["Front camera","Side camera"])
             self.assertEqual([s["short_name"] for s in data["sensors"] if s["id"]=="atlas_ph"],["pH"])
             self.assertNotIn("value",data["sensors"][0])
             self.assertNotIn("status",data["sensors"][0])
