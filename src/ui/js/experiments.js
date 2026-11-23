@@ -113,6 +113,7 @@ async function saveExperiment(experiment) {
 
 
 function formatStorageBytes(value) {
+    if (value == null) return "—";
     const bytes = Number(value);
     if (!Number.isFinite(bytes) || bytes < 0) return "—";
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -158,13 +159,23 @@ async function loadStorageEstimate(experiment, selectedKey) {
             body: JSON.stringify({ experiment }),
         });
         if (state.selectedKey !== selectedKey) return;
-        elements.estimatedTotal.textContent = formatStorageBytes(estimate.estimated_bytes);
-        elements.estimatedVideo.textContent = formatStorageBytes(estimate.video_bytes);
-        elements.estimatedAuxiliary.textContent = formatStorageBytes(estimate.auxiliary_bytes);
-        elements.estimatedCapacity.textContent = estimate.sufficient == null ? "Unknown" : (estimate.sufficient ? "Sufficient" : "Insufficient");
+        const manual = estimate.open_ended === true;
+        elements.estimatedTotal.textContent = manual ? "Open-ended" : formatStorageBytes(estimate.estimated_bytes);
+        const manualVideo = manual && (estimate.cameras || []).some(camera => camera.manual_used);
+        elements.estimatedVideo.textContent = formatStorageBytes(estimate.video_bytes) + (manualVideo ? " + variable" : "");
+        elements.estimatedAuxiliary.textContent = formatStorageBytes(estimate.auxiliary_bytes) + (manual ? " + variable" : "");
+        elements.estimatedCapacity.textContent = manual
+            ? (estimate.sufficient === false ? "Insufficient" : estimate.sufficient == null ? "Unverified" : "Runtime monitoring")
+            : (estimate.sufficient == null ? "Unknown" : estimate.sufficient ? "Sufficient" : "Insufficient");
         const source = (estimate.cameras || []).some(item => item.source === "history") ? "Historical camera data used." : "Default camera rates used.";
         const transitions = estimate.unplanned_transitions ? " Manual transition duration is not included." : "";
-        elements.estimatedNote.textContent = `${source} Includes ${estimate.margin_percent}% margin and ${formatStorageBytes(estimate.reserve_bytes)} reserved space.${transitions}`;
+        if (manual) {
+            const autonomy = estimate.estimated_autonomy_s == null ? "Storage autonomy unavailable" :
+                `Approximate storage autonomy: ${formatDuration(estimate.estimated_autonomy_s)}`;
+            elements.estimatedNote.textContent = `Manual stages have no fixed storage total. Bounded portion: ${formatStorageBytes(estimate.bounded_stage_bytes)}. ${autonomy}. ${source} Disk monitoring retains ${formatStorageBytes(estimate.reserve_bytes)} in reserve; autonomy is an estimate, not a guaranteed recording time.`;
+        } else {
+            elements.estimatedNote.textContent = `${source} Includes ${estimate.margin_percent}% margin and ${formatStorageBytes(estimate.reserve_bytes)} reserved space.${transitions}`;
+        }
     } catch (error) {
         if (state.selectedKey === selectedKey) {
             elements.estimatedCapacity.textContent = "Unavailable";
@@ -2032,7 +2043,7 @@ function renderStages(
             metric(
                 "Duration",
 
-                formatWithUnit(
+                Number(stage.duration) === 0 ? "Manual" : formatWithUnit(
                     stage.duration,
                     "s",
                 )

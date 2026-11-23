@@ -29,6 +29,7 @@ jobs:
           node tests/test_hifie_operational.js
           node tests/test_sensor_calibration_workspace.js
           node --check src/ui/js/experiments.js
+          node tests/test_open_ended_storage_ui.js
           node tests/test_color_palette.js
           node --check src/ui/js/results.js
           node tests/test_results_mjpeg.js
