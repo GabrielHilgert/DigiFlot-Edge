@@ -280,7 +280,10 @@
     }else{
       photoOwnsPreview=false; // Borrow existing preview; never stop another component's camera.
     }
-    if(generation!==photoGeneration||!$('cell_photo_modal').open)return;
+    if(generation!==photoGeneration||!$('cell_photo_modal').open){
+      if(photoOwnsPreview)await releasePhotoPreview();
+      return;
+    }
     $('cell_photo_live').src=`/api/cameras/${encodeURIComponent(camera)}/stream`;
     $('cell_photo_live').hidden=false;
     text('photo_camera_status','Live preview (shared lores stream)');
