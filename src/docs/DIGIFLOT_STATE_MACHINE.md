@@ -1,6 +1,8 @@
 # DigiFlot Edge — execution state machine
 
-Reference date: 2026-11-13. Source of truth: `src/lib/digiflot.py`.
+Reference date: 2026-11-13 (original diagram). Source of truth: `src/lib/digiflot.py`.
+
+> **2026-11-23 extension:** Stages can have `duration=0` and an individual auto-advance timeout. A manual stage with `required_measurement` variables can finish but block starting the next stage until an observation is saved or an audited waiver is recorded. See [Stages and measurements](EXPERIMENTS_STAGES_MEASUREMENTS.md). The diagrams below retain the original global state model; these additions are guards within the existing stage substate.
 This describes the **global experiment state**, its **stage substate** and the guards
 that maintain recording and calibration integrity. The seven labels in the Run
 workflow are display substeps, not seven independent runtime states.
