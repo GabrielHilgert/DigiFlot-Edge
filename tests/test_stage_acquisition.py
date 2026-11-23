@@ -38,7 +38,7 @@ class Fake:
     def current_stage(self):return self.experiment["stages"][self.current_stage_index]
     @property
     def next_stage(self):return self.experiment["stages"][self.current_stage_index+1] if self.current_stage_index+1<len(self.experiment["stages"]) else None
-    def stage_policy(self,stage): return {"camera":stage.get("type")!="conditioning","sensors":True,"scraping":stage.get("type")=="flotation"}
+    def stage_policy(self,stage): return {"camera":stage.get("type")=="flotation","sensors":True,"scraping":stage.get("type")=="flotation"}
     def apply_stage_setpoints(self,stage): pass
     def _reconcile_stage_acquisition_unlocked(self,stage): self.events.append("reconcile")
     def _scraping_required(self,stage):return False
@@ -75,5 +75,19 @@ class StageTests(unittest.TestCase):
         second=run._stage_acquisition_unlocked(run.next_stage)
         self.assertEqual(second["video"],[2])
         self.assertNotIn("scale_1",second["physical"])
+
+    def test_custom_stage_defaults_to_no_video_with_hifie_and_physical_active(self):
+        run=Fake();stage={"uid":"custom","type":"custom","duration":0,"metadata":{}}
+        settings=run._stage_acquisition_unlocked(stage)
+        self.assertEqual(settings["video"],[])
+        self.assertTrue(settings["hifie"])
+        self.assertEqual(settings["physical"],["atlas","scale_1"])
+        stage["metadata"]={"acquisition":{"mode":"custom","enabled":{"video/all":True,"video/2":False}}}
+        settings=run._stage_acquisition_unlocked(stage)
+        self.assertEqual(settings["video"],[1])
+        self.assertTrue(settings["hifie"])
+        stage["metadata"]["acquisition"]["enabled"]["video/all"]=False
+        settings=run._stage_acquisition_unlocked(stage)
+        self.assertEqual(settings["video"],[])
 
 if __name__=="__main__":unittest.main()
