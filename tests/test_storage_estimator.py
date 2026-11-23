@@ -69,6 +69,22 @@ class StorageEstimatorTests(unittest.TestCase):
         self.assertEqual(result["cameras"][0]["source"], "history")
         self.assertEqual(result["cameras"][0]["bytes_per_frame"], 20000)
 
+    def test_manual_stage_has_no_fixed_duration_and_reports_autonomy(self):
+        stages={"stages":[{"type":"flotation","duration":0}]}
+        result=self.storage.estimate(stages,[self.camera],lambda _:True,min_free_gb=0)
+        self.assertTrue(result["open_ended"])
+        self.assertIsNone(result["estimated_bytes"])
+        self.assertIsNotNone(result["estimated_autonomy_s"])
+
+    def test_recording_cost_is_individual_per_camera(self):
+        camera2=dict(self.camera,id=2)
+        result=self.storage.estimate(self.experiment,[self.camera,camera2],
+            lambda s:s["type"]=="flotation",
+            camera_ids_for_stage=lambda s:{"0"} if s["type"]=="flotation" else set(),
+            min_free_gb=0,safety_margin_pct=0)
+        self.assertGreater(result["cameras"][0]["estimated_bytes"],0)
+        self.assertEqual(result["cameras"][1]["estimated_bytes"],0)
+
     def test_legacy_fps_profile_is_migrated(self):
         import json
         root = Path(self.temp.name)
