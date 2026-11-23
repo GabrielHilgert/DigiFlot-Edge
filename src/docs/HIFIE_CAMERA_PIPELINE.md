@@ -1,5 +1,7 @@
 # HIFIE camera pipeline
 
+> **Current operational reference (2026-11-23):** See [Cells, sensors and HIFIE](CELLS_SENSORS_HIFIE.md), [stage acquisition](EXPERIMENTS_STAGES_MEASUREMENTS.md) and [troubleshooting](TROUBLESHOOTING.md) for the newer stage-scoped `lores` lifecycle, camera ownership and HIFIE activation rules.
+
 ## One camera-owned lores stream
 
 DigiFlot's Picamera2 driver (`src/lib/camera.py`) owns the acquisition

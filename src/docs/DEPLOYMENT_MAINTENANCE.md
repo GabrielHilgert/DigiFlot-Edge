@@ -1,5 +1,7 @@
 # DigiFlot Edge — Git-managed installation maintenance
 
+For the current full system overview and safety/validation checklist, see [documentation index](README.md) and [Troubleshooting](TROUBLESHOOTING.md). This document is authoritative for the managed systemd/update commands. Do not use a full installation to apply normal code changes.
+
 The full `src/install.sh` installs system packages, creates the service account,
 clones the repository and creates the Python environment. It should not be
 needed again for ordinary UI, backend, browser, launcher or systemd changes.

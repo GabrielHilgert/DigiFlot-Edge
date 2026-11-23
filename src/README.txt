@@ -89,3 +89,6 @@ Repository launch.sh
 The included launch.sh is intended to replace src/launch.sh in Git. It keeps
 foreground mode for debugging, but normal operation uses systemd. Its
 --update option delegates to the global shared updater.
+
+Current detailed documentation: README.md at repository root and src/docs/README.md.
+Managed updates check changed requirements; pip and service restarts are conditional.

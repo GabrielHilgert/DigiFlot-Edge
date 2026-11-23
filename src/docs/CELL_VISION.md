@@ -1,4 +1,6 @@
-# Cell Vision / ArUco (initial implementation)
+# Cell Vision / ArUco (detailed design reference)
+
+> **Current workflow (2026-11-23):** See [Cells, sensors and HIFIE](CELLS_SENSORS_HIFIE.md) for the present cell registry, independently revisioned photographs, Edge-to-Server inventory and per-stage acquisition. This document retains detailed geometric/calibration reasoning from earlier iterations.
 
 The Cell Vision feature is **optional and off by default**. It does not replace the existing camera exposure calibration, nor does it modify the primary MJPEG/FFmpeg recorder.
 
