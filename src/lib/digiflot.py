@@ -486,6 +486,19 @@ class DigiFlot:
                 if record is None:
                     return None
 
+            effective = None
+            frozen = self.run_directory / "effective_setup_snapshot.json"
+            if frozen.is_file():
+                try:
+                    effective = self._read_json(frozen)
+                except (OSError, ValueError):
+                    effective = None
+            sensors_used = [
+                {"id": str(sensor_id), "type": item.get("type"),
+                 "calibration_status": item.get("status")}
+                for sensor_id, item in self.sensor_calibration.items()
+                if item.get("status") == "passed"
+            ]
             return manager.update_execution(
                 self.run_directory,
                 status,
@@ -496,6 +509,8 @@ class DigiFlot:
                 },
                 cell_profile=deepcopy(self.cell_profile),
                 measurements_summary=self._measurement_summary_unlocked(),
+                effective_setup=effective,
+                sensors_used=sensors_used,
             )
         except Exception as error:
             print(f"[DigiFlot] Server sync bookkeeping unavailable: {error}")
