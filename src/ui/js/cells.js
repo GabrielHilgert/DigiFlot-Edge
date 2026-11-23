@@ -237,12 +237,62 @@
       drawCrop();$('photo_save').disabled=false;
     }finally{$('photo_capture_frame').disabled=false;}
   }
-  function openPhotoModal(){
+  const photoOwner='cell-thumbnail-'+Math.random().toString(36).slice(2);
+  let photoOwnsPreview=false,photoHeartbeat=null,photoGeneration=0;
+  async function photoRequest(url,options={}){
+    const response=await fetch(url,options);
+    if(!response.ok){
+      const data=await response.json().catch(()=>({}));
+      throw Error(data.detail||'Camera preview unavailable');
+    }
+    return response.json();
+  }
+  async function releasePhotoPreview(){
+    photoGeneration++;
+    if(photoHeartbeat!==null)clearInterval(photoHeartbeat);
+    photoHeartbeat=null;$('cell_photo_live').removeAttribute('src');$('cell_photo_live').hidden=true;
+    if(!photoOwnsPreview)return;
+    photoOwnsPreview=false;
+    try{
+      await photoRequest('/api/cameras/preview/stop',{method:'POST',headers:{'X-DigiFlot-Tab-Id':photoOwner}});
+    }catch(e){toast('Camera preview cleanup: '+e.message,true);}
+  }
+  async function preparePhotoPreview(){
+    const camera=$('photo_camera').value,generation=++photoGeneration;
+    if(!camera)throw Error('No camera is configured');
+    $('photo_capture_frame').disabled=true;
+    text('photo_camera_status','Starting camera preview…');
+    const active=await photoRequest('/api/cameras');
+    if(active.preview_camera_id!=null && String(active.preview_camera_id)!==String(camera)){
+      throw Error('A different camera is in preview. Stop that preview before taking a cell photo.');
+    }
+    if(active.preview_camera_id==null){
+      await photoRequest(`/api/cameras/${encodeURIComponent(camera)}/preview/start`,
+        {method:'POST',headers:{'X-DigiFlot-Tab-Id':photoOwner}});
+      photoOwnsPreview=true;
+      photoHeartbeat=setInterval(async()=>{
+        if(!photoOwnsPreview)return;
+        try{
+          await photoRequest('/api/cameras/preview/heartbeat',
+            {method:'POST',headers:{'X-DigiFlot-Tab-Id':photoOwner}});
+        }catch(e){text('photo_camera_status','Camera lease expired. Close and retry the photo dialog.');}
+      },12000);
+    }else{
+      photoOwnsPreview=false; // Borrow existing preview; never stop another component's camera.
+    }
+    if(generation!==photoGeneration||!$('cell_photo_modal').open)return;
+    $('cell_photo_live').src=`/api/cameras/${encodeURIComponent(camera)}/stream`;
+    $('cell_photo_live').hidden=false;
+    text('photo_camera_status','Live preview (shared lores stream)');
+    $('photo_capture_frame').disabled=false;
+  }
+  async function openPhotoModal(){
     if(!state.cellId)throw Error('Save the cell before adding a photo');
     cropSource=null;cropPan={x:0,y:0};$('photo_save').disabled=true;
     $('photo_camera').innerHTML=state.cameras.map(c=>`<option value="${esc(c.id)}">${esc(c.name||c.id)}</option>`).join('');
     $('photo_camera').value=state.cameraId==null?String(state.cameras[0]?.id||''):String(state.cameraId);
     drawCrop();$('cell_photo_modal').showModal();
+    await preparePhotoPreview();
   }
   async function savePhoto(){
     if(!cropSource||!state.cellId)throw Error('Capture a frame first');
@@ -577,6 +627,13 @@
   }
 
   $('capture_cell_photo').addEventListener('click',action(openPhotoModal));
+  $('photo_camera').addEventListener('change',action(async()=>{
+    await releasePhotoPreview();
+    cropSource=null;$('photo_save').disabled=true;drawCrop();
+    await preparePhotoPreview();
+  }));
+  $('cell_photo_modal').addEventListener('close',()=>{void releasePhotoPreview();});
+  window.addEventListener('pagehide',()=>{if(photoOwnsPreview)void releasePhotoPreview();});
   $('remove_cell_photo').addEventListener('click',action(removePhoto));
   $('photo_capture_frame').addEventListener('click',action(takePhotoFrame));
   $('photo_save').addEventListener('click',action(savePhoto));
