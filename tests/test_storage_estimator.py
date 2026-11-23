@@ -74,6 +74,8 @@ class StorageEstimatorTests(unittest.TestCase):
         result=self.storage.estimate(stages,[self.camera],lambda _:True,min_free_gb=0)
         self.assertTrue(result["open_ended"])
         self.assertIsNone(result["estimated_bytes"])
+        self.assertIsNone(result["experiment_duration_s"])
+        self.assertIsNone(result["camera_recording_s"])
         self.assertIsNotNone(result["estimated_autonomy_s"])
 
     def test_recording_cost_is_individual_per_camera(self):
