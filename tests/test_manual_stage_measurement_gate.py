@@ -29,6 +29,8 @@ class Run:
             {"stage_index":0,"attempt":1,"started_at":"2026-11-23T18:00:00Z","completion":"STAGE_COMPLETED"}]
         self.events=[];self.transition_deadline=None
     @property
+    def status(self):return {"state":self.state,"stage_index":self.current_stage_index}
+    @property
     def current_stage(self):return self.experiment["stages"][self.current_stage_index]
     @property
     def next_stage(self):
