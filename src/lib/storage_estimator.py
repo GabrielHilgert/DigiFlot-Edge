@@ -246,12 +246,12 @@ class StorageEstimator:
             rate = bpf * signature["fps"]
             if camera_ids_for_stage is not None:
                 camera_seconds = sum(seconds for seconds,stage in zip(durations,stages)
-                                     if signature["camera_id"] in camera_ids_for_stage(stage))
-                manual_used = any(seconds == 0 and signature["camera_id"] in camera_ids_for_stage(stage)
+                                     if str(signature["camera_id"]) in {str(cid) for cid in camera_ids_for_stage(stage)})
+                manual_used = any(seconds == 0 and str(signature["camera_id"]) in {str(cid) for cid in camera_ids_for_stage(stage)}
                                   for seconds,stage in zip(durations,stages))
             else:
                 camera_seconds = video_s
-                manual_used = manual_video if 'manual_video' in locals() else False
+                manual_used = manual_video
             size = math.ceil(rate * camera_seconds)
             video_bytes += size
             cameras_info.append({"camera_id": signature["camera_id"], "bytes_per_frame": round(bpf),
