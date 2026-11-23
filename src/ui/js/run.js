@@ -31,7 +31,7 @@ function cacheUi() {
         "camera_panel", "camera_list",
         "ready_panel", "ready_stage", "start_first_stage", "run_panel",
         "stage_type", "stage_name", "camera_indicator", "sensor_indicator",
-        "active_view", "stage_timer", "stage_elapsed", "scraping_box", "scraping_alerts_enabled",
+        "active_view", "stage_timer", "stage_timer_label", "stage_elapsed", "scraping_box", "scraping_alerts_enabled",
         "scraping_timer", "stage_parameters", "transition_view",
         "next_stage_name", "next_stage_message", "transition_timer",
         "start_now_button", "pause_button", "resume_button", "completed_panel",
@@ -52,7 +52,10 @@ function cacheUi() {
         "measurement_count", "measurement_summary_body", "measurement_history_body",
         "calibration_review_panel", "calibration_review_list", "run_stage_overview", "run_stage_timeline", "run_stage_position",
         "stage_technical_details", "stage_technical_grid",
-        "run_workspace"
+        "run_workspace", "ready_acquisition_edit", "transition_acquisition_edit",
+        "stage_acquisition_modal", "stage_acquisition_channels", "stage_acquisition_title",
+        "stage_acquisition_all", "stage_acquisition_none", "stage_acquisition_restore",
+        "stage_acquisition_close", "stage_acquisition_save"
     ].forEach((id) => { ui[id] = document.getElementById(id); });
     ui.workflowSteps = [...document.querySelectorAll(".workflow-step")];
     ui.workflowQuick = document.querySelector(".workflow-quick");
@@ -122,7 +125,9 @@ async function refreshRunEstimate(state) {
             method: "POST", headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ experiment: { stages: state.stages } }),
         });
-        if (runStorageEstimateFor === key) ui.run_storage_estimate.textContent = formatRunBytes(value.estimated_bytes);
+        if (runStorageEstimateFor === key) ui.run_storage_estimate.textContent = value.open_ended ?
+            `Manual · ${value.estimated_autonomy_s == null?'monitor disk space':formatTime(value.estimated_autonomy_s)+' estimated autonomy'}` :
+            formatRunBytes(value.estimated_bytes);
     } catch (_) {
         if (runStorageEstimateFor === key) ui.run_storage_estimate.textContent = "Unavailable";
     }
@@ -331,7 +336,7 @@ function stageParameters(stage, state = null) {
     push("Stage ID", stage.id);
     push("Attempt", state?.stage_attempt);
     push("Type", stage.type);
-    push("Planned duration", stage.duration == null ? null : `${stage.duration} s`);
+    push("Planned duration", Number(stage.duration)===0 ? "Manual" : stage.duration == null ? null : `${stage.duration} s`);
     push("Airflow", stage.airflow == null ? null : `${stage.airflow} L/min`);
     push("Rotor speed", stage.rotor_speed == null ? null : `${stage.rotor_speed} rpm`);
     push("Target pH", stage.ph ?? stage.pH);
@@ -422,8 +427,9 @@ function renderMiniStageTimeline(state) {
         if (index < currentIndex) klass = "done";
         else if (index === currentIndex) klass = transition ? "done current-complete" : "current";
         else if (transition && index === currentIndex + 1) klass = "next";
-        const duration = Math.max(1, Number(stage.duration) || 1);
-        return `<div class="mini-stage-segment ${klass}" style="--stage-weight:${duration}" title="${escapeHtml(stage.name || `Stage ${index + 1}`)} · ${escapeHtml(stage.type || "stage")}"><span>${escapeHtml(stage.name || `Stage ${index + 1}`)}</span><small>${escapeHtml(stage.type || "")}</small></div>`;
+        const manual = Number(stage.duration) === 0;
+        const duration = manual ? 60 : Math.max(1, Number(stage.duration) || 1);
+        return `<div class="mini-stage-segment ${klass}" style="--stage-weight:${duration}" title="${escapeHtml(stage.name || `Stage ${index + 1}`)} · ${escapeHtml(stage.type || "stage")}"><span>${escapeHtml(stage.name || `Stage ${index + 1}`)}</span><small>${manual?'Manual':escapeHtml(stage.type || "")}</small></div>`;
     }).join("");
 }
 
@@ -1084,6 +1090,44 @@ function renderMeasurements(state) {
 
 if(typeof window.setInterval==="function")window.setInterval(pollRunMonitor,2500);
 
+let acquisitionDraft=null;
+function selectableRunChannels(state){
+    const devices=state.devices||{},items=[];
+    for(const camera of devices.cameras||[])items.push({id:`video/${camera.id}`,name:camera.name||`Camera ${camera.id}`,group:'Video'});
+    for(const item of devices.scales||[])items.push({id:`sensor/${item.id}`,name:item.name||item.id,group:'Physical sensors'});
+    if((devices.atlas||[]).length)items.push({id:'atlas',name:'Atlas',group:'Physical sensors'});
+    for(const group of ['bronkhorst','wago','plugins'])for(const item of devices[group]||[])
+        items.push({id:`sensor/${item.id}`,name:item.name||item.id,group:'Physical sensors'});
+    if((state.calibration?.sensors||{}).froth_interface|| (state.virtual_sensors||[]).length)
+        items.push({id:'virtual/froth_interface',name:'HIFIE · Virtual',group:'Virtual sensors'});
+    return items;
+}
+function openStageAcquisition(){
+    const state=latestState;
+    if(!state||!['Ready','Running','Paused'].includes(state.state))return;
+    const stage=state.state==='Ready'?state.next_stage:state.next_stage;
+    if(!stage)return;
+    const selected=stage.acquisition||{video:[],physical:[],hifie:false};
+    const idx=state.state==='Ready'?0:Number(state.current_stage_index)+1;
+    const saved=state.stage_acquisition_overrides?.[String(idx)];
+    acquisitionDraft={};
+    for(const item of selectableRunChannels(state)){
+        const group=item.id.startsWith('video/')?'video':item.id==='virtual/froth_interface'?'hifie':'physical';
+        const expected=group==='video'?selected.video?.includes(Number(item.id.split('/')[1])):
+                      group==='hifie'?Boolean(selected.hifie):selected.physical?.includes(item.id==='atlas'?'atlas':item.id.slice(7));
+        acquisitionDraft[item.id]=saved?.[item.id]??Boolean(expected);
+    }
+    ui.stage_acquisition_title.textContent=stage.name||'Next stage';
+    renderStageAcquisitionEditor();ui.stage_acquisition_modal.showModal();
+}
+function renderStageAcquisitionEditor(){
+    const sections=['Video','Virtual sensors','Physical sensors'];
+    ui.stage_acquisition_channels.innerHTML=sections.map(section=>{
+        const items=selectableRunChannels(latestState).filter(x=>x.group===section);
+        return items.length?`<fieldset><legend>${escapeHtml(section)}</legend>${items.map(item=>
+            `<label><input type="checkbox" data-stage-channel="${escapeHtml(item.id)}" ${acquisitionDraft[item.id]?'checked':''}>${escapeHtml(item.name)}</label>`).join('')}</fieldset>`:'';
+    }).join('');
+}
 function renderReady(state) {
     ui.ready_panel.hidden = false;
     const stage = state.next_stage;
@@ -1102,6 +1146,7 @@ function renderReady(state) {
         <p>${escapeHtml(stage.type || "")}</p>
         <div class="parameter-grid">${stageParameters(stage, state)}</div>`;
     ui.start_first_stage.disabled = executionInputs.complete === false;
+    ui.ready_acquisition_edit.hidden = false;
     if (executionInputs.complete === false) {
         const labels = (executionInputs.items || []).filter(item => item.value == null).map(item => item.label);
         ui.ready_stage.insertAdjacentHTML("beforeend", `<p class="required-warning">Required before start: ${escapeHtml(labels.join(", "))}</p>`);
@@ -1127,6 +1172,7 @@ function renderRun(state) {
     ui.active_view.hidden = transition;
     ui.transition_view.hidden = !transition;
     ui.start_now_button.hidden = !transition;
+    ui.transition_acquisition_edit.hidden = !transition;
     ui.pause_button.hidden = paused;
     ui.resume_button.hidden = !paused;
     const stageActionRelevant = !transition && Boolean(stage) && ["Running", "Paused"].includes(state.state);
@@ -1134,8 +1180,11 @@ function renderRun(state) {
     ui.skip_stage_button.hidden = !stageActionRelevant;
 
     if (!transition) {
-        ui.stage_timer.textContent = formatTime(state.stage_remaining_s);
-        ui.stage_elapsed.textContent = `Elapsed ${formatTime(state.stage_elapsed_s)}`;
+        const manual = Number(stage?.duration) === 0;
+        ui.stage_timer_label.textContent = manual ? "Stage elapsed" : "Stage remaining";
+        ui.stage_timer.textContent = formatTime(manual ? state.stage_elapsed_s : state.stage_remaining_s);
+        ui.finish_stage_button.textContent = manual ? "Finish stage" : "Finish early";
+        ui.stage_elapsed.textContent = Number(stage?.duration) === 0 ? "Manual stage · No scheduled end" : `Elapsed ${formatTime(state.stage_elapsed_s)}`;
         ui.stage_parameters.innerHTML = runLayout === "compact" ? compactStageParameters(stage) : stageParameters(stage, state);
         ui.stage_technical_grid.innerHTML = stageParameters(stage, state);
         const scraping = state.scraping || {};
@@ -1152,9 +1201,9 @@ function renderRun(state) {
         const next = state.next_stage;
         ui.next_stage_name.textContent = next?.name || "Next stage";
         ui.next_stage_message.textContent = next
-            ? `${next.type || "Stage"} · ${next.duration ?? "—"} s`
+            ? `${next.type || "Stage"} · ${Number(next.duration)===0?'Manual':next.duration+' s'}`
             : "No next stage";
-        const automatic = state.orchestration?.auto_advance_enabled !== false;
+        const automatic = state.stage_transition?.auto_advance ?? (state.orchestration?.auto_advance_enabled !== false);
         if (automatic) {
             ui.transition_countdown.innerHTML = `<span>Automatic start in</span><strong id="transition_timer">${Math.max(0, Math.ceil(Number(state.transition_remaining_s || 0)))}</strong><span>seconds</span>`;
             ui.transition_timer = document.getElementById("transition_timer");
@@ -1378,6 +1427,25 @@ function bindActions() {
         }
     });
     ui.select_physical_cell.addEventListener("change",updateSelectedCellVolume);
+    ui.ready_acquisition_edit.addEventListener("click",openStageAcquisition);
+    ui.transition_acquisition_edit.addEventListener("click",openStageAcquisition);
+    ui.stage_acquisition_close.addEventListener("click",()=>ui.stage_acquisition_modal.close());
+    ui.stage_acquisition_channels.addEventListener("change",event=>{const input=event.target.closest("[data-stage-channel]");if(input)acquisitionDraft[input.dataset.stageChannel]=input.checked;});
+    ui.stage_acquisition_all.addEventListener("click",()=>{for(const key of Object.keys(acquisitionDraft))acquisitionDraft[key]=true;renderStageAcquisitionEditor()});
+    ui.stage_acquisition_none.addEventListener("click",()=>{for(const key of Object.keys(acquisitionDraft))acquisitionDraft[key]=false;renderStageAcquisitionEditor()});
+    ui.stage_acquisition_restore.addEventListener("click",()=>{const overrides=latestState.stage_acquisition_overrides||{};const idx=latestState.state==='Ready'?0:Number(latestState.current_stage_index)+1;
+      for(const key of Object.keys(acquisitionDraft))delete acquisitionDraft[key];
+      const stage=latestState.next_stage;for(const item of selectableRunChannels(latestState)){
+        const requested=stage.acquisition||{},id=item.id;
+        acquisitionDraft[id]=id.startsWith('video/')?requested.video?.includes(Number(id.slice(6))):
+          id==='virtual/froth_interface'?Boolean(requested.hifie):requested.physical?.includes(id==='atlas'?'atlas':id.slice(7));
+      }renderStageAcquisitionEditor()});
+    ui.stage_acquisition_save.addEventListener("click",async()=>{
+      ui.stage_acquisition_save.disabled=true;
+      try{await action('/api/digiflot/stages/acquisition/override',{enabled:acquisitionDraft});ui.stage_acquisition_modal.close();}
+      catch(_){}
+      finally{ui.stage_acquisition_save.disabled=false;}
+    });
     ui.start_first_stage.addEventListener("click", () => action("/api/digiflot/stages/start"));
     ui.start_now_button.addEventListener("click", () => action("/api/digiflot/stages/start"));
     ui.scraping_alerts_enabled.addEventListener("change", async () => {
@@ -1399,8 +1467,9 @@ function bindActions() {
     ui.pause_button.addEventListener("click", () => action("/api/digiflot/pause"));
     ui.resume_button.addEventListener("click", () => action("/api/digiflot/resume"));
     ui.finish_stage_button.addEventListener("click", async () => {
-        const confirmed = window.confirm("Finish the active stage early? The stage will remain valid and will be recorded as an early completion.");
-        if (confirmed) await action("/api/digiflot/stages/finish-now", { reason: "Operator finished stage early" });
+        const manual=Number(latestState?.current_stage?.duration)===0;
+        const confirmed = window.confirm(manual?"Finish the manual stage and continue?":"Finish the active stage early? The stage will be recorded as an early completion.");
+        if (confirmed) await action("/api/digiflot/stages/finish-now", { reason: manual?"Operator completed manual stage":"Operator finished stage early" });
     });
     ui.skip_stage_button.addEventListener("click", async () => {
         const confirmed = window.confirm("Abort the active stage? It will be marked as skipped/invalid in the event log and the workflow will continue.");

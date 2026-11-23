@@ -4,6 +4,7 @@ Methods are extracted from the real camera driver to test on CI without Picamera
 """
 import ast
 import unittest
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -73,8 +74,13 @@ class CameraLoresTests(unittest.TestCase):
         sync(source)
         self.assertFalse(camera.analysis_enabled)
         source._run_virtual = {"camera_id":0,"config":{}}
+        source._sensor_stop = threading.Event()
         sync(source)
         self.assertTrue(camera.analysis_enabled)
+        source._sensor_stop.set()
+        sync(source)
+        self.assertFalse(camera.analysis_enabled)
+        source._sensor_stop.clear()
         source._run_virtual = None
         sync(source)
         self.assertFalse(camera.analysis_enabled)

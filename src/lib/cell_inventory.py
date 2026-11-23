@@ -40,6 +40,36 @@ def build_inventory(digiflot):
         for device in devices.values(): add(device.id,device.name,driver,driver)
     for device in digiflot.plugin_sensors.values():
         add(device.id,device.name,"plugin_sensor","plugin")
-    if getattr(digiflot,"cameras",None) and registry is not None:
+    if (getattr(digiflot,"cameras",None) or getattr(digiflot,"config",{}).get("cameras")) and registry is not None:
         add("froth_interface","HIFIE | Froth Interface Detection","virtual_froth_interface","vision",True,True)
-    return {"schema_version":1,"cells":cells,"sensors":sensors}
+    cameras=[{"id":str(item["id"]), "name":str(item.get("name") or f"Camera {item['id']}")[:80],
+              "type":"camera"} for item in getattr(digiflot,"config",{}).get("cameras",[])]
+    virtual_calibration={"froth_interface":{}}
+    if registry is not None:
+        try:
+            from lib.virtual_sensors.interface import detection_roi
+            for cell in cells:
+                cell_id=str(cell["id"])
+                for camera in cameras:
+                    cid=camera["id"]
+                    association=registry.association(cid,cell_id)
+                    if not association: continue
+                    try:
+                        profile=registry.virtual_profile(cid,cell_id)
+                        cam=digiflot.cameras.get(int(cid))
+                        crop=list(getattr(cam,"crop_region",[]) or []) if cam is not None else []
+                        settings=profile["config"]
+                        matching=registry.matching_successful_virtual_profile(
+                            cid,cell_id,crop,detection_roi(settings,association),
+                            settings["sampling_interval_s"],settings)
+                        status="validated" if matching else "geometry_only"
+                    except (OSError,ValueError,TypeError,KeyError):
+                        status="geometry_only"
+                    if status=="validated" or cell_id not in virtual_calibration["froth_interface"]:
+                        virtual_calibration["froth_interface"][cell_id]={
+                            "status":status,"camera_id":cid,
+                            "cell_revision":cell.get("revision")}
+        except ImportError:
+            pass
+    return {"schema_version":1,"cells":cells,"sensors":sensors,
+            "cameras":cameras,"virtual_calibration":virtual_calibration}

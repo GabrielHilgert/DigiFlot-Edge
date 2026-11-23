@@ -197,6 +197,8 @@ class DigiFlot:
         self.stage_started_at = None
         self.stage_started_monotonic = None
         self.stage_deadline = None
+        self.stage_acquisition_overrides = {}
+        self.stage_history = []
         self.transition_started_at = None
         self.transition_started_monotonic = None
         self.transition_deadline = None
@@ -494,6 +496,9 @@ class DigiFlot:
                     effective = self._read_json(frozen)
                 except (OSError, ValueError):
                     effective = None
+            if effective is not None:
+                effective["stage_acquisition_overrides"] = deepcopy(self.stage_acquisition_overrides)
+                effective["stage_history"] = deepcopy(self.stage_history)
             sensors_used = [
                 {"id": sensor_id, "type": (self.sensor_calibration.get(sensor_id) or {}).get("type"),
                  "calibration_status": (self.sensor_calibration.get(sensor_id) or {}).get("status")}
@@ -612,8 +617,12 @@ class DigiFlot:
             "stage_started_at": self.stage_started_at,
             "stage_elapsed_s": stage_elapsed,
             "stage_remaining_s": stage_remaining,
+            "stage_acquisition_overrides": deepcopy(self.stage_acquisition_overrides),
+            "stage_history": deepcopy(self.stage_history),
+            "stage_acquisition": self._stage_acquisition_unlocked(self.current_stage) if self.current_stage else None,
             "transition_started_at": self.transition_started_at,
             "transition_remaining_s": transition_remaining,
+            "stage_transition": self._stage_transition_unlocked(self.current_stage) if self.current_stage else None,
             "pause_started_at": self.pause_started_at,
             "preview_camera_id": self.preview_camera_id,
             "recording": self.recording,
@@ -702,6 +711,7 @@ class DigiFlot:
                     result["reagent"] = deepcopy(reagent)
                     break
         result["policy"] = self.stage_policy(stage)
+        result["acquisition"] = self._stage_acquisition_unlocked(stage)
         return result
 
 
@@ -1553,6 +1563,8 @@ class DigiFlot:
         self.virtual_camera_id = (self.cell_profile or {}).get("virtual_camera_id")
         self._register_virtual_sensor_unlocked()
         self.current_stage_index = runtime.get("current_stage_index")
+        self.stage_acquisition_overrides = deepcopy(runtime.get("stage_acquisition_overrides") or {})
+        self.stage_history = deepcopy(runtime.get("stage_history") or [])
         self.stage_state = runtime.get("stage_state", self.STAGE_NONE)
         self.run_started_at = runtime.get("run_started_at")
         saved_run_elapsed = runtime.get("run_elapsed_s")
@@ -1663,8 +1675,15 @@ class DigiFlot:
                 duration = float(stage.get("duration"))
             except (TypeError, ValueError):
                 raise ValueError(f"Stage {index + 1} has an invalid duration.")
-            if duration <= 0:
-                raise ValueError(f"Stage {index + 1} duration must be positive.")
+            if not math.isfinite(duration) or duration < 0:
+                raise ValueError(f"Stage {index + 1} duration must be zero (manual) or positive.")
+            transition = ((stage.get("metadata") or {}).get("transition") or {})
+            if transition and not isinstance(transition, dict):
+                raise ValueError(f"Stage {index + 1} has an invalid transition policy.")
+            if "timeout_s" in transition:
+                delay = float(transition["timeout_s"])
+                if not math.isfinite(delay) or not 0 < delay <= 3600:
+                    raise ValueError(f"Stage {index + 1} has an invalid transition timeout.")
 
 
     def _reset_run_state_unlocked(self):
@@ -1682,6 +1701,8 @@ class DigiFlot:
         self.run_directory = None
         self.experiment = None
         self.current_stage_index = None
+        self.stage_acquisition_overrides = {}
+        self.stage_history = []
         self.stage_state = self.STAGE_NONE
         self.run_started_at = None
         self.run_started_monotonic = None
@@ -1780,6 +1801,8 @@ class DigiFlot:
             }
 
         for device in self.plugin_sensors.values():
+            if (allowed is not None and str(device.id) not in allowed) or device.recording:
+                continue
             snapshot = self.plugin_catalog.snapshot(device)
             policy = snapshot.get("calibration_policy", "none")
             if policy == "none":
@@ -2418,7 +2441,6 @@ class DigiFlot:
                 self._sync_execution_state_unlocked("running", ensure=True)
 
                 try:
-                    self._start_sensor_recording_unlocked()
                     self._start_performance_telemetry_unlocked()
                     self._start_stage_unlocked(self.current_stage, new_attempt=False)
                 except Exception as error:
@@ -2452,7 +2474,7 @@ class DigiFlot:
         elif self.stage_attempt < 1:
             self.stage_attempt = 1
 
-        duration = float(stage["duration"])
+        duration = float(stage.get("duration", 0))
 
         self.stage_state = self.STAGE_ACTIVE
         self.transition_started_monotonic = None
@@ -2473,18 +2495,14 @@ class DigiFlot:
             if any(device.control_enabled for device in self.bronkhorst.values()):
                 raise
 
-        if self._camera_required(stage):
-            if not self.recording:
-                self._start_camera_recording_unlocked(stage)
-        elif self.recording:
-            self._stop_camera_recording_unlocked(ignore_errors=True)
+        self._reconcile_stage_acquisition_unlocked(stage)
 
         # Only start stage timers once camera configuration, encoders and
         # setpoints have finished. Startup latency must not create past-due pulses.
         now = time.monotonic()
         self.stage_started_monotonic = now
         self.stage_started_at = _utc_now()
-        self.stage_deadline = now + duration
+        self.stage_deadline = (now + duration) if duration > 0 else None
         if self._scraping_required(stage):
             self.next_scraping_deadline = now + self._scraping_interval(stage)
         else:
@@ -2498,6 +2516,7 @@ class DigiFlot:
                 "attempt": self.stage_attempt,
             },
         )
+        self._sync_execution_state_unlocked()
 
     def _complete_stage_unlocked(self, early=False, skipped=False, reason=None):
         stage = self.current_stage
@@ -2511,7 +2530,7 @@ class DigiFlot:
 
         if skipped:
             event_type = "STAGE_SKIPPED"
-        elif early:
+        elif early and float(stage.get("duration", 0) or 0) > 0:
             event_type = "STAGE_FINISHED_EARLY"
         else:
             event_type = "STAGE_COMPLETED"
@@ -2526,6 +2545,9 @@ class DigiFlot:
                 "reason": reason,
             },
         )
+        if self.stage_history and self.stage_history[-1].get("stage_index") == self.current_stage_index:
+            self.stage_history[-1].update({"finished_at": _utc_now(), "elapsed_s": elapsed,
+                                           "completion": event_type})
         self.next_scraping_deadline = None
         self.scraping_gpio.cancel_pending()
         self.stage_deadline = None
@@ -2534,34 +2556,35 @@ class DigiFlot:
             self._finish_experiment_unlocked()
             return
 
-        keep_camera = (
-            self._camera_required(stage)
-            and self._camera_required(next_stage)
-        )
-        if self.recording and not keep_camera:
-            self._stop_camera_recording_unlocked(ignore_errors=True)
+        previous = self._stage_acquisition_unlocked(stage)
+        upcoming = self._stage_acquisition_unlocked(next_stage)
+        shared_video = set(previous["video"]) & set(upcoming["video"])
+        shared_physical = set(previous["physical"]) & set(upcoming["physical"])
+        self._stop_camera_recording_unlocked(ignore_errors=True, keep_ids=shared_video)
+        self._stop_sensor_recording_unlocked(keep_ids=shared_physical)
+        if self.vision is not None and not (previous["hifie"] and upcoming["hifie"]):
+            self.vision.deactivate_sensor()
+        keep_camera = bool(shared_video)
 
         now = time.monotonic()
         self.stage_state = self.STAGE_TRANSITION
         self.transition_started_monotonic = now
         self.transition_started_at = _utc_now()
-        self.transition_deadline = (
-            now + self.transition_timeout_s
-            if self.auto_advance_enabled
-            else None
-        )
+        transition = self._stage_transition_unlocked(stage)
+        self.transition_deadline = now + transition["timeout_s"] if transition["auto_advance"] else None
         self._touch_unlocked(
             "TRANSITION_STARTED",
             {
                 "from_stage_id": stage.get("id"),
                 "to_stage_id": next_stage.get("id"),
-                "timeout_s": (self.transition_timeout_s if self.auto_advance_enabled else None),
-                "automatic_advance": self.auto_advance_enabled,
+                "timeout_s": (transition["timeout_s"] if transition["auto_advance"] else None),
+                "automatic_advance": transition["auto_advance"],
                 "camera_continues": keep_camera,
                 "previous_stage_skipped": skipped,
                 "previous_stage_finished_early": early,
             },
         )
+        self._sync_execution_state_unlocked()
 
     def finish_stage_now(self, reason="Operator finished stage early"):
         with self.lock:
@@ -2583,7 +2606,6 @@ class DigiFlot:
 
             if self.state == self.RECOVERY_REQUIRED:
                 recovery_stage_state = (self.recovery_context or {}).get("previous_stage_state")
-                self._start_sensor_recording_unlocked()
                 self._start_performance_telemetry_unlocked()
                 self.state = self.RUNNING
 
@@ -2818,7 +2840,13 @@ class DigiFlot:
                 if self.vision is not None and self.run_directory is not None:
                     self.vision.restore_run_config(self.run_directory)
                 try:
-                    self._start_sensor_recording_unlocked()
+                    expected = self._stage_acquisition_unlocked(self.current_stage)
+                    if self.stage_state == self.STAGE_TRANSITION:
+                        upcoming = self._stage_acquisition_unlocked(self.next_stage)
+                        allowed = set(expected["physical"]) & set(upcoming["physical"])
+                    else:
+                        allowed = set(expected["physical"])
+                    self._start_sensor_recording_unlocked(allowed=allowed)
                 except Exception as error:
                     self._add_warning_unlocked(
                         "sensor",
@@ -2834,7 +2862,14 @@ class DigiFlot:
                         and self._camera_required(self.next_stage)
                     )
                 if camera_expected:
-                    self._start_camera_recording_unlocked(self.current_stage)
+                    if self.stage_state == self.STAGE_ACTIVE:
+                        self._start_camera_recording_unlocked(self.current_stage,
+                            selected_ids=set(self._stage_acquisition_unlocked(self.current_stage)["video"]))
+                    else:
+                        previous = self._stage_acquisition_unlocked(self.current_stage)
+                        upcoming = self._stage_acquisition_unlocked(self.next_stage)
+                        self._start_camera_recording_unlocked(self.current_stage,
+                            selected_ids=set(previous["video"]) & set(upcoming["video"]))
 
             # Allow a recovered device to generate a fresh warning if it fails
             # again later in the same execution.
@@ -2854,7 +2889,6 @@ class DigiFlot:
             now = time.monotonic()
             if self.vision is not None and self.run_directory is not None:
                 self.vision.restore_run_config(self.run_directory)
-            self._start_sensor_recording_unlocked()
             self._start_performance_telemetry_unlocked()
 
             if previous_stage_state == self.STAGE_TRANSITION:
@@ -2862,26 +2896,33 @@ class DigiFlot:
                 self.stage_state = self.STAGE_TRANSITION
                 self.transition_started_monotonic = now
                 self.transition_started_at = _utc_now()
-                if self.auto_advance_enabled:
+                transition = self._stage_transition_unlocked(self.current_stage)
+                if transition["auto_advance"]:
                     if remaining is None:
-                        remaining = self.transition_timeout_s
+                        remaining = transition["timeout_s"]
                     self.transition_deadline = now + max(0.0, float(remaining))
                 else:
                     self.transition_deadline = None
-                if self._camera_required(self.current_stage) and self._camera_required(self.next_stage):
-                    self._start_camera_recording_unlocked(self.current_stage)
+                previous = self._stage_acquisition_unlocked(self.current_stage)
+                upcoming = self._stage_acquisition_unlocked(self.next_stage)
+                shared = set(previous["video"]) & set(upcoming["video"])
+                shared_physical = set(previous["physical"]) & set(upcoming["physical"])
+                self._start_sensor_recording_unlocked(allowed=shared_physical)
+                if self.vision is not None and not (previous["hifie"] and upcoming["hifie"]):
+                    self.vision.deactivate_sensor()
+                if shared:
+                    self._start_camera_recording_unlocked(self.current_stage, selected_ids=shared)
             else:
                 elapsed = float(context.get("stage_elapsed_s") or 0.0)
                 duration = float(self.current_stage.get("duration", 0) or 0)
                 remaining = context.get("stage_remaining_s")
-                if remaining is None:
+                if remaining is None and duration > 0:
                     remaining = max(0.0, duration - elapsed)
                 self.stage_state = self.STAGE_ACTIVE
                 self.stage_started_monotonic = now - elapsed
                 self.stage_started_at = _utc_now()
-                self.stage_deadline = now + max(0.0, float(remaining))
-                if self._camera_required(self.current_stage):
-                    self._start_camera_recording_unlocked(self.current_stage)
+                self.stage_deadline = now + max(0.0, float(remaining)) if duration > 0 else None
+                self._reconcile_stage_acquisition_unlocked(self.current_stage)
                 if self._scraping_required(self.current_stage):
                     self.next_scraping_deadline = now + self._scraping_interval(self.current_stage)
 
@@ -2908,7 +2949,7 @@ class DigiFlot:
                 },
             )
             self._stop_camera_recording_unlocked(ignore_errors=True)
-            self._start_sensor_recording_unlocked()
+            self._stop_sensor_recording_unlocked()
             self._start_performance_telemetry_unlocked()
             self.state = self.RUNNING
             self.recovery_context = None
@@ -2983,6 +3024,8 @@ class DigiFlot:
                     )
 
         for device in (*self.bronkhorst.values(), *self.wago.values()):
+            if (allowed is not None and str(device.id) not in allowed) or device.recording:
+                continue
             snapshot = device.snapshot()
             if snapshot.get("status") not in ("connected", "stopped"):
                 self._add_warning_once_unlocked(
@@ -3077,8 +3120,102 @@ class DigiFlot:
         stage_type = str(stage.get("type", "")).strip().lower()
         return deepcopy(self.STAGE_POLICIES.get(stage_type, self.STAGE_POLICIES["custom"]))
 
+    def _stage_transition_unlocked(self, stage):
+        config = ((stage or {}).get("metadata") or {}).get("transition") or {}
+        automatic = config.get("auto_advance")
+        return {"auto_advance": self.auto_advance_enabled if automatic is None else bool(automatic),
+                "timeout_s": float(config.get("timeout_s") or self.transition_timeout_s)}
+
+    def _stage_acquisition_unlocked(self, stage):
+        if stage is None:
+            return {"video": [], "physical": [], "hifie": False}
+        policy = self.stage_policy(stage)
+        enabled = {}
+        config = ((stage.get("metadata") or {}).get("acquisition") or {})
+        if config.get("mode") == "custom":
+            enabled.update(config.get("enabled") or {})
+        for i, item in enumerate((self.experiment or {}).get("stages") or []):
+            if item is stage:
+                override = self.stage_acquisition_overrides.get(str(i))
+                if override is not None:
+                    enabled.update(override)
+                break
+        video = sorted(int(camera_id) for camera_id in self.cameras
+                       if enabled.get(f"video/{camera_id}", policy["camera"]))
+        physical = []
+        for collection in (self.scales, self.bronkhorst, self.wago, self.plugin_sensors):
+            physical.extend(str(device.id) for device in collection.values()
+                            if enabled.get(f"sensor/{device.id}", True))
+        if self.atlas is not None and enabled.get("atlas", True):
+            physical.append("atlas")
+        hifie = bool(enabled.get("virtual/froth_interface",
+                     (self.sensor_calibration.get("froth_interface") or {}).get("status") == "passed"))
+        return {"video": video, "physical": sorted(set(physical)), "hifie": hifie}
+
+    def update_stage_acquisition(self, enabled):
+        """Change recording selection only for the stage awaiting manual start."""
+        with self.lock:
+            if self.state == self.READY:
+                index = 0
+            elif self.state in {self.RUNNING, self.PAUSED} and self.stage_state == self.STAGE_TRANSITION:
+                index = int(self.current_stage_index) + 1
+            else:
+                raise RuntimeError("Stage acquisition can be edited only before the stage starts.")
+            stages = (self.experiment or {}).get("stages") or []
+            if not 0 <= index < len(stages) or not isinstance(enabled, dict):
+                raise ValueError("Invalid stage acquisition overrides.")
+            keys = {f"video/{i}" for i in self.cameras}
+            keys.update(f"sensor/{d.id}" for coll in (self.scales, self.bronkhorst, self.wago,
+                         self.plugin_sensors) for d in coll.values())
+            keys.update(("atlas", "virtual/froth_interface"))
+            if len(enabled) > len(keys) or any(key not in keys or not isinstance(value, bool)
+                                                for key, value in enabled.items()):
+                raise ValueError("Unknown channel or non-boolean stage selection.")
+            self.stage_acquisition_overrides[str(index)] = deepcopy(enabled)
+            self._touch_unlocked("STAGE_ACQUISITION_OVERRIDDEN", {"stage_index": index, "enabled": deepcopy(enabled)})
+            self._sync_execution_state_unlocked()
+            return self.status
+
+    def _reconcile_stage_acquisition_unlocked(self, stage):
+        """Reconcile output writers only; never power-cycle sensor hardware."""
+        selection = self._stage_acquisition_unlocked(stage)
+        desired_video, desired_physical = set(selection["video"]), set(selection["physical"])
+        self._stop_camera_recording_unlocked(ignore_errors=True, keep_ids=desired_video)
+        self._stop_sensor_recording_unlocked(keep_ids=desired_physical)
+        self._start_sensor_recording_unlocked(allowed=desired_physical)
+        if self.vision is not None:
+            virtual_active = (selection["hifie"] and
+                (self.sensor_calibration.get("froth_interface") or {}).get("status") == "passed"
+                and self.vision._run_virtual is not None)
+            if virtual_active:
+                # The encoder must be created with lores if HIFIE is enabled.
+                source_id = int(self.vision._run_virtual["camera_id"])
+                camera = self.cameras.get(source_id)
+                if camera and camera.recording and not camera.analysis_enabled:
+                    self._stop_camera_recording_unlocked(
+                        ignore_errors=True, keep_ids=desired_video - {source_id})
+                self.vision.activate_sensor()
+            else:
+                self.vision.deactivate_sensor()
+        if desired_video:
+            self._start_camera_recording_unlocked(stage, selected_ids=desired_video)
+        evidence = {"stage_uid": stage.get("uid"), "stage_index": self.current_stage_index,
+                    "attempt": self.stage_attempt, "started_at": _utc_now(),
+                    "requested": deepcopy(selection),
+                    "video_recording": [cid for cid in selection["video"]
+                                        if cid in self.cameras and self.cameras[cid].recording],
+                    "physical_recording": sorted(
+                        str(device.id) for collection in (self.scales, self.bronkhorst, self.wago, self.plugin_sensors)
+                        for device in collection.values() if device.recording),
+                    "hifie_approved": bool(selection["hifie"] and
+                          (self.sensor_calibration.get("froth_interface") or {}).get("status") == "passed")}
+        if self.atlas is not None and self.atlas.recording:
+            evidence["physical_recording"].append("atlas")
+        self.stage_history.append(evidence)
+        self._append_event_unlocked("STAGE_ACQUISITION_APPLIED", deepcopy(evidence))
+
     def _camera_required(self, stage):
-        return bool(self.stage_policy(stage)["camera"])
+        return bool(self._stage_acquisition_unlocked(stage)["video"])
 
     def _scraping_required(self, stage):
         return bool(stage is not None and self.stage_policy(stage)["scraping"])
@@ -3195,13 +3332,18 @@ class DigiFlot:
                 "next_stage_id": next_stage_id,
             }
 
-    def _start_sensor_recording_unlocked(self):
+    def _start_sensor_recording_unlocked(self, allowed=None):
         if self.run_directory is None:
             raise RuntimeError("No experiment execution is selected.")
 
         directory = self.run_directory / "sensors"
+        allowed = set(allowed) if allowed is not None else None
+        def segment_name(ident):
+            return f"{_safe_path_name(str(ident))}_stage_{(self.current_stage_index or 0)+1:02d}_attempt_{self.stage_attempt}_{time.time_ns()}"
 
         for scale in self.scales.values():
+            if (allowed is not None and str(scale.id) not in allowed) or scale.recording:
+                continue
             snapshot = scale.snapshot()
             if not scale.running or snapshot.get("status") != "connected":
                 reason = snapshot.get("error") or snapshot.get("status") or "offline"
@@ -3219,7 +3361,7 @@ class DigiFlot:
             try:
                 path = scale.start_recording(
                     output_dir=directory,
-                    file_stem=_safe_path_name(scale.id),
+                    file_stem=segment_name(scale.id),
                 )
                 self._append_event_unlocked(
                     "SENSOR_RECORDING_STARTED",
@@ -3236,7 +3378,7 @@ class DigiFlot:
                     {"sensor_id": scale.id, "reason": str(error)},
                 )
 
-        if self.atlas is not None:
+        if self.atlas is not None and not self.atlas.recording and (allowed is None or "atlas" in allowed):
             connected = [
                 item for item in self.atlas.sensor_snapshots()
                 if item.get("status") == "connected"
@@ -3256,7 +3398,7 @@ class DigiFlot:
                 try:
                     path = self.atlas.start_recording(
                         output_dir=directory,
-                        file_stem=_safe_path_name(self.atlas.name),
+                        file_stem=segment_name(self.atlas.name),
                     )
                     self._append_event_unlocked(
                         "SENSOR_RECORDING_STARTED",
@@ -3284,7 +3426,7 @@ class DigiFlot:
                                            {"sensor_id": device.id, "error": snapshot.get("error")})
                 continue
             try:
-                path = device.start_recording(output_dir=directory, file_stem=_safe_path_name(device.id))
+                path = device.start_recording(output_dir=directory, file_stem=segment_name(device.id))
                 self._append_event_unlocked("SENSOR_RECORDING_STARTED",
                                             {"sensor_id": device.id, "path": str(path)})
             except Exception as error:
@@ -3298,15 +3440,18 @@ class DigiFlot:
                     "sensor_id": device.id, "reason": snapshot.get("error") or snapshot.get("status")})
                 continue
             try:
-                path = device.start_recording(output_dir=directory, file_stem=_safe_path_name(device.id))
+                path = device.start_recording(output_dir=directory, file_stem=segment_name(device.id))
                 self._append_event_unlocked("SENSOR_RECORDING_STARTED",
                                             {"sensor_id": device.id, "path": str(path)})
             except Exception as error:
                 self._add_warning_unlocked("sensor", f"Could not record {device.name}: {error}",
                                            {"sensor_id": device.id})
 
-    def _stop_sensor_recording_unlocked(self):
+    def _stop_sensor_recording_unlocked(self, keep_ids=None):
+        keep_ids = set(keep_ids) if keep_ids is not None else set()
         for scale in self.scales.values():
+            if str(scale.id) in keep_ids:
+                continue
             try:
                 if scale.recording or scale.writer_active:
                     scale.stop_recording()
@@ -3321,7 +3466,7 @@ class DigiFlot:
                     {"sensor_id": scale.id},
                 )
 
-        if self.atlas is not None:
+        if self.atlas is not None and "atlas" not in keep_ids:
             try:
                 if self.atlas.recording or self.atlas.writer_active:
                     self.atlas.stop_recording()
@@ -3337,6 +3482,8 @@ class DigiFlot:
                 )
 
         for device in (*self.bronkhorst.values(), *self.wago.values()):
+            if str(device.id) in keep_ids:
+                continue
             try:
                 if device.recording or device.writer_active:
                     device.stop_recording()
@@ -3346,6 +3493,8 @@ class DigiFlot:
                                            {"sensor_id": device.id})
 
         for device in self.plugin_sensors.values():
+            if str(device.id) in keep_ids:
+                continue
             try:
                 if device.recording or device.writer_active:
                     device.stop_recording()
@@ -3399,6 +3548,7 @@ class DigiFlot:
                 auto_advance=self.auto_advance_enabled, transition_delay_s=self.transition_timeout_s,
                 min_free_gb=(self.performance.min_disk_free_gb if self.performance else 2.0),
                 safety_margin_pct=(self.performance.storage_safety_margin_pct if self.performance else 30.0),
+                camera_ids_for_stage=lambda stage: set(self._stage_acquisition_unlocked(stage)["video"]),
             )
 
     def _verify_start_storage_unlocked(self):
@@ -3407,6 +3557,7 @@ class DigiFlot:
             auto_advance=self.auto_advance_enabled, transition_delay_s=self.transition_timeout_s,
             min_free_gb=(self.performance.min_disk_free_gb if self.performance else 2.0),
             safety_margin_pct=(self.performance.storage_safety_margin_pct if self.performance else 30.0),
+            camera_ids_for_stage=lambda stage: set(self._stage_acquisition_unlocked(stage)["video"]),
         )
         if estimate["sufficient"] is None:
             raise RuntimeError("Cannot verify available disk space. Check the storage device.")
@@ -4275,7 +4426,7 @@ class DigiFlot:
                 self._write_config_snapshot_unlocked()
             return values
 
-    def _start_camera_recording_unlocked(self, stage: dict | None = None):
+    def _start_camera_recording_unlocked(self, stage: dict | None = None, selected_ids=None):
         if self.run_directory is None:
             raise RuntimeError("No experiment execution is selected.")
 
@@ -4297,6 +4448,8 @@ class DigiFlot:
             return
 
         for camera in self.cameras.values():
+            if selected_ids is not None and camera.id not in selected_ids:
+                continue
             if camera.recording:
                 continue
 
@@ -4366,10 +4519,11 @@ class DigiFlot:
                 except Exception:
                     pass
 
-    def _stop_camera_recording_unlocked(self, ignore_errors=False):
+    def _stop_camera_recording_unlocked(self, ignore_errors=False, keep_ids=None):
+        keep_ids = set(keep_ids) if keep_ids is not None else set()
         errors = []
         for camera in self.cameras.values():
-            if not camera.recording:
+            if camera.id in keep_ids or not camera.recording:
                 continue
 
             metadata = self.active_camera_segments.pop(camera.id, None)

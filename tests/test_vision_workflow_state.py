@@ -46,14 +46,22 @@ class FakeFlow:
         self.sensor_calibration={"ph1":{"id":"ph1","name":"pH", "mode":"ph_points", "status":"passed",
             "confirmed_at":"old", "requested_points":2, "points":{"mid":{"status":"passed"},"low":{"status":"passed"}}}}
         self.camera_calibration={"1":{"id":1,"status":"passed","available":True,"confirmed_at":"old"}}
-        self.vision=SimpleNamespace(clear_virtual_test=lambda:None,virtual_test_passed=lambda:True)
-        self.events=[]; self.current_stage_index=None
+        self.vision=SimpleNamespace(clear_virtual_test=lambda:None,virtual_test_passed=lambda:True,deactivate_sensor=lambda:None)
+        self.events=[]; self.stage_history=[]; self.current_stage_index=None
         self.pause_started_monotonic=None;self.pause_started_at=None;self.paused_stage_state=None
         self.stage_started_monotonic=None;self.stage_deadline=None;self.next_scraping_deadline=None
         self.transition_started_monotonic=None;self.transition_deadline=None
     @property
     def status(self): return {"state":self.state,"calibration_edit":deepcopy(self.calibration_edit)}
     def _touch_unlocked(self,event,*args): self.events.append(event)
+    def _sync_execution_state_unlocked(self,*args,**kwargs): pass
+    def _stage_transition_unlocked(self,stage):
+        return {"auto_advance":self.auto_advance_enabled,"timeout_s":self.transition_timeout_s}
+    def _stage_acquisition_unlocked(self,stage):
+        return {"video":[],"physical":[],"hifie":False}
+    def _stop_camera_recording_unlocked(self,ignore_errors=False,keep_ids=None): pass
+    def _stop_sensor_recording_unlocked(self,keep_ids=None): pass
+    def _reconcile_stage_acquisition_unlocked(self,stage): pass
     def _sensor_status_unlocked(self, sensor_id): return {"status":"connected"}
     def _write_config_snapshot_unlocked(self): pass
     def stop_preview(self): self.preview_camera_id=None
