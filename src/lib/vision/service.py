@@ -137,6 +137,7 @@ class VisionService:
         self._diagnostic_owner_id = None
         self._diagnostic_next_due = 0.0
         self._diagnostic_preview_camera_id = None
+        self._operational_preview_camera_id = None
         self._diagnostic_revision = 0
         self._diagnostic_latest = None
         self._diagnostic_error = None
@@ -198,7 +199,10 @@ class VisionService:
                                             "error": "Previous HIFIE worker did not exit"}
                         return
                 if not stop_signal.is_set() and not self._stop.is_set():
-                    self._loop(stop_signal)
+                    try:
+                        self._loop(stop_signal)
+                    finally:
+                        self._release_operational_preview()
             self._thread = threading.Thread(target=operational_loop,
                                             name="digiflot-hifie", daemon=True)
             self._thread.start()
@@ -293,9 +297,21 @@ class VisionService:
             # because a sensor, ROI editor or diagnostic subscriber started.
             camera.start_preview()
             self.digiflot.preview_camera_id = camera.id
+            self._operational_preview_camera_id = camera.id
             if self.digiflot.state == self.digiflot.SENSOR_CALIBRATION and not self.virtual_test_passed():
                 self._diagnostic_preview_camera_id = camera.id
             return True
+
+    def _release_operational_preview(self):
+        """Release only the lores preview opened by this worker, never a tab-owned view."""
+        with self.digiflot.lock:
+            cid = self._operational_preview_camera_id
+            self._operational_preview_camera_id = None
+            if cid is None or self.digiflot.preview_camera_id != cid or self.digiflot.preview_owner_id is not None:
+                return
+            camera = self.digiflot.cameras.get(cid)
+            if camera is not None and camera.state == camera.PREVIEW:
+                self.digiflot.stop_preview()
 
     def _loop(self, sensor_stop=None):
         # Only approved/operational HIFIE may run here. Calibration never uses this loop.
