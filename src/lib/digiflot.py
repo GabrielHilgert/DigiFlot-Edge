@@ -1460,6 +1460,11 @@ class DigiFlot:
                 expected = target.get("expected_cell_revision")
                 if expected is not None and int(expected) != int(cell["revision"]):
                     raise RuntimeError("Cell geometry was updated; revise the experiment on the Server before running")
+                expected_refs = target.get("expected_references_revision")
+                if expected_refs is not None:
+                    current_refs = self.vision.registry.reference_points(cell["id"]).get("revision", 0)
+                    if int(expected_refs) != int(current_refs):
+                        raise RuntimeError("Cell references changed; refresh the experiment on the Server")
             chosen = camera_id
             disabled = chosen == "none"
             if disabled:
