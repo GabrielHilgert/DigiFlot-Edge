@@ -43,7 +43,7 @@ def build_inventory(digiflot):
     if getattr(digiflot,"cameras",None) and registry is not None:
         add("froth_interface","HIFIE | Froth Interface Detection","virtual_froth_interface","vision",True,True)
     cameras=[{"id":str(item["id"]), "name":str(item.get("name") or f"Camera {item['id']}")[:80],
-              "type":"camera"} for item in digiflot.config.get("cameras",[])]
+              "type":"camera"} for item in getattr(digiflot,"config",{}).get("cameras",[])]
     virtual_calibration={"froth_interface":{}}
     if registry is not None:
         try:
