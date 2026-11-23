@@ -1710,6 +1710,7 @@ class DigiFlot:
         self.warnings = []
         self.device_failure_keys = set()
         self.event_sequence = 0
+        self.recorded_sensor_ids = set()
         self.last_error = None
         self.measurements = []
         self.measurement_variables = {}
