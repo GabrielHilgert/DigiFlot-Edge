@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
     <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261123stage1">
     <script defer src="{{ url_for('static', path='js/plugin-displays.js') }}?v=20261120plugins1"></script>
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261123cellcamera2"></script>
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261123measure1"></script>
 </head>
 <body data-run-layout="compact">
     {% include "_navbar.html" %}
@@ -298,6 +298,15 @@
                 <h2 id="next_stage_name">—</h2>
                 <p id="next_stage_message">Prepare the next operation.</p>
                 <button id="transition_acquisition_edit" type="button" class="button button-secondary" data-icon="settings">Stage acquisition</button>
+                <section id="stage_measurement_gate" class="stage-measurement-gate" hidden aria-live="polite">
+                    <strong>Required stage measurements</strong>
+                    <p>Record these measurements before starting the next stage, or explicitly ignore the requirement.</p>
+                    <ul id="stage_measurement_missing"></ul>
+                    <div class="button-group">
+                        <button id="stage_measurement_open" type="button" class="button button-secondary" data-icon="clipboard-list">Open Data acquisition</button>
+                        <button id="stage_measurement_ignore" type="button" class="button button-warning" data-icon="skip-forward">Ignore and continue</button>
+                    </div>
+                </section>
                 <div id="transition_countdown" class="transition-countdown">
                     <span>Automatic start in</span>
                     <strong id="transition_timer">30</strong>

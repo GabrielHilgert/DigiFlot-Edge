@@ -55,7 +55,9 @@ function cacheUi() {
         "run_workspace", "ready_acquisition_edit", "transition_acquisition_edit",
         "stage_acquisition_modal", "stage_acquisition_channels", "stage_acquisition_title",
         "stage_acquisition_all", "stage_acquisition_none", "stage_acquisition_restore",
-        "stage_acquisition_close", "stage_acquisition_save"
+        "stage_acquisition_close", "stage_acquisition_save",
+        "stage_measurement_gate", "stage_measurement_missing",
+        "stage_measurement_open", "stage_measurement_ignore"
     ].forEach((id) => { ui[id] = document.getElementById(id); });
     ui.workflowSteps = [...document.querySelectorAll(".workflow-step")];
     ui.workflowQuick = document.querySelector(".workflow-quick");
@@ -1174,6 +1176,14 @@ function renderRun(state) {
     ui.transition_view.hidden = !transition;
     ui.start_now_button.hidden = !transition;
     ui.transition_acquisition_edit.hidden = !transition;
+    const measurementGate=transition?state.stage_measurement_gate:null;
+    const measurementsBlocked=Boolean(measurementGate?.blocked);
+    ui.start_now_button.disabled=measurementsBlocked;
+    ui.stage_measurement_gate.hidden=!measurementsBlocked;
+    if(measurementsBlocked){
+        ui.stage_measurement_missing.innerHTML=(measurementGate.missing||[]).map(item=>
+            `<li><strong>${escapeHtml(item.name)}</strong>${item.unit?` · ${escapeHtml(item.unit)}`:''}</li>`).join("");
+    }
     ui.pause_button.hidden = paused;
     ui.resume_button.hidden = !paused;
     const stageActionRelevant = !transition && Boolean(stage) && ["Running", "Paused"].includes(state.state);
@@ -1205,7 +1215,9 @@ function renderRun(state) {
             ? `${next.type || "Stage"} · ${Number(next.duration)===0?'Manual':next.duration+' s'}`
             : "No next stage";
         const automatic = state.stage_transition?.auto_advance ?? (state.orchestration?.auto_advance_enabled !== false);
-        if (automatic) {
+        if (measurementsBlocked) {
+            ui.transition_countdown.innerHTML = '<span>Automatic advance paused</span><strong>Waiting for measurements</strong>';
+        } else if (automatic) {
             ui.transition_countdown.innerHTML = `<span>Automatic start in</span><strong id="transition_timer">${Math.max(0, Math.ceil(Number(state.transition_remaining_s || 0)))}</strong><span>seconds</span>`;
             ui.transition_timer = document.getElementById("transition_timer");
         } else {
@@ -1431,6 +1443,26 @@ function bindActions() {
     ui.ready_acquisition_edit.addEventListener("click",openStageAcquisition);
     ui.transition_acquisition_edit.addEventListener("click",openStageAcquisition);
     ui.stage_acquisition_close.addEventListener("click",()=>ui.stage_acquisition_modal.close());
+    ui.stage_measurement_open.addEventListener("click",()=>{
+        const first=latestState?.stage_measurement_gate?.missing?.[0];
+        measurementOpen=true;
+        try{window.sessionStorage?.setItem("digiflot-data-acquisition-open","1")}catch(_){}
+        renderMeasurements(latestState||{});
+        if(first)ui.measurement_variable_name.value=first.name;
+        ui.measurement_launcher.scrollIntoView({behavior:"smooth",block:"center"});
+        ui.measurement_variable_name.focus();
+    });
+    ui.stage_measurement_ignore.addEventListener("click",async()=>{
+        const missing=latestState?.stage_measurement_gate?.missing||[];
+        if(!missing.length)return;
+        const names=missing.map(item=>item.name).join(", ");
+        if(!window.confirm(`Ignore the required measurement(s) for this stage: ${names}? This decision will be permanently recorded in the execution history.`))return;
+        ui.stage_measurement_ignore.disabled=true;
+        try{await action("/api/digiflot/stages/measurements/ignore",
+            {reason:"Operator explicitly ignored required stage measurements"});}
+        catch(_){}
+        finally{ui.stage_measurement_ignore.disabled=false;}
+    });
     ui.stage_acquisition_channels.addEventListener("change",event=>{const input=event.target.closest("[data-stage-channel]");if(input)acquisitionDraft[input.dataset.stageChannel]=input.checked;});
     ui.stage_acquisition_all.addEventListener("click",()=>{for(const key of Object.keys(acquisitionDraft))acquisitionDraft[key]=true;renderStageAcquisitionEditor()});
     ui.stage_acquisition_none.addEventListener("click",()=>{for(const key of Object.keys(acquisitionDraft))acquisitionDraft[key]=false;renderStageAcquisitionEditor()});
