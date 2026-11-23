@@ -38,6 +38,7 @@ class Fake:
     def current_stage(self):return self.experiment["stages"][self.current_stage_index]
     @property
     def next_stage(self):return self.experiment["stages"][self.current_stage_index+1] if self.current_stage_index+1<len(self.experiment["stages"]) else None
+    def stage_policy(self,stage): return {"camera":stage.get("type")!="conditioning","sensors":True,"scraping":stage.get("type")=="flotation"}
     def apply_stage_setpoints(self,stage): pass
     def _reconcile_stage_acquisition_unlocked(self,stage): self.events.append("reconcile")
     def _scraping_required(self,stage):return False
