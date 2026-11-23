@@ -229,7 +229,7 @@
     $('photo_capture_frame').disabled=true;
     try{
       // One frame from the existing camera API, no new stream and no overlays.
-      const result=await api(`/cameras/${encodeURIComponent(camera)}/snapshot`);
+      const result=await api(`/cameras/${encodeURIComponent(camera)}/snapshot?show_grid=false`);
       if(!result.jpeg_base64)throw Error('Camera did not provide a frame');
       cropSource=new Image();cropPan={x:0,y:0};$('photo_zoom').value='1';
       await new Promise((resolve,reject)=>{cropSource.onload=resolve;cropSource.onerror=reject;
