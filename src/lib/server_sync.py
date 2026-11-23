@@ -415,6 +415,8 @@ class ServerSync:
         execution_inputs=None,
         cell_profile=None,
         measurements_summary=None,
+        effective_setup=None,
+        sensors_used=None,
     ):
         run_directory = Path(run_directory)
         path = run_directory / "server_sync.json"
@@ -429,6 +431,8 @@ class ServerSync:
                 (execution_inputs is not None and execution_inputs != record.get("execution_inputs"))
                 or (cell_profile is not None and cell_profile != record.get("cell_profile"))
                 or (measurements_summary is not None and measurements_summary != record.get("measurements_summary"))
+                or (effective_setup is not None and effective_setup != record.get("effective_setup"))
+                or (sensors_used is not None and sensors_used != record.get("sensors_used"))
             )
             if status != previous or runtime_changed:
                 record["sequence"] = int(record.get("sequence") or 0) + 1
@@ -445,6 +449,10 @@ class ServerSync:
                 record["cell_profile"] = deepcopy(cell_profile)
             if measurements_summary is not None:
                 record["measurements_summary"] = deepcopy(measurements_summary)
+            if effective_setup is not None:
+                record["effective_setup"] = deepcopy(effective_setup)
+            if sensors_used is not None:
+                record["sensors_used"] = deepcopy(sensors_used)
 
             if status in TERMINAL_EXECUTION_STATES:
                 record["finished_at"] = occurred_at
@@ -507,6 +515,8 @@ class ServerSync:
             "execution_inputs": deepcopy(record.get("execution_inputs") or {}),
             "cell_profile": deepcopy(record.get("cell_profile")),
             "measurements_summary": deepcopy(record.get("measurements_summary") or {}),
+            "effective_setup": deepcopy(record.get("effective_setup")),
+            "sensors_used": deepcopy(record.get("sensors_used") or []),
             "reported_offline": bool(record.get("reported_offline")),
             "sequence": int(record.get("sequence") or 0),
             "status": record.get("status"),
