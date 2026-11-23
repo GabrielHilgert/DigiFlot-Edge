@@ -54,6 +54,13 @@ class FakeFlow:
     @property
     def status(self): return {"state":self.state,"calibration_edit":deepcopy(self.calibration_edit)}
     def _touch_unlocked(self,event,*args): self.events.append(event)
+    def _stage_transition_unlocked(self,stage):
+        return {"auto_advance":self.auto_advance_enabled,"timeout_s":self.transition_timeout_s}
+    def _stage_acquisition_unlocked(self,stage):
+        return {"video":[],"physical":[],"hifie":False}
+    def _stop_camera_recording_unlocked(self,ignore_errors=False,keep_ids=None): pass
+    def _stop_sensor_recording_unlocked(self,keep_ids=None): pass
+    def _reconcile_stage_acquisition_unlocked(self,stage): pass
     def _sensor_status_unlocked(self, sensor_id): return {"status":"connected"}
     def _write_config_snapshot_unlocked(self): pass
     def stop_preview(self): self.preview_camera_id=None

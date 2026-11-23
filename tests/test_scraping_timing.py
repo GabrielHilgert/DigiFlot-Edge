@@ -37,6 +37,8 @@ class FakeStage:
         time.sleep(.035)
         self.recording = True
         self.camera_ready_at = time.monotonic()
+    def _reconcile_stage_acquisition_unlocked(self, stage):
+        self._start_camera_recording_unlocked(stage)
     def _scraping_required(self, stage): return True
     def _scraping_interval(self, stage): return 1.
     def _touch_unlocked(self, event, data=None): self.events.append(event)
