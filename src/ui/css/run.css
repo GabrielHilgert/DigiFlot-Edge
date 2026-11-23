@@ -662,3 +662,10 @@ body[data-run-layout="compact"] #run_panel .run-actions .button { flex:1 1 auto;
 .stage-acquisition-modal header h2{margin:0;font-size:1.15rem}.stage-acquisition-modal fieldset{border:1px solid var(--border,#ddd);border-radius:8px;padding:10px;margin:10px 0;display:flex;flex-wrap:wrap;gap:10px}
 .stage-acquisition-modal legend{font-weight:700;font-size:.83rem}.stage-acquisition-modal label{display:flex;align-items:center;gap:6px;font-size:.85rem}
 .stage-acquisition-modal footer{justify-content:flex-end;margin-top:14px}
+
+/* Manual-stage measurement gate: only shown when the next stage is blocked. */
+.stage-measurement-gate{margin:.9rem 0;padding:.9rem;border:1px solid var(--border,#a4b2bf);border-radius:10px;display:grid;gap:.4rem}
+.stage-measurement-gate[hidden]{display:none}.stage-measurement-gate>strong{font-size:.94rem}
+.stage-measurement-gate p{margin:0;color:var(--text-soft,#657788);font-size:.83rem}
+.stage-measurement-gate ul{margin:.2rem 0 .4rem;padding-left:1.3rem;font-size:.85rem}
+.stage-measurement-gate li+li{margin-top:.2rem}.stage-measurement-gate .button-group{display:flex;flex-wrap:wrap;gap:.5rem}

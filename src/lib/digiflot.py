@@ -199,6 +199,7 @@ class DigiFlot:
         self.stage_deadline = None
         self.stage_acquisition_overrides = {}
         self.stage_history = []
+        self.stage_measurement_waivers = []
         self.transition_started_at = None
         self.transition_started_monotonic = None
         self.transition_deadline = None
@@ -499,6 +500,7 @@ class DigiFlot:
             if effective is not None:
                 effective["stage_acquisition_overrides"] = deepcopy(self.stage_acquisition_overrides)
                 effective["stage_history"] = deepcopy(self.stage_history)
+                effective["stage_measurement_waivers"] = deepcopy(self.stage_measurement_waivers)
             sensors_used = [
                 {"id": sensor_id, "type": (self.sensor_calibration.get(sensor_id) or {}).get("type"),
                  "calibration_status": (self.sensor_calibration.get(sensor_id) or {}).get("status")}
@@ -619,6 +621,8 @@ class DigiFlot:
             "stage_remaining_s": stage_remaining,
             "stage_acquisition_overrides": deepcopy(self.stage_acquisition_overrides),
             "stage_history": deepcopy(self.stage_history),
+            "stage_measurement_waivers": deepcopy(self.stage_measurement_waivers),
+            "stage_measurement_gate": self._stage_measurement_gate_unlocked(),
             "stage_acquisition": self._stage_acquisition_unlocked(self.current_stage) if self.current_stage else None,
             "transition_started_at": self.transition_started_at,
             "transition_remaining_s": transition_remaining,
@@ -1106,6 +1110,8 @@ class DigiFlot:
                 "state": self.state,
                 "stage_state": self.stage_state,
                 "stage_id": stage.get("id") if stage else None,
+                "stage_uid": stage.get("uid") if stage else None,
+                "stage_index": self.current_stage_index if stage else None,
                 "stage_name": stage.get("name") if stage else None,
                 "stage_type": stage.get("type") if stage else None,
                 "stage_attempt": self.stage_attempt or None,
@@ -1143,6 +1149,14 @@ class DigiFlot:
             variable["latest"] = record
             self.measurement_revision += 1
 
+            rearmed = False
+            if self.state == self.RUNNING and self.stage_state == self.STAGE_TRANSITION and self.transition_deadline is None:
+                gate = self._stage_measurement_gate_unlocked()
+                if gate["required"] and not gate["missing"] and not gate.get("ignored"):
+                    transition = self._stage_transition_unlocked(self.current_stage)
+                    if transition["auto_advance"]:
+                        self.transition_deadline = time.monotonic() + transition["timeout_s"]
+                        rearmed = True
             self._touch_unlocked(
                 "MEASUREMENT_CAPTURED",
                 {
@@ -1155,6 +1169,9 @@ class DigiFlot:
                     "sensor_id": record["sensor_id"],
                 },
             )
+            if rearmed:
+                self._touch_unlocked("STAGE_REQUIRED_MEASUREMENTS_COMPLETED",
+                                     {"stage_index": self.current_stage_index, "attempt": self.stage_attempt})
             self._sync_execution_state_unlocked()
             return {
                 "record": deepcopy(record),
@@ -1565,6 +1582,7 @@ class DigiFlot:
         self.current_stage_index = runtime.get("current_stage_index")
         self.stage_acquisition_overrides = deepcopy(runtime.get("stage_acquisition_overrides") or {})
         self.stage_history = deepcopy(runtime.get("stage_history") or [])
+        self.stage_measurement_waivers = deepcopy(runtime.get("stage_measurement_waivers") or [])
         self.stage_state = runtime.get("stage_state", self.STAGE_NONE)
         self.run_started_at = runtime.get("run_started_at")
         saved_run_elapsed = runtime.get("run_elapsed_s")
@@ -1703,6 +1721,7 @@ class DigiFlot:
         self.current_stage_index = None
         self.stage_acquisition_overrides = {}
         self.stage_history = []
+        self.stage_measurement_waivers = []
         self.stage_state = self.STAGE_NONE
         self.run_started_at = None
         self.run_started_monotonic = None
@@ -2401,6 +2420,69 @@ class DigiFlot:
     # Stage orchestration
     # ------------------------------------------------------------------
 
+    def _stage_measurement_gate_unlocked(self):
+        """Check observations from this stage attempt, not planned recipe values.
+
+        Required flags only apply to manual-duration stages at an actual transition.
+        Skipped stages do not require a second explicit waiver.
+        """
+        if self.stage_state != self.STAGE_TRANSITION or self.next_stage is None:
+            return {"blocked": False, "missing": [], "required": []}
+        stage = self.current_stage
+        if not stage or float(stage.get("duration") or 0) != 0:
+            return {"blocked": False, "missing": [], "required": []}
+        variables = ((stage.get("metadata") or {}).get("variables") or {})
+        required = [{"id": key, "name": str(value.get("label") or key), "unit": value.get("unit")}
+                    for key, value in variables.items() if isinstance(value, dict)
+                    and value.get("required_measurement") is True]
+        if not required:
+            return {"blocked": False, "missing": [], "required": []}
+        index, attempt = self.current_stage_index, self.stage_attempt
+        skipped = bool(self.stage_history and self.stage_history[-1].get("stage_index") == index
+                       and self.stage_history[-1].get("attempt") == attempt
+                       and self.stage_history[-1].get("completion") == "STAGE_SKIPPED")
+        waived = any(item.get("stage_index") == index and item.get("attempt") == attempt
+                     for item in self.stage_measurement_waivers)
+        started = next((item.get("started_at") for item in reversed(self.stage_history)
+                        if item.get("stage_index") == index and item.get("attempt") == attempt), None)
+        captured = set()
+        for record in self.measurements:
+            if record.get("stage_attempt") != attempt:
+                continue
+            if record.get("stage_index") is not None:
+                matches = record["stage_index"] == index
+            elif record.get("stage_uid") is not None and stage.get("uid"):
+                matches = record["stage_uid"] == stage["uid"]
+            else:
+                # Read older JSONL observations without allowing a previous attempt.
+                matches = bool(started and record.get("captured_at", "") >= started
+                               and record.get("stage_name") == stage.get("name"))
+            if matches and record.get("stage_state") in {self.STAGE_ACTIVE, self.STAGE_TRANSITION}:
+                captured.add(str(record.get("variable_id") or ""))
+        missing = [item for item in required if not
+                   ({self._measurement_variable_id(item["id"]),
+                     self._measurement_variable_id(item["name"])} & captured)]
+        return {"blocked": bool(missing and not waived and not skipped), "missing": missing,
+                "required": required, "ignored": waived, "skipped": skipped,
+                "stage_index": index, "stage_uid": stage.get("uid"), "attempt": attempt}
+
+    def ignore_stage_measurement_requirements(self, reason="Operator confirmed missing measurements"):
+        """Explicit, auditable waiver; immediately start the next stage."""
+        with self.lock:
+            if self.state != self.RUNNING or self.stage_state != self.STAGE_TRANSITION:
+                raise RuntimeError("The experiment is not waiting for the next stage.")
+            gate = self._stage_measurement_gate_unlocked()
+            if not gate["blocked"]:
+                raise RuntimeError("There are no pending required stage measurements.")
+            reason = str(reason or "").strip()[:300] or "Operator confirmed missing measurements"
+            waiver = {"stage_index": self.current_stage_index, "stage_uid": gate.get("stage_uid"),
+                      "attempt": self.stage_attempt, "ignored_at": _utc_now(),
+                      "missing": deepcopy(gate["missing"]), "reason": reason}
+            self.stage_measurement_waivers.append(waiver)
+            self._touch_unlocked("STAGE_REQUIRED_MEASUREMENTS_IGNORED", deepcopy(waiver))
+            self._sync_execution_state_unlocked()
+            return self.start_next_stage()
+
     def start_next_stage(self):
         with self.lock:
             if self.state == self.READY:
@@ -2461,6 +2543,11 @@ class DigiFlot:
             if next_stage is None:
                 self._finish_experiment_unlocked()
                 return self.status
+            gate = self._stage_measurement_gate_unlocked()
+            if gate["blocked"]:
+                raise RuntimeError("Required measurements missing: " +
+                                   ", ".join(item["name"] for item in gate["missing"]) +
+                                   ". Capture them in Data acquisition or explicitly ignore.")
 
             self.current_stage_index += 1
             self.stage_attempt = 1
@@ -2572,6 +2659,8 @@ class DigiFlot:
         self.transition_started_at = _utc_now()
         transition = self._stage_transition_unlocked(stage)
         self.transition_deadline = now + transition["timeout_s"] if transition["auto_advance"] else None
+        if self._stage_measurement_gate_unlocked()["blocked"]:
+            self.transition_deadline = None
         self._touch_unlocked(
             "TRANSITION_STARTED",
             {
@@ -3075,7 +3164,12 @@ class DigiFlot:
                             and self.transition_deadline is not None
                             and now >= self.transition_deadline
                         ):
-                            self.start_next_stage()
+                            gate = self._stage_measurement_gate_unlocked()
+                            if gate["blocked"]:
+                                self.transition_deadline = None
+                                self._touch_unlocked("STAGE_ADVANCE_BLOCKED", {"missing": gate["missing"]})
+                            else:
+                                self.start_next_stage()
                             continue
 
                     self.condition.wait(timeout=self._next_control_wait_unlocked())
