@@ -54,6 +54,7 @@ class FakeFlow:
     @property
     def status(self): return {"state":self.state,"calibration_edit":deepcopy(self.calibration_edit)}
     def _touch_unlocked(self,event,*args): self.events.append(event)
+    def _sync_execution_state_unlocked(self,*args,**kwargs): pass
     def _stage_transition_unlocked(self,stage):
         return {"auto_advance":self.auto_advance_enabled,"timeout_s":self.transition_timeout_s}
     def _stage_acquisition_unlocked(self,stage):
