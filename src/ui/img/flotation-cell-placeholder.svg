@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Laboratory flotation cell placeholder">
+<defs><linearGradient id="tank" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e4e8eb" stop-opacity=".73"/><stop offset="1" stop-color="#8e989f" stop-opacity=".33"/></linearGradient><linearGradient id="metal" x2="1" y2="0"><stop stop-color="#c3c8cb"/><stop offset=".45" stop-color="#f2f3f4"/><stop offset="1" stop-color="#8f979c"/></linearGradient></defs>
+<g stroke="#737e86" stroke-linejoin="round" stroke-linecap="round">
+<path d="M92 406l256 9 58-24-257-9z" fill="#e0e4e6" stroke-width="9"/><path d="M92 406v21l250 11 65-27v-20l-59 24z" fill="#aab1b6" stroke-width="8"/>
+<path d="M160 177l209 8 37 31-209-7z" fill="#e9ebed" stroke-width="6"/>
+<path d="M112 220l80-25 198 11-10 184-235 4-33-25z" fill="url(#tank)" stroke-width="10"/>
+<path d="M145 240l-33-20-45 71v31l96-35 55-73" fill="#d2d7da" fill-opacity=".68" stroke-width="9"/>
+<path d="M112 220l80-25 198 11m-244 189l-2-155 248-25" fill="none" stroke="#ffffff" stroke-opacity=".72" stroke-width="7"/>
+<path d="M173 302q15-20 31-1 13-21 32-3 13-19 30-2 20-20 37-1 13-18 31-3 15-13 30 0l9 25-192 3z" fill="#f5f6f7" stroke="#e8eaec" stroke-width="4"/>
+<path d="M175 326q8-11 15-1t17-1q8-10 19-1t23-3q10-11 25-2t23-3q8-7 20 0t26-5" fill="none" stroke="#f7f8f9" stroke-width="8"/>
+<g fill="#f7f8fa" fill-opacity=".83" stroke="none"><circle cx="191" cy="348" r="5"/><circle cx="229" cy="367" r="6"/><circle cx="287" cy="344" r="4"/><circle cx="331" cy="368" r="6"/><circle cx="259" cy="393" r="3"/></g>
+<path d="M250 97v237" fill="none" stroke="url(#metal)" stroke-width="22"/><ellipse cx="259" cy="376" rx="52" ry="16" fill="url(#metal)" stroke-width="8"/>
+<rect x="197" y="31" width="118" height="83" rx="20" fill="url(#metal)" stroke-width="9"/><path d="M208 112h95v23q0 10-10 10h-74q-11 0-11-10z" fill="#adb5ba" stroke-width="7"/>
+</g></svg>
