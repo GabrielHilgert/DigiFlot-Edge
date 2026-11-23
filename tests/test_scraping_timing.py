@@ -42,6 +42,7 @@ class FakeStage:
     def _scraping_required(self, stage): return True
     def _scraping_interval(self, stage): return 1.
     def _touch_unlocked(self, event, data=None): self.events.append(event)
+    def _sync_execution_state_unlocked(self,*args,**kwargs): pass
 
 
 class FakeOrchestrator:
