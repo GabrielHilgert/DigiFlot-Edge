@@ -223,6 +223,7 @@ class DigiFlot:
 
         self.revision = 0
         self.event_sequence = 0
+        self.recorded_sensor_ids = set()
         self.last_error = None
 
         # Operator-captured measurements are intentionally lightweight.
@@ -494,11 +495,13 @@ class DigiFlot:
                 except (OSError, ValueError):
                     effective = None
             sensors_used = [
-                {"id": str(sensor_id), "type": item.get("type"),
-                 "calibration_status": item.get("status")}
-                for sensor_id, item in self.sensor_calibration.items()
-                if item.get("status") == "passed"
+                {"id": sensor_id, "type": (self.sensor_calibration.get(sensor_id) or {}).get("type"),
+                 "calibration_status": (self.sensor_calibration.get(sensor_id) or {}).get("status")}
+                for sensor_id in sorted(self.recorded_sensor_ids)
             ]
+            if (self.sensor_calibration.get("froth_interface") or {}).get("status") == "passed":
+                sensors_used.append({"id": "froth_interface", "type": "virtual_froth_interface",
+                                     "calibration_status": "passed"})
             return manager.update_execution(
                 self.run_directory,
                 status,
@@ -1293,6 +1296,9 @@ class DigiFlot:
         if self.run_directory is None:
             return
 
+        if event_type == "SENSOR_RECORDING_STARTED":
+            ids = data.get("connected_sensors") or [data.get("sensor_id")]
+            self.recorded_sensor_ids.update(str(sensor_id) for sensor_id in ids if sensor_id)
         self.event_sequence += 1
         current = self.current_stage
         next_stage = self.next_stage
@@ -1359,6 +1365,7 @@ class DigiFlot:
 
     def _restore_event_sequence_unlocked(self):
         self.event_sequence = 0
+        self.recorded_sensor_ids = set()
         if self.run_directory is None:
             return
         path = self.run_directory / "events.jsonl"
@@ -1369,6 +1376,12 @@ class DigiFlot:
                 for line in file:
                     if line.strip():
                         self.event_sequence += 1
+                        try: event = json.loads(line)
+                        except (ValueError, TypeError): continue
+                        if event.get("event") == "SENSOR_RECORDING_STARTED":
+                            details = event.get("data") or {}
+                            ids = details.get("connected_sensors") or [details.get("sensor_id")]
+                            self.recorded_sensor_ids.update(str(sensor_id) for sensor_id in ids if sensor_id)
         except Exception:
             self.event_sequence = 0
 
@@ -1697,6 +1710,7 @@ class DigiFlot:
         self.warnings = []
         self.device_failure_keys = set()
         self.event_sequence = 0
+        self.recorded_sensor_ids = set()
         self.last_error = None
         self.measurements = []
         self.measurement_variables = {}

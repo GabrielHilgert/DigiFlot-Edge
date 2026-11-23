@@ -158,8 +158,8 @@ def update_camera_profile(camera_id: int, request: Request, payload: dict):
 
 
 @router.get("/cameras/{camera_id}/snapshot")
-def camera_snapshot(camera_id: int, request: Request, cell_id: str | None = None):
-    return _invoke(service(request).snapshot, camera_id, cell_id)
+def camera_snapshot(camera_id: int, request: Request, cell_id: str | None = None, show_grid: bool = True):
+    return _invoke(service(request).snapshot, camera_id, cell_id, show_grid)
 
 
 @router.get("/associations/{camera_id}/{cell_id}")

@@ -1371,7 +1371,13 @@ class VisionService:
         return camera.capture_analysis_frame()
 
     def snapshot(self, camera_id, cell_id=None, show_grid=True):
+        if not show_grid and (self.digiflot.execution_locked or self.digiflot.recording):
+            raise RuntimeError("Cell photo capture is unavailable during an active experiment")
         image, meta = self._capture(camera_id)
+        if not show_grid:
+            # Never draw ArUco geometry or camera ROI on photographs.
+            return {"jpeg_base64": _jpeg_base64(image), "size": meta["size"], "frame": meta,
+                    "calibration_id": None}
         profile = self.camera_profile(camera_id)
         assoc = self.registry.association(camera_id, cell_id) if cell_id else None
         cal = (assoc or {}).get("calibration") if show_grid else None

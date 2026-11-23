@@ -97,6 +97,7 @@
 <dialog id="cell_photo_modal" class="cv-inventory-dialog">
   <div class="cv-inventory-dialog-head"><h2>Capture cell photo</h2><button id="close_cell_photo" type="button" class="button button-secondary" data-icon="x" aria-label="Close">Close</button></div>
   <label>Camera <select id="photo_camera"></select></label>
+  <div class="cv-photo-live" id="photo_live_panel"><img id="cell_photo_live" alt="Live camera preview" hidden><span id="photo_camera_status">Preparing camera…</span></div>
   <div class="cv-crop-surface"><canvas id="cell_photo_canvas" width="512" height="512"></canvas></div>
   <label>Frame zoom <input id="photo_zoom" type="range" min="1" max="2.5" step=".1" value="1"></label>
   <p class="cv-description">Take a frame, then drag the image to adjust the crop. Preview and upload use only one captured frame.</p>
