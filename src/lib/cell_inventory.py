@@ -40,7 +40,7 @@ def build_inventory(digiflot):
         for device in devices.values(): add(device.id,device.name,driver,driver)
     for device in digiflot.plugin_sensors.values():
         add(device.id,device.name,"plugin_sensor","plugin")
-    if getattr(digiflot,"cameras",None) and registry is not None:
+    if (getattr(digiflot,"cameras",None) or getattr(digiflot,"config",{}).get("cameras")) and registry is not None:
         add("froth_interface","HIFIE | Froth Interface Detection","virtual_froth_interface","vision",True,True)
     cameras=[{"id":str(item["id"]), "name":str(item.get("name") or f"Camera {item['id']}")[:80],
               "type":"camera"} for item in getattr(digiflot,"config",{}).get("cameras",[])]
