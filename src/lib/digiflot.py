@@ -486,6 +486,19 @@ class DigiFlot:
                 if record is None:
                     return None
 
+            effective = None
+            frozen = self.run_directory / "effective_setup_snapshot.json"
+            if frozen.is_file():
+                try:
+                    effective = self._read_json(frozen)
+                except (OSError, ValueError):
+                    effective = None
+            sensors_used = [
+                {"id": str(sensor_id), "type": item.get("type"),
+                 "calibration_status": item.get("status")}
+                for sensor_id, item in self.sensor_calibration.items()
+                if item.get("status") == "passed"
+            ]
             return manager.update_execution(
                 self.run_directory,
                 status,
@@ -496,6 +509,8 @@ class DigiFlot:
                 },
                 cell_profile=deepcopy(self.cell_profile),
                 measurements_summary=self._measurement_summary_unlocked(),
+                effective_setup=effective,
+                sensors_used=sensors_used,
             )
         except Exception as error:
             print(f"[DigiFlot] Server sync bookkeeping unavailable: {error}")
@@ -609,6 +624,7 @@ class DigiFlot:
             "bronkhorst": [device.snapshot() for device in self.bronkhorst.values()],
             "wago": [device.snapshot() for device in self.wago.values()],
             "plugins": self.plugin_catalog.sensors_snapshots(),
+            "execution_target": deepcopy(((self.experiment or {}).get("metadata") or {}).get("execution_target") or {}),
             "cell_selection": {"selected": bool((self.cell_profile or {}).get("physical_cell_id")),
                                "cell_id": (self.cell_profile or {}).get("physical_cell_id"),
                                "camera_id": self.virtual_camera_id,
@@ -1232,25 +1248,24 @@ class DigiFlot:
             return
         registry = self.vision.registry
         cell_id = (self.cell_profile or {}).get("physical_cell_id")
-        if not cell_id:
-            return
-        cell = registry.get_cell(cell_id)
-        # Refresh the preliminary snapshot made at physical-cell selection.
-        _atomic_write_json(self.run_directory / "physical_cell_snapshot.json", cell)
+        cell = registry.get_cell(cell_id) if cell_id else None
+        # Save the physical-cell definition when present; a cell is optional.
+        if cell is not None:
+            _atomic_write_json(self.run_directory / "physical_cell_snapshot.json", cell)
         cameras = {}
         for entry in self.config.get("cameras", []):
             cid = entry["id"]
             cameras[str(cid)] = {
                 "id": cid, "name": entry.get("name"),
                 "camera_profile": registry.camera_profile(cid),
-                "aruco_association": registry.association(cid, cell_id),
+                "aruco_association": registry.association(cid, cell_id) if cell_id else None,
                 "run_calibration": deepcopy(self.camera_calibration.get(str(cid))),
                 "recording_config": deepcopy(entry),
             }
         snapshot = {
             "schema_version": 1, "captured_at": _utc_now(),
             "experiment_id": (self.experiment or {}).get("id"),
-            "physical_cell": cell, "named_references": cell.get("reference_points"),
+            "physical_cell": cell, "named_references": cell.get("reference_points") if cell else None,
             "cameras": cameras, "sensor_calibration": deepcopy(self.sensor_calibration),
             "execution_inputs": deepcopy(self.execution_inputs),
             "cell_profile": deepcopy(self.cell_profile),
@@ -1420,9 +1435,36 @@ class DigiFlot:
         with self.lock:
             if self.state != self.CELL_SELECTION or self.run_directory is None:
                 raise RuntimeError("Select the physical cell before calibrating cameras")
+            target = ((self.experiment or {}).get("metadata") or {}).get("execution_target") or {}
+            if cell_id in (None, "", "none"):
+                if target.get("cell_mode") == "registered":
+                    raise RuntimeError("This recipe requires a registered cell; update its execution target on the Server")
+                self.cell_profile = None
+                self.experiment["physical_cell_id"] = None
+                self.experiment["cell_profile"] = None
+                self.virtual_camera_id = None
+                _atomic_write_json(self.run_directory / "experiment.json", self.experiment)
+                self._register_virtual_sensor_unlocked()
+                self.state = self.CAMERA_CALIBRATION
+                self._write_config_snapshot_unlocked()
+                self._touch_unlocked("PHYSICAL_CELL_SKIPPED")
+                self._sync_execution_state_unlocked()
+                self._advance_from_camera_calibration_unlocked()
+                return self.status
             if self.vision is None:
                 raise RuntimeError("Cell Vision registry is not available")
             cell = self.vision.registry.get_cell(str(cell_id))
+            if target.get("cell_mode") == "registered":
+                if str(target.get("physical_cell_id")) != str(cell["id"]):
+                    raise RuntimeError("The selected cell differs from the Server recipe")
+                expected = target.get("expected_cell_revision")
+                if expected is not None and int(expected) != int(cell["revision"]):
+                    raise RuntimeError("Cell geometry was updated; revise the experiment on the Server before running")
+                expected_refs = target.get("expected_references_revision")
+                if expected_refs is not None:
+                    current_refs = self.vision.registry.reference_points(cell["id"]).get("revision", 0)
+                    if int(expected_refs) != int(current_refs):
+                        raise RuntimeError("Cell references changed; refresh the experiment on the Server")
             chosen = camera_id
             disabled = chosen == "none"
             if disabled:

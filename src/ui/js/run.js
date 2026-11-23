@@ -258,9 +258,11 @@ function renderCellSelection(state) {
     const signature = JSON.stringify([physicalCells, cameras.map(camera => [camera.id, camera.name])]);
     if (signature === physicalCellChoicesSignature) return;
     physicalCellChoicesSignature = signature;
-    const selectedId = state.cell_selection?.cell_id || state.execution_inputs?.cell_profile?.physical_cell_id || "";
+    const planned=state.execution_target||{};
+    const selectedId=state.cell_selection?.cell_id || state.execution_inputs?.cell_profile?.physical_cell_id ||
+      (planned.cell_mode==='registered'?planned.physical_cell_id:planned.cell_mode==='none'?'none':'');
     const selectedCamera = state.cell_selection?.camera_id ?? state.execution_inputs?.cell_profile?.virtual_camera_id;
-    ui.select_physical_cell.innerHTML = '<option value="">Select a cell</option>' +
+    ui.select_physical_cell.innerHTML = '<option value="">Select a cell</option><option value="none">No physical cell</option>' +
         physicalCells.map(cell => `<option value="${escapeHtml(cell.id)}">${escapeHtml(cell.name)} (${escapeHtml(cell.id)})</option>`).join("");
     ui.select_virtual_camera.innerHTML = '<option value="">Auto-select camera</option><option value="none">No virtual sensor</option>' +
         cameras.map(cam => `<option value="${escapeHtml(cam.id)}">${escapeHtml(cam.name)} · Camera ${escapeHtml(cam.id)}</option>`).join("");
@@ -1341,7 +1343,7 @@ function bindActions() {
     ui.select_physical_cell_form.addEventListener("submit", async event => {
         event.preventDefault();
         const cellId = ui.select_physical_cell.value;
-        if (!cellId) { showToast("Select a physical cell."); return; }
+        if (!cellId) { showToast("Choose a cell or explicitly select No physical cell."); return; }
         const button = ui.select_physical_cell_form.querySelector('[type="submit"]');
         button.disabled = true;
         try {

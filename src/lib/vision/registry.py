@@ -80,6 +80,9 @@ class VisionRegistry:
                 try:
                     record = _read(path)
                     if isinstance(record, dict) and record.get("id"):
+                        record["thumbnail"] = self.thumbnail_info(record["id"])
+                        record["reference_points_revision"] = self.reference_points(record["id"]).get("revision", 0)
+                        record["vertical_reference_revision"] = self.cell_vertical_reference(record["id"]).get("revision", 0)
                         result.append(record)
                 except (OSError, ValueError):
                     continue
@@ -93,6 +96,9 @@ class VisionRegistry:
                 raise KeyError(f"Cell not found: {cell_id}")
             cell["vertical_reference"] = self.cell_vertical_reference(cell_id)
             cell["reference_points"] = self.reference_points(cell_id)
+            cell["reference_points_revision"] = cell["reference_points"].get("revision", 0)
+            cell["vertical_reference_revision"] = cell["vertical_reference"].get("revision", 0)
+            cell["thumbnail"] = self.thumbnail_info(cell_id)
             return cell
 
     def cell_vertical_reference(self, cell_id):
@@ -163,11 +169,57 @@ class VisionRegistry:
             if any(not isinstance(key, str) for key in geometry):
                 raise ValueError("Invalid geometry field")
             layout = validate_layout(record.get("marker_layout", old.get("marker_layout", DEFAULT_LAYOUT)))
-            result = {"schema_version": 1, "id": ident, "name": name, "working_volume_l": volume,
-                      "geometry": deepcopy(geometry), "marker_layout": layout,
+            comparable = {"name": name, "working_volume_l": volume, "geometry": deepcopy(geometry),
+                          "marker_layout": layout}
+            if old and all(old.get(key) == value for key, value in comparable.items()):
+                return old
+            result = {"schema_version": 1, "id": ident, **comparable,
                       "revision": int(old.get("revision", 0)) + 1, "updated_at": _timestamp()}
             _write(path, result)
             return result
+
+    def thumbnail_info(self, cell_id):
+        with self.lock:
+            return _read(self.root / "cell_thumbnails" / f"{_safe_id(cell_id)}.json", None)
+
+    def thumbnail_path(self, cell_id):
+        return self.root / "cell_thumbnails" / f"{_safe_id(cell_id)}.webp"
+
+    def save_thumbnail(self, cell_id, data):
+        """Store a compact browser-confirmed photo without touching geometry revisions."""
+        with self.lock:
+            self.get_cell(cell_id)
+            if not isinstance(data, bytes) or not data or len(data) > 180 * 1024:
+                raise ValueError("Thumbnail must be a WebP image smaller than 180 KB")
+            if data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+                raise ValueError("Invalid WebP thumbnail")
+            digest = hashlib.sha256(data).hexdigest()
+            previous = self.thumbnail_info(cell_id) or {}
+            if digest == previous.get("sha256"):
+                return previous
+            path = self.thumbnail_path(cell_id)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+            try:
+                with temporary.open("wb") as file:
+                    file.write(data)
+                    file.flush()
+                    os.fsync(file.fileno())
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
+            result = {"revision": int(previous.get("revision") or 0) + 1,
+                      "sha256": digest, "content_type": "image/webp", "updated_at": _timestamp()}
+            _write(path.with_suffix(".json"), result)
+            return result
+
+    def delete_thumbnail(self, cell_id):
+        with self.lock:
+            self.get_cell(cell_id)
+            path = self.thumbnail_path(cell_id)
+            path.unlink(missing_ok=True)
+            path.with_suffix(".json").unlink(missing_ok=True)
+            return {"deleted": True}
 
     def camera_profile(self, camera_id):
         with self.lock:

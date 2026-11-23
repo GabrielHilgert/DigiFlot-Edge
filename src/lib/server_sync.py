@@ -78,6 +78,7 @@ class ServerSync:
     NETWORK_BACKOFF = (5, 20, 60, 300, 900, 1800, 3600, 7200, 14400)
     SERVER_BACKOFF = (30, 120, 600, 1800)
     CATALOG_REFRESH_S = 300
+    INVENTORY_CHECK_S = 60
     DEEP_OFFLINE_PROBE_S = 300
     LOCAL_NETWORK_CHECK_S = 30
 
@@ -88,12 +89,17 @@ class ServerSync:
         self.recipes_dir = self.cache_dir / "experiments"
         self.catalog_path = self.cache_dir / "catalog.json"
         self.state_path = self.cache_dir / "state.json"
+        self.inventory_state_path = self.cache_dir / "inventory_state.json"
 
         self.lock = threading.RLock()
         self.stop_event = threading.Event()
         self.wake_event = threading.Event()
         self.thread = None
         self._force_requested = True
+        self.inventory_provider = None
+        self._inventory_dirty = True
+        self._inventory_change_counter = 0
+        self.inventory_error = None
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.recipes_dir.mkdir(parents=True, exist_ok=True)
@@ -111,6 +117,7 @@ class ServerSync:
 
         self.next_http_at = time.monotonic()
         self.next_probe_at = time.monotonic() + self.DEEP_OFFLINE_PROBE_S
+        self.next_inventory_poll_at = time.monotonic() + self.INVENTORY_CHECK_S
         self._last_network_signature = self._network_signature()
 
     # ------------------------------------------------------------------
@@ -143,6 +150,22 @@ class ServerSync:
             self.next_http_at = time.monotonic()
         self.wake_event.set()
 
+    def set_inventory_provider(self, provider):
+        if provider is not None and not callable(provider):
+            raise TypeError("Inventory provider must be callable")
+        with self.lock:
+            self.inventory_provider = provider
+        self.mark_inventory_dirty()
+
+    def mark_inventory_dirty(self):
+        """Coalesce configuration changes without bypassing offline backoff."""
+        with self.lock:
+            self._inventory_dirty = True
+            self._inventory_change_counter += 1
+            if self.connection_state == "connected" and not self.auth_blocked:
+                self.next_inventory_poll_at = min(self.next_inventory_poll_at, time.monotonic() + 2)
+        self.wake_event.set()
+
     def notify_pending(self):
         """Wake the worker without bypassing a deep-offline circuit breaker."""
         self.wake_event.set()
@@ -163,6 +186,7 @@ class ServerSync:
                 "last_success_at": self.last_success_at,
                 "last_catalog_sync_at": self.last_catalog_sync_at,
                 "catalog_hash": self.catalog_hash,
+                "inventory_error": self.inventory_error,
                 "pending_executions": pending,
                 "sync_errors": errors,
                 "cached_experiments": cached,
@@ -392,6 +416,8 @@ class ServerSync:
         execution_inputs=None,
         cell_profile=None,
         measurements_summary=None,
+        effective_setup=None,
+        sensors_used=None,
     ):
         run_directory = Path(run_directory)
         path = run_directory / "server_sync.json"
@@ -406,6 +432,8 @@ class ServerSync:
                 (execution_inputs is not None and execution_inputs != record.get("execution_inputs"))
                 or (cell_profile is not None and cell_profile != record.get("cell_profile"))
                 or (measurements_summary is not None and measurements_summary != record.get("measurements_summary"))
+                or (effective_setup is not None and effective_setup != record.get("effective_setup"))
+                or (sensors_used is not None and sensors_used != record.get("sensors_used"))
             )
             if status != previous or runtime_changed:
                 record["sequence"] = int(record.get("sequence") or 0) + 1
@@ -422,6 +450,10 @@ class ServerSync:
                 record["cell_profile"] = deepcopy(cell_profile)
             if measurements_summary is not None:
                 record["measurements_summary"] = deepcopy(measurements_summary)
+            if effective_setup is not None:
+                record["effective_setup"] = deepcopy(effective_setup)
+            if sensors_used is not None:
+                record["sensors_used"] = deepcopy(sensors_used)
 
             if status in TERMINAL_EXECUTION_STATES:
                 record["finished_at"] = occurred_at
@@ -484,6 +516,8 @@ class ServerSync:
             "execution_inputs": deepcopy(record.get("execution_inputs") or {}),
             "cell_profile": deepcopy(record.get("cell_profile")),
             "measurements_summary": deepcopy(record.get("measurements_summary") or {}),
+            "effective_setup": deepcopy(record.get("effective_setup")),
+            "sensors_used": deepcopy(record.get("sensors_used") or []),
             "reported_offline": bool(record.get("reported_offline")),
             "sequence": int(record.get("sequence") or 0),
             "status": record.get("status"),
@@ -521,7 +555,26 @@ class ServerSync:
                 self._attempt_sync(force_catalog=forced)
                 continue
 
+            # A single lightweight request can be processed without relogin,
+            # catalog downloads or another scan of every execution directory.
+            if (self.connection_state == "connected" and self.inventory_provider is not None
+                    and self.server.capabilities.get("device_inventory_v1")
+                    and now >= self.next_inventory_poll_at):
+                try:
+                    self._reconcile_inventory_v2()
+                except Exception as error:
+                    self.inventory_error = str(error)
+                    if isinstance(error, (requests.ConnectionError, requests.Timeout)):
+                        self._register_failure(error)
+                    else:
+                        print(f"[DigiFlot] Inventory refresh deferred: {error}")
+                finally:
+                    self.next_inventory_poll_at = time.monotonic() + self.INVENTORY_CHECK_S
+                continue
+
             wait_candidates = [self.LOCAL_NETWORK_CHECK_S]
+            if self.connection_state == "connected" and self.server.capabilities.get("device_inventory_v1"):
+                wait_candidates.append(max(0.25, self.next_inventory_poll_at-now))
             if not self.auth_blocked and self.next_http_at != float("inf"):
                 wait_candidates.append(max(0.25, self.next_http_at - now))
             wait_candidates.append(max(0.25, self.next_probe_at - now))
@@ -547,6 +600,11 @@ class ServerSync:
 
             if self.mode == "v2":
                 self._sync_pending_v2()
+                if (login.get("capabilities") or {}).get("device_inventory_v1"):
+                    try: self._reconcile_inventory_v2()
+                    except Exception as error:
+                        self.inventory_error = str(error)
+                        print(f"[DigiFlot] Inventory sync deferred: {error}")
                 due_catalog = force_catalog or self._catalog_due()
                 if due_catalog:
                     self._refresh_catalog_v2()
@@ -559,6 +617,7 @@ class ServerSync:
                 self.last_success_at = _utc_now()
                 self.failure_count = 0
                 self.next_http_at = time.monotonic() + self.CATALOG_REFRESH_S
+                self.next_inventory_poll_at = time.monotonic() + self.INVENTORY_CHECK_S
                 self.next_probe_at = time.monotonic() + self.DEEP_OFFLINE_PROBE_S
                 self._persist_state_unlocked()
 
@@ -597,6 +656,70 @@ class ServerSync:
                     payload = dict(payload or {})
                     payload["cached_at"] = _utc_now()
                     self._write_recipe_cache(payload)
+
+    def _reconcile_inventory_v2(self):
+        """Publish metadata only on hash change; photos only when changed.
+
+        Runs on the existing ServerSync worker, never starts cameras or samples sensors.
+        """
+        with self.lock:
+            provider = self.inventory_provider
+            marker = self._inventory_change_counter
+        if provider is None: return
+        state = _read_json(self.inventory_state_path,{}) or {}
+        control = self.server.get_inventory_control()
+        inventory = provider()
+        if not isinstance(inventory,dict): raise RuntimeError("Invalid inventory provider result")
+        core = {k:inventory[k] for k in ("schema_version","cells","sensors")}
+        digest = hashlib.sha256(json.dumps(core,sort_keys=True,ensure_ascii=False,
+            separators=(",",":"),default=str).encode()).hexdigest()
+        requested = int(control.get("requested_revision") or 0)
+        # If the Server was reset, re-publish the cached definition with a new version.
+        remote_hash = control.get("inventory_hash")
+        changed = digest != state.get("pending_hash")
+        remote_revision = int(control.get("inventory_revision") or 0)
+        if changed:
+            state["revision"] = max(int(state.get("revision") or 0), remote_revision) + 1
+            state["pending_hash"] = digest
+            _atomic_write_json(self.inventory_state_path,state)
+        revision = max(int(state.get("revision") or 1), remote_revision)
+        state["revision"] = revision
+        if (changed or digest != remote_hash or requested>int(control.get("acknowledged_revision") or 0)
+                or state.get("confirmed_hash")!=digest):
+            response = self.server.publish_inventory(core,revision)
+            state["confirmed_hash"] = digest
+            state["pending_hash"] = digest
+            state["acknowledged_revision"] = response.get("acknowledged_revision",requested)
+            _atomic_write_json(self.inventory_state_path,state)
+        # Independently retry photos if an earlier image upload failed after inventory sync.
+        uploaded = dict(state.get("uploaded_photos") or {})
+        live = set()
+        for cell in inventory.get("cells") or []:
+            cid = str(cell["id"]); live.add(cid)
+            info = cell.get("thumbnail") or {}
+            sha = info.get("sha256")
+            if sha and uploaded.get(cid) != sha:
+                path = self.local_storage_dir / "vision" / "cell_thumbnails" / (cid + ".webp")
+                photo = path.read_bytes()
+                answer = self.server.put_cell_thumbnail(cid,photo,int(info.get("revision") or 1))
+                if answer.get("sha256") != sha:
+                    raise RuntimeError("Server thumbnail digest mismatch")
+                uploaded[cid] = sha
+                state["uploaded_photos"] = uploaded
+                _atomic_write_json(self.inventory_state_path,state)
+            elif not sha and cid in uploaded:
+                self.server.delete_cell_thumbnail(cid)
+                uploaded.pop(cid,None)
+                state["uploaded_photos"] = uploaded
+                _atomic_write_json(self.inventory_state_path,state)
+        for cid in set(uploaded)-live:
+            self.server.delete_cell_thumbnail(cid)
+            uploaded.pop(cid,None)
+        state["uploaded_photos"] = uploaded
+        _atomic_write_json(self.inventory_state_path,state)
+        with self.lock:
+            if marker == self._inventory_change_counter: self._inventory_dirty = False
+        self.inventory_error = None
 
     def _refresh_catalog_legacy(self):
         experiments = self.server.get_available_experiments() or []

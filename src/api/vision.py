@@ -1,5 +1,6 @@
 """Local, optional Cell Vision APIs; does not alter experiment execution routes."""
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/api/vision", tags=["Cell Vision"])
 
@@ -109,6 +110,26 @@ def update_cell(cell_id: str, request: Request, payload: dict):
     if request.app.state.digiflot.execution_locked:
         raise HTTPException(status_code=409, detail="Cell definitions cannot change during an experiment")
     return _invoke(service(request).save_cell, {**payload, "id": cell_id})
+
+
+@router.get("/cells/{cell_id}/thumbnail")
+def get_cell_thumbnail(cell_id: str, request: Request):
+    registry = service(request).registry
+    _invoke(registry.get_cell, cell_id)
+    path = registry.thumbnail_path(cell_id)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="No photo registered for this cell")
+    return FileResponse(path, media_type="image/webp")
+
+
+@router.put("/cells/{cell_id}/thumbnail")
+def save_cell_thumbnail(cell_id: str, request: Request, payload: dict):
+    return _invoke(service(request).save_cell_thumbnail, cell_id, payload.get("image_base64"))
+
+
+@router.delete("/cells/{cell_id}/thumbnail")
+def delete_cell_thumbnail(cell_id: str, request: Request):
+    return _invoke(service(request).delete_cell_thumbnail, cell_id)
 
 
 @router.get("/cells/{cell_id}/reference-points")

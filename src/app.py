@@ -18,6 +18,7 @@ from lib.vision.service import VisionService
 from lib.digiflot import DigiFlot, load_config
 from lib.server import Server
 from lib.server_sync import ServerSync
+from lib.cell_inventory import build_inventory
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -70,6 +71,7 @@ async def lifespan(app: FastAPI):
         app.state.server,
         LOCAL_STORAGE_DIR,
     )
+    app.state.server_sync.set_inventory_provider(lambda: build_inventory(digiflot))
     digiflot.set_server_sync_manager(app.state.server_sync)
     app.state.server_sync.start()
 

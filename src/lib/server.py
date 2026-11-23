@@ -161,6 +161,33 @@ class Server:
         self._set_connected()
         return response.json()
 
+    def get_inventory_control(self):
+        response = self.session.get(f"{self.ip}/devices/v2/inventory/control", timeout=5)
+        response.raise_for_status()
+        return response.json()
+
+    def publish_inventory(self, inventory, revision):
+        payload = dict(inventory, inventory_revision=int(revision), token=self.token)
+        response = self.session.put(f"{self.ip}/devices/v2/inventory", json=payload, timeout=12)
+        response.raise_for_status()
+        return response.json()
+
+    def put_cell_thumbnail(self, cell_id, photo, revision):
+        from urllib.parse import quote
+        path = quote(str(cell_id), safe="")
+        response = self.session.put(f"{self.ip}/devices/v2/cells/{path}/thumbnail",
+            params={"revision": int(revision)}, data=photo,
+            headers={"Content-Type": "image/webp"}, timeout=15)
+        response.raise_for_status()
+        return response.json()
+
+    def delete_cell_thumbnail(self, cell_id):
+        from urllib.parse import quote
+        path = quote(str(cell_id), safe="")
+        response = self.session.delete(f"{self.ip}/devices/v2/cells/{path}/thumbnail", timeout=8)
+        response.raise_for_status()
+        return response.json()
+
     def report_device_ip(self, ip_address):
         """Best-effort future-facing Edge-IP announcement.
 

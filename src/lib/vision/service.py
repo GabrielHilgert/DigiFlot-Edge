@@ -1249,10 +1249,47 @@ class VisionService:
             self._sync_camera_flags()
             return result
 
+    def save_cell_thumbnail(self, cell_id, encoded):
+        """Capture is browser-driven; never start or restart a camera from this method."""
+        import base64
+        from io import BytesIO
+        from PIL import Image, UnidentifiedImageError
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Cell photographs cannot change during a run")
+        try:
+            raw = base64.b64decode(str(encoded or ""), validate=True)
+            if len(raw) > 2 * 1024 * 1024:
+                raise ValueError("Captured image is too large")
+            with Image.open(BytesIO(raw)) as loaded:
+                if loaded.width * loaded.height > 16_000_000:
+                    raise ValueError("Captured image resolution is too large")
+                image = loaded.convert("RGB")
+            image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+            output = BytesIO()
+            image.save(output, format="WEBP", quality=76, method=4)
+        except (ValueError, UnidentifiedImageError, OSError) as exc:
+            raise ValueError(f"Invalid captured photo: {exc}") from exc
+        result = self.registry.save_thumbnail(cell_id, output.getvalue())
+        self._notify_cell_inventory_changed()
+        return result
+
+    def delete_cell_thumbnail(self, cell_id):
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Cell photographs cannot change during a run")
+        result = self.registry.delete_thumbnail(cell_id)
+        self._notify_cell_inventory_changed()
+        return result
+
+    def _notify_cell_inventory_changed(self):
+        manager = getattr(self.digiflot, "server_sync_manager", None)
+        if manager is not None:
+            manager.mark_inventory_dirty()
+
     def save_cell(self, values):
         if self.digiflot.execution_locked or self.digiflot.recording:
             raise RuntimeError("Cell definitions cannot change during an experiment")
         record = self.registry.save_cell(values)
+        self._notify_cell_inventory_changed()
         with self.digiflot.lock:
             if str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(record["id"]):
                 self.clear_virtual_test()
@@ -1265,6 +1302,7 @@ class VisionService:
         before = self.registry.cell_vertical_reference(cell_id)
         result = self.registry.save_cell_vertical_reference(cell_id, values)
         if result["revision"] != before["revision"]:
+            self._notify_cell_inventory_changed()
             self.clear_virtual_test()
             with self.digiflot.lock:
                 if str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id):
@@ -1278,6 +1316,7 @@ class VisionService:
         before = self.registry.reference_points(cell_id)
         result = self.registry.save_reference_points(cell_id, values)
         if result.get("revision") != before.get("revision"):
+            self._notify_cell_inventory_changed()
             self.clear_virtual_test()
             with self.digiflot.lock:
                 if str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id):
@@ -1299,6 +1338,7 @@ class VisionService:
         before = self.registry.camera_profile(camera.id)
         result = self.registry.save_camera_profile(camera.id, values)
         if result["revision"] != before["revision"]:
+            self._notify_cell_inventory_changed()
             with self.digiflot.lock:
                 self.digiflot._mark_calibration_changed_unlocked("camera", camera.id)
                 if (str(self.digiflot.virtual_camera_id) == str(camera.id)
@@ -1318,6 +1358,7 @@ class VisionService:
         result = self.registry.save_analysis_roi(camera_id, cell_id, values["roi_cm"])
         self._map_key, self._roi_map = None, None
         if result["revision"] != before["revision"]:
+            self._notify_cell_inventory_changed()
             with self.digiflot.lock:
                 if (str(self.digiflot.virtual_camera_id) == str(camera_id)
                         and str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id)):
