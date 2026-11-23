@@ -3512,6 +3512,7 @@ class DigiFlot:
                 auto_advance=self.auto_advance_enabled, transition_delay_s=self.transition_timeout_s,
                 min_free_gb=(self.performance.min_disk_free_gb if self.performance else 2.0),
                 safety_margin_pct=(self.performance.storage_safety_margin_pct if self.performance else 30.0),
+                camera_ids_for_stage=lambda stage: set(self._stage_acquisition_unlocked(stage)["video"]),
             )
 
     def _verify_start_storage_unlocked(self):
@@ -3520,6 +3521,7 @@ class DigiFlot:
             auto_advance=self.auto_advance_enabled, transition_delay_s=self.transition_timeout_s,
             min_free_gb=(self.performance.min_disk_free_gb if self.performance else 2.0),
             safety_margin_pct=(self.performance.storage_safety_margin_pct if self.performance else 30.0),
+            camera_ids_for_stage=lambda stage: set(self._stage_acquisition_unlocked(stage)["video"]),
         )
         if estimate["sufficient"] is None:
             raise RuntimeError("Cannot verify available disk space. Check the storage device.")

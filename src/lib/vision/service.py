@@ -162,7 +162,8 @@ class VisionService:
         selected = str(settings["camera_id"]) if settings["camera_id"] is not None else None
         # Persisted settings alone never activate a sensor for a new run.
         # Only a frozen, approved run configuration enables the recording lores.
-        active = self._run_virtual is not None
+        active = (self._run_virtual is not None and self._sensor_stop is not None
+                  and not self._sensor_stop.is_set())
         for camera in self.digiflot.cameras.values():
             camera.analysis_enabled = bool(active and settings["enabled"] and str(camera.id) == selected)
 
@@ -201,6 +202,7 @@ class VisionService:
             self._thread = threading.Thread(target=operational_loop,
                                             name="digiflot-hifie", daemon=True)
             self._thread.start()
+            self._sync_camera_flags()
 
     def deactivate_sensor(self):
         """Signal shutdown without joining under DigiFlot's orchestration lock."""
@@ -209,6 +211,7 @@ class VisionService:
                 self._sensor_stop.set()
             self._last_virtual_measurement = None
             self._temporal_live_key = None
+            self._sync_camera_flags()
 
     def stop(self):
         self._stop.set()

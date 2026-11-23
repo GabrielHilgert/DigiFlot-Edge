@@ -211,7 +211,8 @@ class StorageEstimator:
                     "total_gb": None, "used_gb": None, "free_gb": None}
 
     def estimate(self, experiment, cameras, camera_required, auto_advance=False,
-                 transition_delay_s=0, min_free_gb=2, safety_margin_pct=30):
+                 transition_delay_s=0, min_free_gb=2, safety_margin_pct=30,
+                 camera_ids_for_stage=None):
         stages = experiment.get("stages") if isinstance(experiment, dict) else None
         if not isinstance(stages, list) or not stages:
             raise ValueError("The experiment does not define any stages.")
@@ -236,18 +237,29 @@ class StorageEstimator:
             delay = max(0, float(transition_delay_s))
             total_s += delay * (len(stages) - 1)
             video_s += delay * sum(active[i] and active[i + 1] for i in range(len(active) - 1))
+        manual_video = any(active[i] and durations[i] == 0 for i in range(len(stages)))
         cameras_info = []
         video_bytes = 0
         for camera in cameras:
             signature = self.camera_signature(camera)
             bpf, source = self.camera_bytes_per_frame(signature)
             rate = bpf * signature["fps"]
-            size = math.ceil(rate * video_s)
+            if camera_ids_for_stage is not None:
+                camera_seconds = sum(seconds for seconds,stage in zip(durations,stages)
+                                     if signature["camera_id"] in camera_ids_for_stage(stage))
+                manual_used = any(seconds == 0 and signature["camera_id"] in camera_ids_for_stage(stage)
+                                  for seconds,stage in zip(durations,stages))
+            else:
+                camera_seconds = video_s
+                manual_used = manual_video if 'manual_video' in locals() else False
+            size = math.ceil(rate * camera_seconds)
             video_bytes += size
             cameras_info.append({"camera_id": signature["camera_id"], "bytes_per_frame": round(bpf),
-                                 "rate_bytes_s": round(rate), "estimated_bytes": size, "source": source})
+                                 "rate_bytes_s": round(rate), "estimated_bytes": size,
+                                 "manual_used": manual_used, "source": source})
         manual_video = any(active[i] and durations[i] == 0 for i in range(len(stages)))
-        manual_rate = sum(item["rate_bytes_s"] for item in cameras_info) if manual_video else 0
+        manual_rate = sum(item["rate_bytes_s"] for item in cameras_info
+                          if item.get("manual_used")) if manual_video else 0
         auxiliary = self.profiles["auxiliary"]
         aux_rate = _positive(auxiliary.get("bytes_per_second"), DEFAULT_AUX_BYTES_PER_SECOND)
         aux_bytes = math.ceil(aux_rate * total_s + FIXED_BYTES)
