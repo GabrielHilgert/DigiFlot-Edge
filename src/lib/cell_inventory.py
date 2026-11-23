@@ -45,8 +45,9 @@ def build_inventory(digiflot):
     # Runtime camera registry is authoritative; config may be sparse or migrated.
     registered=getattr(digiflot,"cameras",{}) or {}
     if registered:
-        cameras=[{"id":str(camera.id),"name":str(getattr(camera,"name",None) or f"Camera {camera.id}")[:80],
-                  "type":"camera"} for camera in registered.values()]
+        cameras=[{"id":str(getattr(camera,"id",key)),
+                  "name":str(getattr(camera,"name",None) or f"Camera {getattr(camera,'id',key)}")[:80],
+                  "type":"camera"} for key,camera in registered.items()]
         cameras.sort(key=lambda camera:camera["id"])
     else:
         cameras=[{"id":str(item["id"]),"name":str(item.get("name") or f"Camera {item['id']}")[:80],
