@@ -656,3 +656,9 @@ body[data-run-layout="compact"] #run_panel .run-actions .button { flex:1 1 auto;
   body[data-run-layout="compact"] #run_stage_overview { order:0; width:100%; }
   #run_stage_overview .mini-stage-segment { flex:0 0 130px; }
 }
+
+.stage-acquisition-modal{width:min(600px,calc(100vw - 24px));max-height:85vh;overflow:auto;padding:20px;border-radius:14px;border:1px solid #8495a4;background:var(--surface,#fff);color:var(--text,#233746);box-shadow:0 18px 40px #0005}
+.stage-acquisition-modal::backdrop{background:#101c2980}.stage-acquisition-modal header,.stage-acquisition-modal footer,.stage-acquisition-actions{display:flex;justify-content:space-between;align-items:center;gap:9px;flex-wrap:wrap}
+.stage-acquisition-modal header h2{margin:0;font-size:1.15rem}.stage-acquisition-modal fieldset{border:1px solid var(--border,#ddd);border-radius:8px;padding:10px;margin:10px 0;display:flex;flex-wrap:wrap;gap:10px}
+.stage-acquisition-modal legend{font-weight:700;font-size:.83rem}.stage-acquisition-modal label{display:flex;align-items:center;gap:6px;font-size:.85rem}
+.stage-acquisition-modal footer{justify-content:flex-end;margin-top:14px}

@@ -216,12 +216,18 @@ class StorageEstimator:
         if not isinstance(stages, list) or not stages:
             raise ValueError("The experiment does not define any stages.")
         durations, active = [], []
+        open_ended = False
         for index, stage in enumerate(stages):
             if not isinstance(stage, dict):
                 raise ValueError(f"Invalid stage {index + 1}.")
-            duration = _positive(stage.get("duration"), None)
-            if duration is None:
-                raise ValueError(f"Stage {index + 1} has an invalid duration.")
+            raw = stage.get("duration")
+            if raw == 0:
+                duration = 0.0
+                open_ended = True
+            else:
+                duration = _positive(raw, None)
+                if duration is None:
+                    raise ValueError(f"Stage {index + 1} has an invalid duration.")
             durations.append(duration)
             active.append(bool(camera_required(stage)))
         total_s = sum(durations)
@@ -240,6 +246,8 @@ class StorageEstimator:
             video_bytes += size
             cameras_info.append({"camera_id": signature["camera_id"], "bytes_per_frame": round(bpf),
                                  "rate_bytes_s": round(rate), "estimated_bytes": size, "source": source})
+        manual_video = any(active[i] and durations[i] == 0 for i in range(len(stages)))
+        manual_rate = sum(item["rate_bytes_s"] for item in cameras_info) if manual_video else 0
         auxiliary = self.profiles["auxiliary"]
         aux_rate = _positive(auxiliary.get("bytes_per_second"), DEFAULT_AUX_BYTES_PER_SECOND)
         aux_bytes = math.ceil(aux_rate * total_s + FIXED_BYTES)
@@ -249,7 +257,13 @@ class StorageEstimator:
         required = math.ceil(estimated * (1 + margin) + reserve)
         disk = self.disk()
         available = disk["free_bytes"]
-        return {"estimated_bytes": estimated, "video_bytes": video_bytes, "auxiliary_bytes": aux_bytes,
+        autonomy_rate = aux_rate + manual_rate if open_ended else 0
+        autonomy_s = (max(0, available - required) / (autonomy_rate * (1 + margin))
+                      if open_ended and available is not None and autonomy_rate > 0 else None)
+        return {"estimated_bytes": None if open_ended else estimated,
+                "bounded_stage_bytes": estimated, "open_ended": open_ended,
+                "estimated_autonomy_s": round(autonomy_s) if autonomy_s is not None else None,
+                "video_bytes": video_bytes, "auxiliary_bytes": aux_bytes,
                 "auxiliary_rate_bytes_s": round(aux_rate), "camera_recording_s": round(video_s, 3),
                 "experiment_duration_s": round(total_s, 3), "cameras": cameras_info, "disk": disk,
                 "required_free_bytes": required, "reserve_bytes": math.ceil(reserve),

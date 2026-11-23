@@ -229,6 +229,14 @@ def start_stage(request: Request):
         raise api_error(error) from error
 
 
+@router.post("/stages/acquisition/override")
+def override_stage_acquisition(request: Request, payload: dict):
+    try:
+        return get_digiflot(request).update_stage_acquisition(payload.get("enabled"))
+    except Exception as error:
+        raise api_error(error) from error
+
+
 @router.post("/stages/finish-now")
 def finish_stage_now(request: Request, payload: dict | None = None):
     try:

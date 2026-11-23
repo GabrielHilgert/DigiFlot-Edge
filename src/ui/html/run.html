@@ -252,6 +252,7 @@
             </div>
             <div class="card-body ready-layout">
                 <div id="ready_stage" class="stage-summary"></div>
+                <button id="ready_acquisition_edit" class="button button-secondary" type="button" data-icon="settings-2">Stage acquisition</button>
                 <button id="start_first_stage" class="button button-primary button-large" type="button" data-icon="play">
                     Start Stage 1
                 </button>
@@ -272,7 +273,7 @@
 
             <div id="active_view" class="run-body">
                 <div class="timer-block">
-                    <span class="timer-label">Stage remaining</span>
+                    <span id="stage_timer_label" class="timer-label">Stage remaining</span>
                     <strong id="stage_timer" class="big-timer">00:00</strong>
                     <span id="stage_elapsed" class="timer-sub">Elapsed 00:00</span>
                 </div>
@@ -296,6 +297,7 @@
                 <p class="eyebrow">Next stage</p>
                 <h2 id="next_stage_name">—</h2>
                 <p id="next_stage_message">Prepare the next operation.</p>
+                <button id="transition_acquisition_edit" type="button" class="button button-secondary" data-icon="settings-2">Stage acquisition</button>
                 <div id="transition_countdown" class="transition-countdown">
                     <span>Automatic start in</span>
                     <strong id="transition_timer">30</strong>
@@ -346,6 +348,17 @@
         </div>
     </main>
 
+    <dialog id="stage_acquisition_modal" class="stage-acquisition-modal">
+        <header><h2>Stage acquisition</h2><button id="stage_acquisition_close" class="button button-secondary" type="button">Close</button></header>
+        <p id="stage_acquisition_title"></p>
+        <div class="stage-acquisition-actions">
+            <button id="stage_acquisition_all" type="button" class="button button-secondary">All</button>
+            <button id="stage_acquisition_none" type="button" class="button button-secondary">None</button>
+            <button id="stage_acquisition_restore" type="button" class="button button-secondary">Restore recipe</button>
+        </div>
+        <div id="stage_acquisition_channels" class="stage-acquisition-channels"></div>
+        <footer><button id="stage_acquisition_save" type="button" class="button button-primary">Apply to this run</button></footer>
+    </dialog>
     <div id="scrape_signal" class="scrape-signal" aria-live="assertive">
         <span>SCRAPE NOW</span>
     </div>
