@@ -46,7 +46,7 @@ class FakeFlow:
         self.sensor_calibration={"ph1":{"id":"ph1","name":"pH", "mode":"ph_points", "status":"passed",
             "confirmed_at":"old", "requested_points":2, "points":{"mid":{"status":"passed"},"low":{"status":"passed"}}}}
         self.camera_calibration={"1":{"id":1,"status":"passed","available":True,"confirmed_at":"old"}}
-        self.vision=SimpleNamespace(clear_virtual_test=lambda:None,virtual_test_passed=lambda:True)
+        self.vision=SimpleNamespace(clear_virtual_test=lambda:None,virtual_test_passed=lambda:True,deactivate_sensor=lambda:None)
         self.events=[]; self.current_stage_index=None
         self.pause_started_monotonic=None;self.pause_started_at=None;self.paused_stage_state=None
         self.stage_started_monotonic=None;self.stage_deadline=None;self.next_scraping_deadline=None
