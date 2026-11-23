@@ -95,6 +95,7 @@ async function requestJson(url, options = {}) {
 }
 
 function formatRunBytes(value) {
+    if (value == null) return "—";
     const bytes = Number(value);
     if (!Number.isFinite(bytes) || bytes < 0) return "—";
     return `${(bytes / (1024 ** 3)).toFixed(2)} GiB`;

@@ -276,8 +276,10 @@ class StorageEstimator:
                 "bounded_stage_bytes": estimated, "open_ended": open_ended,
                 "estimated_autonomy_s": round(autonomy_s) if autonomy_s is not None else None,
                 "video_bytes": video_bytes, "auxiliary_bytes": aux_bytes,
-                "auxiliary_rate_bytes_s": round(aux_rate), "camera_recording_s": round(video_s, 3),
-                "experiment_duration_s": round(total_s, 3), "cameras": cameras_info, "disk": disk,
+                "auxiliary_rate_bytes_s": round(aux_rate),
+                "camera_recording_s": None if manual_video else round(video_s, 3),
+                "experiment_duration_s": None if open_ended else round(total_s, 3),
+                "cameras": cameras_info, "disk": disk,
                 "required_free_bytes": required, "reserve_bytes": math.ceil(reserve),
                 "margin_percent": float(safety_margin_pct), "sufficient": None if available is None else available >= required,
                 "unplanned_transitions": not auto_advance and len(stages) > 1}
