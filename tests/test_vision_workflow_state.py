@@ -47,7 +47,7 @@ class FakeFlow:
             "confirmed_at":"old", "requested_points":2, "points":{"mid":{"status":"passed"},"low":{"status":"passed"}}}}
         self.camera_calibration={"1":{"id":1,"status":"passed","available":True,"confirmed_at":"old"}}
         self.vision=SimpleNamespace(clear_virtual_test=lambda:None,virtual_test_passed=lambda:True,deactivate_sensor=lambda:None)
-        self.events=[]; self.current_stage_index=None
+        self.events=[]; self.stage_history=[]; self.current_stage_index=None
         self.pause_started_monotonic=None;self.pause_started_at=None;self.paused_stage_state=None
         self.stage_started_monotonic=None;self.stage_deadline=None;self.next_scraping_deadline=None
         self.transition_started_monotonic=None;self.transition_deadline=None
