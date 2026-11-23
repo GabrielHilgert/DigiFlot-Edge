@@ -284,8 +284,8 @@ class VisionService:
                 return True
             if camera.state != camera.IDLE or self._benchmarking:
                 return False
-            if self.digiflot.recording:
-                return False
+            # A second camera can record main video while this source owns an
+            # independent low-resolution HIFIE preview.
             owner = self.digiflot.preview_camera_id
             if owner is not None and int(owner) != int(camera.id):
                 return False
