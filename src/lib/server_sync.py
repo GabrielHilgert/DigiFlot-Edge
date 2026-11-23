@@ -655,12 +655,14 @@ class ServerSync:
         requested = int(control.get("requested_revision") or 0)
         # If the Server was reset, re-publish the cached definition with a new version.
         remote_hash = control.get("inventory_hash")
-        changed = digest != state.get("pending_hash") and digest != state.get("confirmed_hash")
+        changed = digest != state.get("pending_hash")
+        remote_revision = int(control.get("inventory_revision") or 0)
         if changed:
-            state["revision"] = max(int(state.get("revision") or 0), 0) + 1
+            state["revision"] = max(int(state.get("revision") or 0), remote_revision) + 1
             state["pending_hash"] = digest
             _atomic_write_json(self.inventory_state_path,state)
-        revision = int(state.get("revision") or 1)
+        revision = max(int(state.get("revision") or 1), remote_revision)
+        state["revision"] = revision
         if (changed or digest != remote_hash or requested>int(control.get("acknowledged_revision") or 0)
                 or state.get("confirmed_hash")!=digest):
             response = self.server.publish_inventory(core,revision)
