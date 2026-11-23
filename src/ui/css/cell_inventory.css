@@ -10,6 +10,10 @@
 .cell-vision-page .cv-inventory-dialog-head h2{margin:0;font-size:1.15rem}
 .cell-vision-page .cv-inventory-dialog>label{display:grid;gap:6px;color:var(--text-soft);font-size:.83rem;margin-bottom:12px}
 .cell-vision-page .cv-inventory-dialog>label select{width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
+.cell-vision-page .cv-photo-live{display:flex;align-items:center;justify-content:center;min-height:110px;background:var(--surface-soft);border-radius:10px;margin:0 auto 10px;max-width:430px;overflow:hidden;text-align:center;color:var(--text-soft)}
+.cell-vision-page .cv-photo-live img{display:block;width:100%;max-height:240px;object-fit:contain}
+.cell-vision-page .cv-photo-live img[hidden]{display:none}
+.cell-vision-page .cv-photo-live span{font-size:.8rem;padding:8px}
 .cell-vision-page .cv-crop-surface{max-width:430px;margin:0 auto 12px;background:var(--surface-soft);border-radius:10px;overflow:hidden}
 .cell-vision-page #cell_photo_canvas{display:block;width:100%;height:auto;touch-action:none;cursor:grab}
 .cell-vision-page #cell_photo_canvas:active{cursor:grabbing}
