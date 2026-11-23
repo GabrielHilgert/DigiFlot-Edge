@@ -3420,6 +3420,8 @@ class DigiFlot:
                     )
 
         for device in (*self.bronkhorst.values(), *self.wago.values()):
+            if (allowed is not None and str(device.id) not in allowed) or device.recording:
+                continue
             snapshot = device.snapshot()
             if snapshot.get("status") != "connected":
                 self._add_warning_unlocked("sensor", f"{device.name} unavailable; no recording started.",
@@ -3434,6 +3436,8 @@ class DigiFlot:
                                            {"sensor_id": device.id})
 
         for device in self.plugin_sensors.values():
+            if (allowed is not None and str(device.id) not in allowed) or device.recording:
+                continue
             snapshot = self.plugin_catalog.snapshot(device)
             if snapshot.get("status") != "connected":
                 self._append_event_unlocked("SENSOR_RECORDING_SKIPPED", {
@@ -4430,10 +4434,10 @@ class DigiFlot:
         if self.run_directory is None:
             raise RuntimeError("No experiment execution is selected.")
 
-        # Picamera2 cannot reconfigure a source still running in preview.
-        # Stop the analysis preview before starting the regular main encoder.
-        # This never changes the selected main recording settings.
-        if self.preview_camera_id is not None:
+        # Picamera2 cannot reconfigure a camera while that same source is in
+        # preview. A different camera's lores HIFIE preview must remain alive.
+        if self.preview_camera_id is not None and (
+                selected_ids is None or self.preview_camera_id in selected_ids):
             self.stop_preview()
 
         if not self.cameras:
