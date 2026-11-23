@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" role="img" aria-label="H L W and collection height dimensional guide for laboratory flotation cell">
+<defs><linearGradient id="tank" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e6eaed" stop-opacity=".75"/><stop offset="1" stop-color="#87939b" stop-opacity=".32"/></linearGradient><linearGradient id="met" x2="1" y2="0"><stop stop-color="#a7afb5"/><stop offset=".5" stop-color="#eff1f2"/><stop offset="1" stop-color="#90999f"/></linearGradient><marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto-start-reverse"><path d="M0 0L8 4L0 8" fill="#53616b"/></marker></defs>
+<g transform="translate(75 30) scale(.98)" stroke="#7b858d" stroke-width="7" stroke-linejoin="round">
+<path d="M120 474l290 9 62-28-295-6z" fill="#dfe3e6"/><path d="M120 474v17l280 13 72-31v-18l-62 28z" fill="#a7b1b8"/>
+<path d="M140 235l105-45 235 20-18 242-288 8-34-28z" fill="url(#tank)" stroke-width="9"/>
+<path d="M140 235l105-45 235 20" fill="none" stroke="#f9fafb" stroke-width="10"/>
+<path d="M140 235l-40 12-39 78 9 28 108-43 61-104" fill="#d8dde1" fill-opacity=".79" stroke-width="9"/>
+<path d="M181 329q20-22 36-2 13-21 32-5 20-20 39-2 18-22 37-4 18-17 36-2 15-17 37 0l13 29-227 0z" fill="#f5f7f8" stroke-width="3"/>
+<path d="M195 363q18-9 30-1t24-4q13-10 31 0t26-3q14-10 28-1t25-2q17-9 34 0" fill="none" stroke="#f8f9fa" stroke-width="8"/>
+<path d="M308 116v309" fill="none" stroke="url(#met)" stroke-width="20"/><ellipse cx="312" cy="430" rx="49" ry="16" fill="url(#met)"/>
+<rect x="249" y="32" width="129" height="97" rx="21" fill="url(#met)" stroke-width="9"/><path d="M259 127h105v20q0 11-11 11h-83q-11 0-11-11z" fill="#b0b8bd"/>
+</g>
+<g stroke="#53616b" stroke-width="2.4" fill="none" marker-start="url(#arrow)" marker-end="url(#arrow)">
+<path d="M61 254V499"/><path d="M236 561H477"/><path d="M480 549L542 516"/><path d="M530 333V445"/>
+</g><g font-family="Arial,sans-serif" fill="#475965" text-anchor="middle" font-weight="600">
+<text x="36" y="388" font-size="27">H</text><text x="357" y="599" font-size="27">L</text><text x="551" y="552" font-size="27">W</text><text x="559" y="395" font-size="21">h</text><text x="559" y="415" font-size="14">collection</text>
+</g></svg>
