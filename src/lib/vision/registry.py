@@ -141,6 +141,22 @@ class VisionRegistry:
             if cell["volume_calibration"]["valid"]:
                 cell["resolved_dimensions"]["effective_area_range_cm2"] = cell["volume_calibration"]["area_range_cm2"]
                 cell["resolved_dimensions"]["volume_model"] = "calibrated_volume_curve"
+            from .shapes import estimate_area
+            cell["geometric_shapes"] = self.geometric_shapes(cell_id)
+            outlines = []
+            for item in cell["geometric_shapes"]["items"]:
+                try:
+                    estimated = estimate_area(item, cell["resolved_dimensions"]["dimensions"],
+                        self.camera_profile(item["camera_id"])["revision"])
+                    outlines.append({**item, **estimated})
+                except (KeyError, ValueError, TypeError):
+                    outlines.append({**item, "valid": False, "reason": "camera or dimension unavailable"})
+            cell["visual_area_estimates"] = outlines
+            valid_outlines = [item for item in outlines if item.get("valid")]
+            cell["resolved_dimensions"]["visual_area_cm2"] = (
+                valid_outlines[-1]["area_cm2"] if valid_outlines else None)
+            cell["resolved_dimensions"]["visual_area_source"] = (
+                "visual_outline_estimate" if valid_outlines else None)
             return cell
 
     def cell_vertical_reference(self, cell_id):
@@ -404,6 +420,28 @@ class VisionRegistry:
                    f"{camera_id}__{_safe_id(cell_id)}.json", item)
             return item
 
+    def geometric_shapes(self, cell_id):
+        """Versioned camera-image overlays, independent from physical point coordinates."""
+        with self.lock:
+            self.get_cell_base(cell_id)
+            return {"revision": 0, "items": [],
+                **_read(self.root / "geometric_shapes" / f"{_safe_id(cell_id)}.json", {})}
+
+    def save_geometric_shapes(self, cell_id, values):
+        from .shapes import normalize_shapes
+        with self.lock:
+            current = self.geometric_shapes(cell_id)
+            expected = (values or {}).get("expected_revision")
+            if expected is not None and int(expected) != current["revision"]:
+                raise RuntimeError("Visual outlines changed in another tab; reload this cell")
+            items = normalize_shapes(values or {})
+            if items == current["items"]:
+                return current
+            record = {"revision": current["revision"]+1, "items": items,
+                "updated_at": _timestamp()}
+            _write(self.root / "geometric_shapes" / f"{_safe_id(cell_id)}.json", record)
+            return record
+
     def cell_lifecycle(self, cell_id):
         """Presentation/availability metadata. Never changes the geometrical revision."""
         with self.lock:
@@ -442,7 +480,7 @@ class VisionRegistry:
             if not self.cell_lifecycle(cell_id)["archived"]:
                 raise RuntimeError("Archive the cell before permanently deleting it.")
             dependent = ["reference_points", "cell_references", "dimension_measurements",
-                         "volume_calibrations", "cell_thumbnails"]
+                         "volume_calibrations", "cell_thumbnails", "geometric_shapes"]
             if any((self.root / folder / f"{cell_id}.json").exists() for folder in dependent):
                 raise RuntimeError("Cell contains physical measurements or a photo; keep it archived.")
             if self.thumbnail_path(cell_id).exists():
