@@ -32,13 +32,24 @@
   const action = callback => async () => { try { await callback(); } catch (err) { toast(err.message, true); } };
   const showImage = (data, view='raw') => {
     if (!data?.jpeg_base64) return;
-    state.view=view;state.imageSpace=view==='rectified'?'rectified':data.image_space||'raw';
+    const nextSpace=view==='rectified'?'rectified':data.image_space||'raw';
+    const changedSpace=state.capturedCameraId!=null&&(
+      String(state.capturedCameraId)!==String(state.cameraId)||
+      state.imageSpace!==nextSpace||state.capturedProfileRevision!==state.profile?.revision||
+      state.capturedCalibrationId!==(data.calibration_id||null));
+    if(changedSpace){
+      // Image pixel picks are tied to the exact camera-space. Metric source cm
+      // remains valid, but destination pixel points and unfinished shape vertices do not.
+      state.relativePairs={reference:[],target:[]};
+      state.shapePoints=[];state.shapeDone=false;state.shapeCapture=null;state.activeShapeId=null;
+      if(['relative_reference','relative_target','shape'].includes(state.uiTool))state.uiTool='select';
+    }
+    state.view=view;state.imageSpace=nextSpace;
     state.opticsCorrected=Boolean(data.optics_corrected)||view==='rectified';
     state.capturedCameraId=state.cameraId;
     state.capturedProfileRevision=state.profile?.revision??null;
     state.capturedCalibrationId=data.calibration_id||null;
-    // Do not discard in-progress picks when switching camera views. The controller
-    // invalidates image-bound points explicitly when changing coordinate systems.
+    // Keep selections inside a compatible camera coordinate system only.
     state.measurePoints=[];
     state.zoom=1;state.panX=0;state.panY=0;
     state.frame = data.frame || null;
@@ -188,7 +199,8 @@
   }
   function showWorkspaceStatus(){
     text('cv_view_status',state.view==='rectified'?'Rectified physical plane':
-      state.imageSpace==='undistorted'?'Optically corrected camera image':'Raw camera image');
+      state.imageSpace==='undistorted'?(state.opticsCorrected?'Undistorted camera image':'Undistorted requested · no optics model'):
+      'Raw camera image');
     const association=state.association,relative=state.relativeRecord;
     const valid=association&&association.camera_revision===state.profile?.revision&&
       association.cell_revision===state.cell?.revision;
@@ -2007,7 +2019,7 @@
     const pair=state.relativePairs;
     if(pair.reference.length===2&&pair.target.length===2)relativeReadout();
   });
-  window.addEventListener('resize',renderSelection);
+  window.addEventListener('resize',()=>{renderSelection();drawWorkspaceMeasurements();});
   img.addEventListener('pointerdown',event=>{
     if(!img.naturalWidth || !img.getAttribute('src'))return;
     if(state.view==='rectified' && (!state.plane || !state.association))return;
