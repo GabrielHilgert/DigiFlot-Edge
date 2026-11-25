@@ -1584,6 +1584,41 @@ class VisionService:
         result["jpeg_base64"] = _jpeg_base64(preview)
         return result
 
+    def reuse_confirmed_aruco(self, camera_id, cell_id, payload):
+        """Revalidate a saved ruler mapping without visible markers or a new image.
+
+        Only revision metadata is refreshed when the optical model and physical
+        ruler geometry are unchanged, with explicit user attestation. History
+        remains versioned and the old homography is never overwritten.
+        """
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Revalidation requires Idle state.")
+        if not isinstance(payload, dict) or payload.get("ruler_unchanged") is not True:
+            raise ValueError("Confirm that the physical ArUco ruler has not moved.")
+        previous = self.registry.association(camera_id, cell_id)
+        if previous is None:
+            raise ValueError("No previous ArUco calibration exists for this camera and cell.")
+        current_cell = self.registry.get_cell(cell_id)
+        previous_cell = previous.get("cell_snapshot") or {}
+        if current_cell.get("marker_layout") != previous_cell.get("marker_layout"):
+            raise ValueError("ArUco ruler dimensions or marker IDs changed; previous homography cannot be reused.")
+        current_camera = self.registry.camera_profile(camera_id)
+        old_camera = previous.get("camera_profile") or {}
+        if (old_camera.get("optics") != current_camera.get("optics") or
+                old_camera.get("sensor_size") != current_camera.get("sensor_size")):
+            raise ValueError("Camera optical geometry changed; review the original calibration.")
+        if previous["camera_revision"] == current_camera["revision"] and (
+                previous["cell_revision"] == current_cell["revision"]):
+            return previous
+        result = self.registry.save_association(camera_id, cell_id, deepcopy(previous["calibration"]))
+        with self.digiflot.lock:
+            if (str(self.digiflot.virtual_camera_id) == str(camera_id) and
+                    str((self.digiflot.cell_profile or {}).get("physical_cell_id")) == str(cell_id)):
+                self.clear_virtual_test()
+                self.digiflot._invalidate_virtual_calibration_unlocked("ArUco association explicitly revalidated")
+        self._notify_cell_inventory_changed()
+        return result
+
     def confirm(self, camera_id, cell_id, token):
         if self.digiflot.execution_locked or self.digiflot.recording:
             raise RuntimeError("Calibration cannot be confirmed during acquisition")
