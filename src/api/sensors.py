@@ -47,13 +47,15 @@ def list_all_sensors(request: Request):
     digiflot = request.app.state.digiflot
     snapshots.extend(device.snapshot() for device in (*digiflot.bronkhorst.values(), *digiflot.wago.values()))
     snapshots.extend(digiflot.plugin_catalog.sensors_snapshots())
-    if digiflot.virtual_camera_id is not None:
+    if digiflot.virtual_camera_id is not None or digiflot.state == digiflot.IDLE:
         snapshots.append(request.app.state.vision.virtual_sensor_snapshot())
     return snapshots
 
 
 def get_sensor(request: Request, sensor_id: str):
-    if sensor_id == "froth_interface" and request.app.state.digiflot.virtual_camera_id is not None:
+    if sensor_id == "froth_interface" and (
+            request.app.state.digiflot.virtual_camera_id is not None or
+            request.app.state.digiflot.state == request.app.state.digiflot.IDLE):
         return "virtual", request.app.state.vision
     scale = get_scales(request).get(sensor_id)
     if scale is not None:

@@ -147,6 +147,9 @@ class VisionService:
         self._tuning_frame = None  # Live diagnostics, independent of a frozen reference.
         self._reference_frame = None  # One frozen ROI from a user-requested camera plane.
         self._reference_owner_id = None
+        self._standalone_target = None
+        self._standalone_owner_id = None
+        self._standalone_until = 0.0
         self._tuning_lock = threading.Lock()
         self._diagnostic_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vision-diagnostic")
         self._monitor_until = 0.
@@ -501,8 +504,9 @@ class VisionService:
 
     def _tuning_input(self, payload, owner_id):
         """A cached frame can be retested without touching Picamera2 or the saved profile."""
-        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION or self._benchmarking:
-            raise RuntimeError("Interactive tuning is available only during sensor calibration")
+        if (self.digiflot.state != self.digiflot.SENSOR_CALIBRATION and
+                not self._standalone_hifie_active()) or self._benchmarking:
+            raise RuntimeError("Interactive HIFIE tuning requires calibration or standalone Idle mode")
         camera, cell_id, association, profile = self._virtual_context()
         config = normalized_config((payload or {}).get("config") or profile["config"])
         requested_roi = detection_roi(config, association)
@@ -563,7 +567,8 @@ class VisionService:
             with self.digiflot.lock:
                 if owner_id and self.digiflot.preview_owner_id == str(owner_id):
                     calibration = self.digiflot.sensor_calibration.get("froth_interface") or {}
-                    if calibration.get("status") == "passed":
+                    if (calibration.get("status") == "passed" and
+                            self.digiflot.state != self.digiflot.IDLE):
                         # Hand the existing preview to the operational HIFIE.
                         # Do not tear down Picamera2 just after Confirm.
                         self.digiflot.preview_owner_id = None
@@ -682,8 +687,8 @@ class VisionService:
                 self._diagnostic_temporal = TemporalBoundaryFilter()
                 self._diagnostic_temporal_key = None
             return {"enabled": False, "revision": self._diagnostic_revision}
-        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
-            raise RuntimeError("Live diagnostics are available only during HIFIE calibration")
+        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION and not self._standalone_hifie_active():
+            raise RuntimeError("Live HIFIE diagnostics require calibration or standalone Idle mode")
         if self._benchmarking:
             return {"enabled": True, "waiting": True, "message": "Calibration test owns the camera"}
         # Never block a full-plane reference capture or reconfigure Picamera2
@@ -742,9 +747,51 @@ class VisionService:
         finally:
             self._roi_snapshot_lock.release()
 
+    def standalone_hifie_inventory(self):
+        """Idle-only configuration; never creates or modifies an experiment."""
+        selected = self._standalone_target if self.digiflot.state == self.digiflot.IDLE else None
+        return {"available": self.digiflot.state == self.digiflot.IDLE,
+                "selected": dict(selected) if selected else None,
+                "cells": [{"id": cell["id"], "name": cell["name"]} for cell in self.registry.list_cells()],
+                "cameras": [{"id": camera.id, "name": camera.name}
+                            for camera in self.digiflot.cameras.values()]}
+
+    def select_standalone_hifie(self, cell_id, camera_id, owner_id=None):
+        """Choose a calibrated camera/cell for standalone tuning and benchmarking."""
+        if self.digiflot.state != self.digiflot.IDLE or self.digiflot.recording:
+            raise RuntimeError("Standalone HIFIE calibration requires Idle state.")
+        if not owner_id:
+            raise ValueError("A browser tab identity is required for standalone calibration.")
+        camera = self.digiflot.get_camera(int(camera_id))
+        cell = self.registry.get_cell(str(cell_id))
+        association = self.registry.association(camera.id, cell["id"])
+        if association is None or association.get("cell_revision") != cell["revision"]:
+            raise ValueError("Confirm the camera–cell ArUco geometry in Cells before HIFIE calibration.")
+        if association.get("camera_revision") != self.registry.camera_profile(camera.id)["revision"]:
+            raise ValueError("Camera geometry changed. Reconfirm its ArUco calibration in Cells.")
+        target = {"camera_id": int(camera.id), "cell_id": cell["id"]}
+        now = time.monotonic()
+        with self._lock:
+            if (self._standalone_owner_id not in (None, str(owner_id)) and
+                    now < self._standalone_until):
+                raise RuntimeError("Standalone HIFIE is already selected in another browser tab.")
+            previous = self._standalone_target
+        if previous != target:
+            self.release_virtual_reference(owner_id)
+            self.clear_virtual_test()
+        with self._lock:
+            self._standalone_target = target
+            self._standalone_owner_id = str(owner_id)
+            self._standalone_until = time.monotonic() + 600.0
+        return self.standalone_hifie_inventory()
+
+    def _standalone_hifie_active(self):
+        return self.digiflot.state == self.digiflot.IDLE and self._standalone_target is not None
+
     def _virtual_context(self):
-        camera_id = self.digiflot.virtual_camera_id
-        cell_id = (self.digiflot.cell_profile or {}).get("physical_cell_id")
+        standalone = self._standalone_target if self.digiflot.state == self.digiflot.IDLE else None
+        camera_id = standalone["camera_id"] if standalone else self.digiflot.virtual_camera_id
+        cell_id = standalone["cell_id"] if standalone else (self.digiflot.cell_profile or {}).get("physical_cell_id")
         if camera_id is None or not cell_id:
             raise ValueError("Select a physical cell and source camera first")
         camera = self.digiflot.get_camera(int(camera_id))
@@ -792,8 +839,8 @@ class VisionService:
                 "test_diagnostic": deepcopy(self._benchmark_diagnostic) if self.virtual_test_passed() else None}
 
     def save_virtual_profile(self, values):
-        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
-            raise RuntimeError("Configure the virtual sensor during the sensor calibration stage")
+        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION and not self._standalone_hifie_active():
+            raise RuntimeError("Configure HIFIE during sensor calibration or in standalone Idle mode")
         camera, cell_id, association, _ = self._virtual_context()
         if camera.recording:
             raise RuntimeError("Stop recording before updating the virtual sensor")
@@ -805,15 +852,16 @@ class VisionService:
             return current
         result = self.registry.save_virtual_profile(camera.id, cell_id, proposed)
         self.clear_virtual_test()
-        with self.digiflot.lock:
-            self.digiflot._mark_calibration_changed_unlocked("sensor", "froth_interface")
-            item = self.digiflot.sensor_calibration.get("froth_interface")
-            if item is not None:
-                item["status"] = "pending"
-                item["confirmed_at"] = None
-                item.pop("benchmark", None)
-                self.digiflot._touch_unlocked("VIRTUAL_SENSOR_PROFILE_UPDATED",
-                                              {"sensor_id": "froth_interface", "revision": result["revision"]})
+        if self.digiflot.state == self.digiflot.SENSOR_CALIBRATION:
+            with self.digiflot.lock:
+                self.digiflot._mark_calibration_changed_unlocked("sensor", "froth_interface")
+                item = self.digiflot.sensor_calibration.get("froth_interface")
+                if item is not None:
+                    item["status"] = "pending"
+                    item["confirmed_at"] = None
+                    item.pop("benchmark", None)
+                    self.digiflot._touch_unlocked("VIRTUAL_SENSOR_PROFILE_UPDATED",
+                                                  {"sensor_id": "froth_interface", "revision": result["revision"]})
         return result
 
     def clear_virtual_test(self):
@@ -887,8 +935,9 @@ class VisionService:
         return result
 
     def virtual_sensor_snapshot(self):
-        camera_id = self.digiflot.virtual_camera_id
-        cell_id = (self.digiflot.cell_profile or {}).get("physical_cell_id")
+        standalone = self._standalone_target if self.digiflot.state == self.digiflot.IDLE else None
+        camera_id = standalone["camera_id"] if standalone else self.digiflot.virtual_camera_id
+        cell_id = standalone["cell_id"] if standalone else (self.digiflot.cell_profile or {}).get("physical_cell_id")
         camera = self.digiflot.cameras.get(int(camera_id)) if camera_id is not None else None
         reading = self._last_virtual_measurement or {}
         test = self.virtual_test_result()
@@ -974,8 +1023,8 @@ class VisionService:
                 "error": result.get("error")}
 
     def benchmark_virtual_sensor(self, samples=20):
-        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
-            raise RuntimeError("Virtual sensor benchmark is only allowed during sensor calibration")
+        if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION and not self._standalone_hifie_active():
+            raise RuntimeError("HIFIE benchmark requires sensor calibration or standalone Idle mode")
         camera, cell_id, association, profile = self._virtual_context()
         config = normalized_config(profile["config"])
         if not config["vertical_reference_confirmed"]:
@@ -1012,8 +1061,9 @@ class VisionService:
         errors, timings, valid_count, sensor_times, test_series = [], [], 0, [], []
         last_reading, last_preview, last_diag, last_stamp = None, None, None, None
         count = max(12, min(60, int(samples)))
-        with self.digiflot.lock:
-            self.digiflot._mark_calibration_changed_unlocked("sensor", "froth_interface")
+        if self.digiflot.state == self.digiflot.SENSOR_CALIBRATION:
+            with self.digiflot.lock:
+                self.digiflot._mark_calibration_changed_unlocked("sensor", "froth_interface")
         warmup = 3
         original_enabled = camera.analysis_enabled
         camera.analysis_enabled = True
@@ -1466,8 +1516,8 @@ class VisionService:
         """
         with self._roi_snapshot_lock:
             with self.digiflot.lock:
-                if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION:
-                    raise RuntimeError("Select the Detection ROI during sensor calibration")
+                if self.digiflot.state != self.digiflot.SENSOR_CALIBRATION and not self._standalone_hifie_active():
+                    raise RuntimeError("Select the HIFIE Detection ROI in calibration or standalone Idle mode")
                 camera, cell_id, association, profile = self._virtual_context()
                 if self._benchmarking or camera.state == camera.RECORDING:
                     raise RuntimeError("Camera is recording a benchmark; retry when the test has finished")

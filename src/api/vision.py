@@ -35,6 +35,18 @@ def save_settings(request: Request, payload: dict):
     return _invoke(service(request).save_settings, payload)
 
 
+@router.get("/virtual-sensors/froth-interface/standalone")
+def standalone_hifie_inventory(request: Request):
+    return _invoke(service(request).standalone_hifie_inventory)
+
+
+@router.put("/virtual-sensors/froth-interface/standalone")
+def select_standalone_hifie(request: Request, payload: dict):
+    return _invoke(service(request).select_standalone_hifie,
+                   payload.get("cell_id"), payload.get("camera_id"),
+                   request.headers.get("X-DigiFlot-Tab-Id"))
+
+
 @router.get("/virtual-sensors/froth-interface/profile")
 def froth_interface_profile(request: Request):
     return _invoke(service(request).virtual_profile)

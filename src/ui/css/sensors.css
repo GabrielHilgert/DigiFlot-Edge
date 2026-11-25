@@ -429,3 +429,8 @@ a { color: inherit; text-decoration: none; }
     .virtual-panel.calibration-modal .virtual-diagnostic-grid { grid-template-columns:minmax(0,1fr); }
     .virtual-panel.calibration-modal .virtual-diagnostic-figure:last-child { grid-column:auto; }
 }
+
+/* Idle HIFIE cell/camera selection; the calibration modal owns all camera work. */
+.hifie-standalone-selectors{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;width:100%}
+.hifie-standalone-selectors label{display:flex;flex-direction:column;gap:5px;font-size:.8rem;color:var(--text-soft)}
+.hifie-standalone-selectors select{width:100%;min-width:0}

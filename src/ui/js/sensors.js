@@ -9,6 +9,7 @@ const state = {
     calibrationMode: false,
     maintenanceMode: false,
     standaloneCalibration: new Map(),
+    standaloneHifie: null,
     activeCalibrationSensorId: null,
 };
 
@@ -1091,7 +1092,7 @@ function cleanupVirtualSession() {
 }
 
 async function openVirtualCalibration() {
-    if (!state.calibrationMode)return;
+    if(!state.calibrationMode && !(state.maintenanceMode&&state.standaloneHifie?.selected))return;
     const panel=document.getElementById("virtual_panel");
     if(panel.open)return;
     const generation=++virtualSessionGeneration;
@@ -1106,8 +1107,12 @@ async function openVirtualCalibration() {
     try {
         await virtualCleanup;
         if(generation!==virtualSessionGeneration || !panel.open)return;
-        const cellId=state.digiflot?.cell_selection?.cell_id || "";
-        const cameraId=state.digiflot?.cell_selection?.camera_id;
+        const chosen=state.maintenanceMode ? state.standaloneHifie?.selected : null;
+        const cellId=chosen?.cell_id || state.digiflot?.cell_selection?.cell_id || "";
+        const cameraId=chosen?.camera_id ?? state.digiflot?.cell_selection?.camera_id;
+        const confirm=document.getElementById("virtual_confirm");
+        confirm.textContent=chosen ? "Finish standalone calibration" : "Confirm";
+        window.DigiFlotIcons?.enhance(confirm);
         document.getElementById("virtual_source").textContent=cameraId==null?"No camera":`Camera ${cameraId}`;
         document.getElementById("virtual_open_cells").href=
             `/cells?cell=${encodeURIComponent(cellId)}&camera=${encodeURIComponent(cameraId??"")}`;
@@ -1233,7 +1238,9 @@ async function virtualRunTest() {
         else document.getElementById("virtual_diagnostics_status").textContent=
             result.diagnostic_error||"The test ran, but no diagnostic entropy map was produced.";
         state.digiflot=await requestJson("/api/digiflot/state");
-        hifieWorkflow("test",result.passed?"passed":"review","The sensor remains inactive until Confirm.");
+        hifieWorkflow("test",result.passed?"passed":"review",
+            state.maintenanceMode ? "Saved benchmark is available for future experiments." :
+                "The sensor remains inactive until Confirm.");
         hifieUpdateNavigation();
         hifieGoToStep("validation");
         if(result.passed) {
@@ -1285,7 +1292,19 @@ function calibrationMarkup(snapshot) {
         </div>`;
     }
     if (snapshot.type === "virtual_froth_interface") {
-        if (!state.calibrationMode) return '<div class="calibration-block"><strong>Virtual camera-based sensor</strong><span>Configured in the experiment calibration workflow.</span></div>';
+        if(!state.calibrationMode) {
+            const info=state.standaloneHifie||{cells:[],cameras:[],selected:null};
+            const chosen=info.selected||{};
+            const cells=info.cells.map(item=>'<option value="'+escapeHtml(item.id)+'" '+(chosen.cell_id===item.id?'selected':'')+'>'+escapeHtml(item.name)+'</option>').join("");
+            const cameras=info.cameras.map(item=>'<option value="'+escapeHtml(item.id)+'" '+(String(chosen.camera_id)===String(item.id)?'selected':'')+'>'+escapeHtml(item.name)+'</option>').join("");
+            return '<div class="calibration-block hifie-standalone"><div><strong>HIFIE · Standalone calibration</strong>'+
+                '<span>Select a calibrated cell and camera. Preview, tune and benchmark without an experiment.</span></div>'+
+                '<div class="hifie-standalone-selectors"><label>Cell<select class="hifie-standalone-cell"><option value="">Select cell</option>'+cells+'</select></label>'+
+                '<label>Camera<select class="hifie-standalone-camera"><option value="">Select camera</option>'+cameras+'</select></label></div>'+
+                '<div class="calibration-actions"><button type="button" class="button button-secondary hifie-standalone-select" data-icon="check">Use cell & camera</button>'+
+                '<button type="button" class="button button-primary open-virtual-calibration" data-icon="scan" '+(!chosen.cell_id?'disabled':'')+'>Configure HIFIE</button>'+
+                '<a class="button button-secondary" href="/cells" data-icon="ruler">Cell references</a></div></div>';
+        }
         const item = calibrationItem(snapshot.id) || {};
         return `<div class="calibration-block">
             <div><strong>HIFIE · Camera ${escapeHtml(snapshot.source_camera_id)}</strong>
@@ -1827,6 +1846,25 @@ function renderCalibrationDrawer() {
 }
 
 function bindCalibrationControls(root = document) {
+    root.querySelectorAll(".hifie-standalone-select").forEach(button=>{
+        if(button.dataset.bound)return;
+        button.dataset.bound="1";
+        button.addEventListener("click",async()=>{
+            const host=button.closest(".hifie-standalone");
+            const cellId=host.querySelector(".hifie-standalone-cell").value;
+            const cameraId=host.querySelector(".hifie-standalone-camera").value;
+            if(!cellId||!cameraId){showToast("Select a cell and camera.");return;}
+            button.disabled=true;
+            try {
+                state.standaloneHifie=await requestJson("/api/vision/virtual-sensors/froth-interface/standalone",{
+                    method:"PUT",headers:{"Content-Type":"application/json"},
+                    body:JSON.stringify({cell_id:cellId,camera_id:Number(cameraId)})
+                });
+                updateCard(await requestJson("/api/sensors/froth_interface"));
+                showToast("Standalone HIFIE selection ready.");
+            } catch(error) {button.disabled=false;showToast(error.message);}
+        });
+    });
     root.querySelectorAll(".open-virtual-calibration").forEach(button => {
         if (button.dataset.bound) return;
         button.dataset.bound = "1";
@@ -2241,6 +2279,14 @@ document.getElementById("virtual_confirm").addEventListener("click", async () =>
     button.disabled=true;
     try {
         if(virtualDiagnosticsActive)await stopVirtualDiagnostics();
+        if(state.maintenanceMode){
+            const profile=await requestJson("/api/vision/virtual-sensors/froth-interface/profile");
+            if(!profile.test?.passed || profile.test.current===false)
+                throw new Error("Save and pass the HIFIE benchmark before finishing standalone calibration.");
+            showToast("Standalone HIFIE profile validated and stored for future experiments.");
+            if(virtualDialog.open)virtualDialog.close();
+            return;
+        }
         state.digiflot = await requestJson("/api/digiflot/calibration/sensors/froth_interface/confirm", {method:"POST"});
         updateCalibrationProgress();
         renderCards();
@@ -2254,6 +2300,8 @@ document.getElementById("virtual_confirm").addEventListener("click", async () =>
 async function initialise() {
     try {
         await refreshDigiFlotState();
+        if(state.maintenanceMode)
+            state.standaloneHifie=await requestJson("/api/vision/virtual-sensors/froth-interface/standalone").catch(()=>null);
         await loadSensors();
         const requested = new URLSearchParams(window.location.search).get("review");
         if (requested && state.digiflot.state === "Ready") {
