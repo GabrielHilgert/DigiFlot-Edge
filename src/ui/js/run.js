@@ -878,7 +878,8 @@ function syncHifieMeasurementControls() {
     const thickness=ui.measurement_hifie_channel.value==="froth_thickness_cm";
     const bottom=references.some(ref=>ref.id==="cell_bottom");
     const area=Number(measurementData.hifie_options?.geometric_area_cm2);
-    const volumePossible=!thickness&&bottom&&Number.isFinite(area)&&area>0;
+    const calibrated=Boolean(measurementData.hifie_options?.volume_curve?.points?.length>1);
+    const volumePossible=!thickness&&bottom&&(calibrated||(Number.isFinite(area)&&area>0));
     ui.measurement_hifie_output.querySelector('[value="volume_l"]').disabled=!volumePossible;
     if(!volumePossible&&ui.measurement_hifie_output.value==="volume_l")ui.measurement_hifie_output.value="height_cm";
     const volume=ui.measurement_hifie_output.value==="volume_l";
@@ -886,7 +887,8 @@ function syncHifieMeasurementControls() {
     if(thickness)select.value="current";
     select.disabled=thickness||volume;
     ui.measurement_hifie_note.textContent=volume ?
-        "Geometric bulk volume below the selected interface; not necessarily net water volume in a slurry." :
+        (calibrated ? "Cell V(h) calibration · bulk volume below this interface (not net water volume)." :
+        "Geometric bulk volume below this interface (not net water volume in a slurry).") :
         thickness ? "Thickness is independent of the selected reference." :
         !bottom ? "Height only · calibrate the cell bottom in Cells for a future volume conversion." :
         !area ? "Height only · enter cell geometry or calibrate effective area to estimate volume." :
@@ -909,9 +911,19 @@ function hifieMeasurementPreview(sensor) {
         value=target.direction==="down"?absolute-Number(target.y_cm):Number(target.y_cm)-absolute;
     }
     if(ui.measurement_hifie_output.value==="volume_l"){
-        const area=Number(measurementData.hifie_options?.geometric_area_cm2);
-        if(!Number.isFinite(area)||area<=0||value<0)return null;
-        value=value*area/1000;unit="L";
+        if(value<0)return null;
+        const points=measurementData.hifie_options?.volume_curve?.points;
+        if(points?.length>1){
+            let i=1;
+            while(i<points.length-1 && value>points[i].height_cm)i++;
+            const a=points[i-1],b=points[i],slope=(b.volume_l-a.volume_l)/(b.height_cm-a.height_cm);
+            value=a.volume_l+slope*(value-a.height_cm);
+        } else {
+            const area=Number(measurementData.hifie_options?.geometric_area_cm2);
+            if(!Number.isFinite(area)||area<=0)return null;
+            value=value*area/1000;
+        }
+        unit="L";
     }
     return {value,unit};
 }
