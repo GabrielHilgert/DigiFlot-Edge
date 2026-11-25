@@ -45,7 +45,7 @@
       {id:'cell_bottom',name:'Cell bottom',type:'bottom',position_cm:null,direction:'up',source:'unset'}]}));
     state.activePoint=null;state.namedDirty=false;renderNamedPoints();
     state.dimensionMeasurements=cell?.dimension_measurements||{revision:0,pairs:{}};
-    renderCellDimensionPairs();renderCellResolvedDimensions();
+    renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();
     $('cell_name').value = cell?.name || '';
     $('cell_volume').value = cell?.working_volume_l ?? '';
     const g = cell?.geometry || {};
@@ -87,6 +87,12 @@
     rows.push('<div class="cv-metric"><span>Geometric capacity</span><strong>'+
       (data.geometric_capacity_l!=null?fmt(data.geometric_capacity_l,3)+' L':'—')+
       '</strong><small>Geometric estimate · not the working volume</small></div>');
+    if(data.effective_area_range_cm2){
+      const [low,high]=data.effective_area_range_cm2;
+      rows.push('<div class="cv-metric"><span>Calibrated effective area</span><strong>'+
+        fmt(low,2)+(Math.abs(high-low)>1e-8?' – '+fmt(high,2):'')+' cm²</strong>'+
+        '<small>Experimental V(h) · varies by height</small></div>');
+    }
     $('cell_resolved_dimensions').innerHTML=rows.join('');
   }
 
@@ -128,6 +134,63 @@
     state.dimensionMeasurements=state.cell.dimension_measurements;
     renderCellDimensionPairs();renderCellResolvedDimensions();
     toast('Measured geometry updated independently from nominal parameters.');
+  }
+
+  function volumePointRow(point={}){
+    const value=(key)=>point[key]==null?'':esc(point[key]);
+    return '<div class="cv-volume-point"><input type="number" step="any" data-fill="height_cm" value="'+value('height_cm')+
+      '" aria-label="Height above selected reference (cm)" placeholder="cm">'+
+      '<input type="number" step="any" min="0" data-fill="volume_l" value="'+value('volume_l')+
+      '" aria-label="Known volume (L)" placeholder="L">'+
+      '<button class="button button-secondary" type="button" data-volume-remove data-icon="x" aria-label="Remove fill point">×</button></div>';
+  }
+
+  function renderVolumeEditor(){
+    const curve=state.cell?.volume_calibration||{},points=state.named?.points||[];
+    const datum=$('cell_volume_datum'),previous=curve.datum_reference_id||'cell_bottom';
+    datum.innerHTML=points.map(point=>'<option value="'+esc(point.id)+'">'+esc(point.name)+
+      (point.position_cm==null&&point.source!=='automatic'?' · unplaced':'')+'</option>').join('');
+    if(points.some(point=>point.id===previous))datum.value=previous;
+    $('cell_volume_points').innerHTML=(curve.raw_points?.length?curve.raw_points:[{}]).map(volumePointRow).join('');
+    $('add_volume_point').disabled=!state.cellId;
+    $('save_volume_curve').disabled=!state.cellId;
+    const valid=curve.valid&&curve.points?.length>1;
+    const label=!state.cellId?'Save the cell first to calibrate volume.' :
+      !curve.points?.length?'No experimental V(h) calibration. Geometric fallback is used if available.' :
+      !valid?'Reference points changed or became unavailable. Review and save the calibration again.' :
+      'Current V(h) calibration · revision '+curve.revision+' · '+(curve.points.length-1)+
+      ' known fills · interpolation by segments; extrapolation linear above last point.';
+    text('cell_volume_status',label);
+    const target=$('cell_volume_plot');
+    if(!valid){target.replaceChildren();return;}
+    const source=curve.points, maxH=Math.max(1,source.at(-1).height_cm),maxV=Math.max(.001,source.at(-1).volume_l);
+    const X=h=>38+290*h/maxH,Y=v=>145-113*v/maxV;
+    const path=source.map((p,i)=>(i?'L':'M')+X(p.height_cm).toFixed(1)+' '+Y(p.volume_l).toFixed(1)).join(' ');
+    const circles=source.map(p=>'<circle cx="'+X(p.height_cm).toFixed(1)+'" cy="'+Y(p.volume_l).toFixed(1)+'" r="3.5"/>').join('');
+    target.innerHTML='<svg viewBox="0 0 360 175" role="img" aria-label="Known fill volume from cell bottom">'+
+      '<path class="cv-volume-axis" d="M38 20 V145 H338"/>'+
+      '<path class="cv-volume-line" d="'+path+'"/><g class="cv-volume-points-markers">'+circles+'</g>'+
+      '<text x="9" y="23">V (L)</text><text x="228" y="168">Height (cm)</text>'+
+      '<text x="9" y="140">0</text><text x="315" y="159">'+maxH.toFixed(1)+'</text>'+
+      '</svg>';
+  }
+
+  async function saveVolumeCurve(){
+    if(!state.cellId)throw new Error('Save the cell first.');
+    if(state.namedDirty)throw new Error('Save named references before calibrating V(h).');
+    const points=[...$('cell_volume_points').querySelectorAll('.cv-volume-point')].map(row=>{
+      const height=row.querySelector('[data-fill="height_cm"]').value.trim();
+      const volume=row.querySelector('[data-fill="volume_l"]').value.trim();
+      if(!height||!volume)throw new Error('Every fill point needs height (cm) and known volume (L).');
+      return {height_cm:Number(height),volume_l:Number(volume)};
+    });
+    const curve=state.cell?.volume_calibration||{};
+    await api('/cells/'+encodeURIComponent(state.cellId)+'/volume-calibration',{
+      method:'PUT',body:{datum_reference_id:$('cell_volume_datum').value,points,
+        expected_revision:curve.revision||0}});
+    state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+    renderCellResolvedDimensions();renderVolumeEditor();
+    toast('Cell volume-height calibration saved. Future HIFIE volume estimates will prefer this curve.');
   }
 
   function renderNamedPoints() {
@@ -192,7 +255,7 @@
     state.named=await api('/cells/'+encodeURIComponent(state.cellId)+'/reference-points',
       {method:'PUT',body:state.named});state.namedDirty=false;
     state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
-    renderNamedPoints();renderCellDimensionPairs();renderCellResolvedDimensions();
+    renderNamedPoints();renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();
     toast('Named references saved (revision '+state.named.revision+').');
   }
 
@@ -725,6 +788,15 @@
   $('cell_select').addEventListener('change',action(async()=>loadCell($('cell_select').value)));
   $('save_cell').addEventListener('click',action(saveCell));
   $('save_dimension_pairs').addEventListener('click',action(saveCellDimensionPairs));
+  $('add_volume_point').addEventListener('click',()=>{$('cell_volume_points').insertAdjacentHTML('beforeend',volumePointRow());});
+  $('save_volume_curve').addEventListener('click',action(saveVolumeCurve));
+  $('cell_volume_points').addEventListener('click',event=>{
+    if(event.target.closest('[data-volume-remove]')){
+      event.target.closest('.cv-volume-point').remove();
+      if(!$('cell_volume_points').children.length)
+        $('cell_volume_points').insertAdjacentHTML('beforeend',volumePointRow());
+    }
+  });
   $('save_cell_reference').addEventListener('click',action(saveCellReference));
   $('reference_add').addEventListener('click',action(addNamedPoint));
   $('reference_save').addEventListener('click',action(saveNamedPoints));
