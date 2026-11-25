@@ -49,6 +49,7 @@ jobs:
           node tests/test_hifie_camera_retry.js
           node tests/test_hifie_preview_ui.js
           node tests/test_sensor_multiplex_hifie.js
+          node tests/test_hifie_derived_measurements.js
       - name: Verify documentation links
         run: node tests/test_documentation_links.js
       - name: Compile Python sources
@@ -75,6 +76,8 @@ jobs:
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_hifie_stage_preview_cleanup.py' -v
       - name: Sensor stream multiplex regression
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_sensor_multiplex_hifie.py' -v
+      - name: HIFIE level reference and geometry-derived volume
+        run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_hifie_derived_measurements.py' -v
       - name: Scraping timing and GPIO worker tests
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_scraping_timing.py' -v
       - name: Required measurements for manual-stage transitions
