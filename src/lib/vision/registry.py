@@ -104,6 +104,7 @@ class VisionRegistry:
             cell["vertical_reference_revision"] = cell["vertical_reference"].get("revision", 0)
             cell["thumbnail"] = self.thumbnail_info(cell_id)
             cell["archived"] = self.cell_lifecycle(cell_id)["archived"]
+            cell["reference_observations"] = self.reference_observations(cell_id)
             from .cell_metrics import resolve_cell_dimensions
             cell["dimension_measurements"] = self.dimension_measurements(cell_id)
             cell["resolved_dimensions"] = resolve_cell_dimensions(cell, cell["dimension_measurements"])
@@ -248,6 +249,61 @@ class VisionRegistry:
             _write(self.root / "volume_calibrations" / f"{_safe_id(cell_id)}.json", result)
             return result
 
+    def reference_observations(self, cell_id):
+        """Raw image observations are separate from physical ArUco landmark coordinates."""
+        with self.lock:
+            self.get_cell_base(cell_id)
+            records = {}
+            folder = self.root / "reference_observations" / _safe_id(cell_id)
+            for path in folder.glob("*.json"):
+                try:
+                    record = _read(path)
+                    if record and record.get("cell_id") == cell_id:
+                        records[str(record["camera_id"])] = record
+                except (KeyError, ValueError, OSError):
+                    continue
+            return records
+
+    def save_reference_observation(self, cell_id, camera_id, payload):
+        with self.lock:
+            cell_id, camera_id = _safe_id(cell_id), _safe_id(camera_id)
+            self.get_cell_base(cell_id)
+            if not isinstance(payload, dict):
+                raise ValueError("Provide a reference observation")
+            ref_id = str(payload.get("reference_id") or "")
+            if ref_id not in {point["id"] for point in self.reference_points(cell_id)["points"]}:
+                raise ValueError("Select an existing physical reference")
+            pos = payload.get("position_norm")
+            if not isinstance(pos, (list, tuple)) or len(pos) != 2:
+                raise ValueError("Select one point on the camera image")
+            try:
+                pos = [float(v) for v in pos]
+                size = [int(v) for v in payload["frame_size"]]
+            except (TypeError, ValueError, KeyError):
+                raise ValueError("Observation position and frame size must be numeric") from None
+            if (len(size) != 2 or not all(0 < v <= 16000 for v in size) or
+                    not all(math.isfinite(v) and 0 <= v <= 1 for v in pos)):
+                raise ValueError("Observation must lie within a valid image")
+            image_space = payload.get("image_space", "raw")
+            if image_space not in ("raw", "undistorted"):
+                raise ValueError("Unknown observation image space")
+            folder = self.root / "reference_observations" / cell_id
+            path = folder / f"{camera_id}.json"
+            old = _read(path, {"observations": {}, "revision": 0})
+            expected = payload.get("expected_revision")
+            if expected is not None and int(expected) != int(old["revision"]):
+                raise RuntimeError("Physical reference observations changed in another tab")
+            profile = self.camera_profile(camera_id)
+            observations = deepcopy(old.get("observations") or {})
+            observations[ref_id] = {"reference_id": ref_id, "position_norm": pos,
+                "frame_size": size, "image_space": image_space,
+                "camera_revision": profile["revision"], "updated_at": _timestamp()}
+            result = {"schema_version": 1, "cell_id": cell_id, "camera_id": camera_id,
+                "revision": int(old["revision"]) + 1, "observations": observations,
+                "updated_at": _timestamp()}
+            _write(path, result)
+            return result
+
     def relative_calibration(self, camera_id, cell_id):
         """One relative metric estimate per target camera and cell; ArUco stays untouched."""
         with self.lock:
@@ -355,6 +411,9 @@ class VisionRegistry:
                 raise RuntimeError("Cell contains a stored photo; keep it archived.")
             if any((self.root / "associations").glob(f"*__{cell_id}")):
                 raise RuntimeError("Cell has camera calibration history; keep it archived.")
+            if (self.root / "reference_observations" / cell_id).exists() and any(
+                    (self.root / "reference_observations" / cell_id).glob("*.json")):
+                raise RuntimeError("Cell contains physical camera observations; keep it archived.")
             if any((self.root / "relative_calibrations").glob(f"*__{cell_id}.json")):
                 raise RuntimeError("Cell has relative camera calibration; keep it archived.")
             if any((self.root / "virtual_sensors").glob(f"*/*__{cell_id}.json")):
