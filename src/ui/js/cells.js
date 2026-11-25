@@ -137,6 +137,54 @@
       mode.startsWith('relative_')?'Select two endpoints on the destination camera frame for this measurement.':
       state.view==='rectified'?'Rectified plane · place references or drag the analysis ROI.':
       'Raw camera · drag the sensor ROI. Use an existing saved calibration when available.';
+    updateMarkingGuide();
+  }
+  function updateMarkingGuide(){
+    const mode=state.uiTool,pair=state.relativePairs;
+    const steps=shapeInputCount($('cv_shape_method').value);
+    let title='Camera ready',instruction='Choose a tool in the optical measurement section below.',
+      progress='Idle';
+    if(mode==='measure'){
+      const n=(state.measurePointIds||[]).length;
+      title='Physical reference distance';
+      instruction=n?'Point A selected · choose a different reference marker for Point B.':
+        'Click Point A on the camera. Existing references are highlighted and reused.';
+      progress=n+'/2 points';
+    }else if(mode==='relative_source'){
+      const n=state.relativeSourcePoints.length;title='Relative scale · 1/3 · metric reference';
+      instruction=n?'First source point selected. Click the second endpoint.':
+        'Mark the physical known length on the saved rectified source plane.';
+      progress=n+'/2 points';
+    }else if(mode==='relative_reference'||mode==='relative_target'){
+      const reference=mode==='relative_reference',points=pair[reference?'reference':'target'],n=points.length;
+      title=reference?'Relative scale · 2/3 · destination reference':'Relative scale · 3/3 · target length';
+      instruction=n?'First point selected. Click the second endpoint on this camera.':
+        reference?'Click the same physical length on the destination camera.':
+        'Click the length to estimate on the same destination camera.';
+      progress=n+'/2 points';
+    }else if(mode==='shape'){
+      const n=state.shapePoints.length,method=$('cv_shape_method').value;
+      title='Transverse section · '+$('cv_shape_type').selectedOptions[0].textContent;
+      instruction=state.shapeDone?'Contour complete. Choose an edge matching a known dimension, then save.':
+        method==='four_faces'?'Click the midpoint of each side in order around the perimeter.':
+        method==='three_corners'?'Click three consecutive corners, with corner 2 between 1 and 3.':
+        method==='vertices'?'Click consecutive polygon vertices; finish to close the contour.':
+        'Click two opposite corners of the visible shape.';
+      if(n&& !state.shapeDone)instruction='Point '+n+' marked. '+instruction;
+      progress=method==='vertices'?n+' vertices'+(state.shapeDone?' · closed':' · open'):
+        n+'/'+steps+' points';
+    }else if(mode==='add_point'){
+      title='Add or edit physical point';
+      instruction='Click an existing marker to edit, or an empty spot to create a named reference.';
+      progress='Point editor';
+    }else if(mode==='pan'){
+      title='Navigate image';instruction='Drag to pan · scroll to zoom · use Fit to reset.';
+      progress='Pan';
+    }
+    text('cv_marking_title',title);text('cv_marking_instruction',instruction);
+    text('cv_marking_progress',progress);
+    $('cv_marking_cancel').hidden=!['measure','relative_source','relative_reference','relative_target','shape','add_point','pan'].includes(mode);
+    $('cv_marking_guide').classList.toggle('cv-marking-active',mode!=='select');
   }
   function showWorkspaceStatus(){
     text('cv_view_status',state.view==='rectified'?'Rectified physical plane':
@@ -1384,7 +1432,7 @@
       destinationSelect.value=String(second.id);
     showWorkspaceStatus();
   }
-  async function openBestCamera(cameraId,{requireMetric=false,focus=false,force=false}={}){
+  async function openBestCamera(cameraId,{requireMetric=false,focus=false,force=false,exactSpace=null}={}){
     if(cameraId==null||cameraId==='')throw new Error('Choose a camera first.');
     const switching=String(cameraId)!==String(state.cameraId);
     if(switching){
@@ -1396,8 +1444,9 @@
       state.association.camera_revision===state.profile?.revision&&
       state.association.cell_revision===state.cell?.revision);
     const optics=state.profile?.optics?.mode&&state.profile.optics.mode!=='none';
-    const choices=[...(metric?['rectified']:[]),...(optics?['undistorted']:[]),...(!requireMetric?['raw']:[])];
-    if(requireMetric&&!metric)throw new Error('No current metric plane for this camera. Use a known cell dimension or revalidate its saved ArUco.');
+    const choices=exactSpace?[exactSpace]:
+      [...(metric?['rectified']:[]),...(optics?['undistorted']:[]),...(!requireMetric?['raw']:[])];
+    if((requireMetric||exactSpace==='rectified')&&!metric)throw new Error('No current metric plane for this camera. Use a known cell dimension or revalidate its saved ArUco.');
     const current=state.view==='rectified'?'rectified':state.imageSpace==='undistorted'?'undistorted':'raw';
     if(!force&&!switching&&choices[0]===current&&$('camera_image').naturalWidth){
       if(focus)$('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
