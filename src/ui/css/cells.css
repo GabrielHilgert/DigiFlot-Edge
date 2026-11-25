@@ -310,3 +310,9 @@ a { color: inherit; text-decoration: none; }
   .cell-vision-page #cv_preview_controls{margin-left:0}
   .cell-vision-page .cv-workspace-toolbar .cv-toolbar-divider{display:none}
 }
+
+
+/* Raw/undistorted physical landmarks are per-camera observations, not ArUco coordinates. */
+.cell-vision-page .cv-observed-overlay{position:absolute;width:13px;height:13px;transform:translate(-50%,-50%);
+  border:2px solid #fff;border-radius:50%;background:#eda550;box-shadow:0 0 0 3px #71461e66;pointer-events:none}
+.cell-vision-page .cv-observed-overlay.selected{background:#45bbec;box-shadow:0 0 0 4px #1774a755}
