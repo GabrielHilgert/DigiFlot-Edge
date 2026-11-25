@@ -10,7 +10,9 @@ for(const id of ["cv_measure_axis","cv_measure_from","cv_measure_to","cv_relativ
   assert.ok(html.includes('id="'+id+'"'),"Missing "+id);
 assert.ok(js.includes("calibrationPanel.classList.remove('card','cv-workspace-panel')"));
 assert.ok(js.includes("accordion('ArUco / planar calibration & analysis ROI'"));
-assert.ok(js.includes("accordion('Relative camera calibration'"));
+assert.ok(js.includes("accordion('Relative scale between cameras'"));
+assert.ok(js.includes("cv_metrology_mount"));
+assert.ok(js.includes("accordion('Reference-based physical dimensions'"));
 assert.ok(js.includes("state.measurePointIds")&&js.includes("nearestReferenceOnImage(p)"));
 assert.ok(!js.includes("measured_width_a"),"Direct measurements must not create redundant physical points.");
 assert.ok(js.includes("switchRelativeCamera(source,true)"),"Known length must open calibrated source camera.");
