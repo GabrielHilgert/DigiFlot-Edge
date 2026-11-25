@@ -99,7 +99,6 @@
   // Preserve old reference IDs in storage: a previously calibrated sensor may still use them.
   // Hide only exact duplicate display aliases, never two positions that disagree.
   function referenceDisplayModel(points=state.named?.points||[]){
-    const canonical={top:'cell_top',bottom:'cell_bottom'},reserved={top:'cell top',bottom:'cell bottom'};
     const fixed=new Map(points.filter(p=>p&&['cell_top','cell_bottom'].includes(p.id)).map(p=>[p.id,p]));
     const aliases=new Map();
     const samePosition=(a,b)=>a==null&&b==null||Array.isArray(a)&&Array.isArray(b)&&
