@@ -1075,12 +1075,6 @@
   }
 
   async function initialize() {
-    arrangeCellsWorkspace();
-    $('cv_measure_mount').querySelector('.cv-measure-actions')?.remove();
-    const saveMeasure=document.createElement('button');saveMeasure.id='cv_save_measure';
-    saveMeasure.type='button';saveMeasure.className='button button-secondary';
-    saveMeasure.dataset.icon='save';saveMeasure.textContent='Save dimension';
-    $('cv_measure_mount').prepend(saveMeasure);window.DigiFlotIcons?.decorate(saveMeasure.parentElement);
     const data=await api('/status');state.settings=data.settings;state.cameras=data.cameras;
     $('camera_select').innerHTML='<option value="">Select a camera</option>'+data.cameras.map(c=>
       `<option value="${c.id}">${esc(c.name)} (#${c.id})</option>`).join('');
@@ -1098,6 +1092,7 @@
     refreshCellActions();
   }
 
+  arrangeCellsWorkspace();
   $('capture_cell_photo').addEventListener('click',action(openPhotoModal));
   $('photo_camera').addEventListener('change',action(async()=>{
     await releasePhotoPreview();
