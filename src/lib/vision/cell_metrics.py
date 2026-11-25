@@ -79,7 +79,7 @@ def resolve_cell_dimensions(cell, pairs=None):
         return _position(points, ident, layout)
 
     for ident in ("outlet_level", "cell_top", "cell_bottom", "aruco_reference"):
-        pos, source = position(ident)
+        pos, source = _physical_position(cell, ident)
         levels[ident] = {"y_cm": pos[1] if pos else None, "source": source}
 
     top, top_source = position("cell_top")
@@ -130,7 +130,21 @@ def resolve_cell_dimensions(cell, pairs=None):
 
 def _physical_position(cell, ident):
     points = {p["id"]: p for p in complete_reference_points(cell.get("reference_points"))["points"]}
-    return _position(points, ident, cell.get("marker_layout"))
+    position, source = _position(points, ident, cell.get("marker_layout"))
+    if position is not None or ident not in ("cell_top", "cell_bottom"):
+        return position, source
+    # Fallback: infer one boundary from the other and a nominal full cell height.
+    # This is not a measured physical datum; changes to nominal H invalidate V(h).
+    counterpart = "cell_top" if ident == "cell_bottom" else "cell_bottom"
+    other, _ = _position(points, counterpart, cell.get("marker_layout"))
+    try:
+        height_mm = float((cell.get("geometry") or {})["height_mm"])
+    except (KeyError, ValueError, TypeError):
+        return None, None
+    if other is None or not math.isfinite(height_mm) or height_mm <= 0:
+        return None, None
+    offset = height_mm / 10 * (1 if ident == "cell_bottom" else -1)
+    return [other[0], other[1] + offset], "nominal_derived"
 
 
 def normalize_volume_curve(cell, payload):
