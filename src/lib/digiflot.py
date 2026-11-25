@@ -940,7 +940,7 @@ class DigiFlot:
 
     def _hifie_measurement_options_unlocked(self):
         default = {"references": [{"id": "current", "name": "HIFIE configured reference"}],
-                   "geometric_area_cm2": None, "cell_id": None}
+                   "geometric_area_cm2": None, "volume_curve": None, "cell_id": None}
         cell_id = (self.cell_profile or {}).get("physical_cell_id")
         if not cell_id or self.vision is None:
             return default
@@ -948,8 +948,12 @@ class DigiFlot:
             registry = self.vision.registry
             cell = registry.get_cell(cell_id)
             association = registry.association(self.virtual_camera_id, cell_id) if self.virtual_camera_id is not None else None
+            curve = cell.get("volume_calibration") or {}
             return {"references": reference_choices(registry, cell_id, association),
-                    "geometric_area_cm2": geometric_area_cm2(cell), "cell_id": cell_id}
+                    "geometric_area_cm2": geometric_area_cm2(cell),
+                    "volume_curve": ({"points": curve["points"], "revision": curve["revision"]}
+                                     if curve.get("valid") else None),
+                    "cell_id": cell_id}
         except (ValueError, KeyError, TypeError):
             return default
 
