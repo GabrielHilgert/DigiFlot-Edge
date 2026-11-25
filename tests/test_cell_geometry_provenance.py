@@ -37,6 +37,34 @@ class GeometryProvenanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fixed name"):
             normalize_reference_points(points)
 
+    def test_existing_unplaced_canonical_reuses_legacy_coordinates_without_deleting_id(self):
+        points = default_reference_points()
+        points["revision"] = 7
+        points["points"].extend([
+            {"id": "older_top", "name": "Cell Top", "type": "top",
+             "position_cm": [3., -9.], "direction": "down", "source": "image_selection"},
+            {"id": "older_bottom", "name": "Cell Bottom", "type": "bottom",
+             "position_cm": [3., 12.], "direction": "up", "source": "measured"}])
+        completed = complete_reference_points(points)
+        lookup = {p["id"]: p for p in completed["points"]}
+        self.assertEqual(lookup["cell_top"]["position_cm"], [3., -9.])
+        self.assertEqual(lookup["cell_bottom"]["position_cm"], [3., 12.])
+        self.assertEqual(lookup["older_top"]["position_cm"], [3., -9.])
+        self.assertEqual(completed["revision"], 7)
+        self.assertIsNone(next(p for p in points["points"] if p["id"] == "cell_top")["position_cm"])
+        resolved = resolve_cell_dimensions({"reference_points": completed})
+        self.assertAlmostEqual(resolved["dimensions"]["height_mm"]["value_mm"], 210.)
+
+    def test_differing_canonical_and_legacy_positions_are_preserved(self):
+        points = default_reference_points()
+        points["points"][2].update({"position_cm": [0., -5.], "source": "measured"})
+        points["points"].append({"id": "legacy_top", "name": "Cell Top", "type": "top",
+                                 "position_cm": [0., -9.], "direction": "down", "source": "measured"})
+        completed = complete_reference_points(points)
+        by_id = {p["id"]: p for p in completed["points"]}
+        self.assertEqual(by_id["cell_top"]["position_cm"], [0., -5.])
+        self.assertEqual(by_id["legacy_top"]["position_cm"], [0., -9.])
+
     def test_measured_height_overrides_nominal_and_width_pair(self):
         cell = {"geometry": {"shape": "rectangular", "height_mm": 150, "width_mm": 130, "depth_mm": 80},
                 "reference_points": self.points(), "marker_layout": {"span_cm": 14, "marker_size_cm": 2}}
