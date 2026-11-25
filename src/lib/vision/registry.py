@@ -136,7 +136,13 @@ class VisionRegistry:
             cell_id = _safe_id(cell_id)
             record = _read(self.root / "reference_points" / f"{cell_id}.json")
             if record is not None:
-                return complete_reference_points(record)
+                completed = complete_reference_points(record)
+                legacy = self.cell_vertical_reference(cell_id)
+                for kind, field in (("top", "cell_top_y_cm"), ("bottom", "cell_bottom_y_cm")):
+                    item = next(p for p in completed["points"] if p["id"] == "cell_" + kind)
+                    if item.get("position_cm") is None and legacy.get(field) is not None:
+                        item.update({"position_cm": [0., float(legacy[field])], "source": "measured"})
+                return completed
             # Non-destructive migration of older manually entered top/bottom datums.
             default = default_reference_points()
             legacy = self.cell_vertical_reference(cell_id)
