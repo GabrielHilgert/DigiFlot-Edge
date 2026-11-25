@@ -1453,6 +1453,14 @@ class VisionService:
         self._notify_cell_inventory_changed()
         return result
 
+    def save_geometric_shapes(self, cell_id, values):
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Visual area measurements require Idle state")
+        self.registry.get_cell(cell_id)
+        result = self.registry.save_geometric_shapes(cell_id, values)
+        self._notify_cell_inventory_changed()
+        return result
+
     def save_cell_dimension_measurements(self, cell_id, values):
         if self.digiflot.execution_locked or self.digiflot.recording:
             raise RuntimeError("Measured cell dimensions cannot change during acquisition")
