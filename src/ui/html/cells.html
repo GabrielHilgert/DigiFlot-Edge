@@ -4,9 +4,9 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace2">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace3">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cell_inventory.css') }}?v=20261123a">
-  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125workspace2"></script>
+  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125workspace3"></script>
 </head>
 <body>
 {% include "_navbar.html" %}
@@ -42,14 +42,23 @@
     <div id="cv_image_mount"></div>
     <div class="cv-workspace-status"><span id="cv_view_status">Select a cell and camera.</span>
       <span id="cv_cursor_status">Cursor: —</span><span id="cv_calibration_status">Calibration: —</span></div>
+    <details class="cv-camera-accordion" id="cv_camera_calibration_details">
+      <summary><span data-icon="settings">Camera calibration</span><span class="cv-muted">Optics · Relative camera · ArUco</span></summary>
+      <div id="cv_camera_accordion_mount"></div>
+    </details>
   </section>
   <div class="cv-workspace-panels" id="cv_workspace_panels">
     <section class="card cv-workspace-panel cv-measure-panel"><div class="cv-card-head"><div><p class="eyebrow">03 / Physical dimensions</p><h2>Measurements</h2></div></div>
       <p class="cv-description">Pick two points on a calibrated plane or choose saved named endpoints.</p>
-      <label>Dimension to measure<select id="cv_measure_target">
+      <div class="cv-two cv-measure-setup"><label>Dimension<select id="cv_measure_target">
         <option value="height_mm">Height</option><option value="width_mm">Width / diameter</option>
         <option value="depth_mm">Depth</option><option value="collection_height_mm">Collection height</option></select></label>
-      <div class="cv-inline-row cv-measure-actions"><button type="button" id="cv_pick_measure" class="button button-primary" data-icon="crosshair">Pick 2 points</button>
+        <label>Measure<select id="cv_measure_axis">
+          <option value="vertical">Vertical | ΔY</option><option value="horizontal">Horizontal | ΔX</option>
+          <option value="direct">Direct | distance</option></select></label></div>
+      <div class="cv-two cv-measure-setup"><label>Point A<select id="cv_measure_from"><option value="">Select existing point</option></select></label>
+        <label>Point B<select id="cv_measure_to"><option value="">Select existing point</option></select></label></div>
+      <div class="cv-inline-row cv-measure-actions"><button type="button" id="cv_pick_measure" class="button button-primary" data-icon="crosshair">Pick existing points</button>
         <button type="button" id="cv_clear_measure" class="button button-secondary" data-icon="eraser">Clear</button>
         <button type="button" id="cv_save_measure" class="button button-secondary" data-icon="save">Save dimension</button></div>
       <p id="cv_measure_status" class="cv-description" role="status">No measurement selected.</p>
@@ -62,19 +71,36 @@
       <button type="button" class="button button-secondary" id="cv_reuse_saved_aruco" data-icon="rotate-ccw" hidden>Revalidate saved ArUco</button>
       <div id="cv_camera_calib_mount"></div>
       <section class="cv-relative-calibration" id="cv_relative_panel">
-        <div class="cv-group-heading"><strong>Relative camera calibration</strong><span>Does not replace ArUco</span></div>
-        <p class="cv-description">Use an existing calibrated camera and known physical dimension to estimate the metric scale of this camera. For reliable XY dimensions, both clicked lengths must lie in the same physical plane.</p>
-        <div class="cv-two"><label>Calibrated source camera<select id="cv_relative_source"></select></label>
-          <label>Known physical length<select id="cv_relative_reference">
-            <option value="width_mm">Width / diameter</option><option value="height_mm">Height</option>
-            <option value="depth_mm">Depth</option><option value="collection_height_mm">Collection height</option></select></label></div>
-        <div class="cv-two"><label>Dimension to estimate<select id="cv_relative_target">
-          <option value="depth_mm">Depth</option><option value="width_mm">Width / diameter</option>
-          <option value="height_mm">Height</option><option value="collection_height_mm">Collection height</option></select></label>
-          <label>Captured plane<select id="cv_relative_plane"><option value="XY">Top · XY</option><option value="XZ">Side · XZ</option></select></label></div>
-        <div class="cv-inline-row"><button type="button" id="cv_relative_pick_reference" class="button button-secondary" data-icon="crosshair">Pick known length</button>
-          <button type="button" id="cv_relative_pick_target" class="button button-secondary" data-icon="crosshair">Pick estimated length</button></div>
-        <div id="cv_relative_readout" class="cv-description">Select a target camera and place two point pairs.</div>
+        <p class="cv-description">A calibrated source provides the physical length. The other camera uses the same length as its scale reference, then estimates a second dimension. No new ArUco markers are needed.</p>
+        <div class="cv-calibration-step"><strong>1 · Calibrated source</strong>
+          <div class="cv-two"><label>Source camera<select id="cv_relative_source"></select></label>
+            <label>Known dimension<select id="cv_relative_reference">
+              <option value="width_mm">Width / diameter</option><option value="height_mm">Height</option>
+              <option value="depth_mm">Depth</option><option value="collection_height_mm">Collection height</option></select></label></div>
+          <label>Source measurement<select id="cv_relative_source_axis">
+            <option value="horizontal">Horizontal | ΔX</option><option value="vertical">Vertical | ΔY</option>
+            <option value="direct">Direct distance</option></select></label>
+          <button type="button" id="cv_relative_pick_source" class="button button-secondary" data-icon="crosshair">Pick known length on calibrated camera</button>
+          <p class="cv-description" id="cv_relative_source_status">Use two existing points if available, or two temporary points on the rectified plane.</p>
+        </div>
+        <div class="cv-calibration-step"><strong>2 · Same physical length on the other camera</strong>
+          <div class="cv-two"><label>Destination camera<select id="cv_relative_destination"></select></label>
+            <label>Reference orientation<select id="cv_relative_reference_axis">
+              <option value="horizontal">Horizontal | ΔX</option><option value="vertical">Vertical | ΔY</option>
+              <option value="direct">Direct distance</option></select></label></div>
+          <button type="button" id="cv_relative_pick_reference" class="button button-secondary" data-icon="crosshair">Pick same length on destination</button>
+        </div>
+        <div class="cv-calibration-step"><strong>3 · Dimension to estimate</strong>
+          <div class="cv-two"><label>Target dimension<select id="cv_relative_target">
+            <option value="depth_mm">Depth</option><option value="width_mm">Width / diameter</option>
+            <option value="height_mm">Height</option><option value="collection_height_mm">Collection height</option></select></label>
+            <label>Target measurement<select id="cv_relative_target_axis">
+              <option value="vertical">Vertical | ΔY</option><option value="horizontal">Horizontal | ΔX</option>
+              <option value="direct">Direct distance</option></select></label></div>
+          <label>Observation plane<select id="cv_relative_plane"><option value="XY">Top · XY</option><option value="XZ">Side · XZ</option></select></label>
+          <button type="button" id="cv_relative_pick_target" class="button button-secondary" data-icon="crosshair">Pick dimension on destination</button>
+        </div>
+        <div id="cv_relative_readout" class="cv-description" role="status">Complete the three measurements in order. Relative scales remain estimates when perspective is unknown.</div>
         <button type="button" id="cv_save_relative" class="button button-primary" data-icon="save">Save relative calibration</button>
       </section>
       <div id="cv_aruco_mount"></div></section>
