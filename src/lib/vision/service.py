@@ -1382,6 +1382,31 @@ class VisionService:
         if manager is not None:
             manager.mark_inventory_dirty()
 
+    def _ensure_cell_admin_idle(self, cell_id):
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Cell management requires Idle state.")
+        current_id = (self.digiflot.cell_profile or {}).get("physical_cell_id")
+        if str(current_id) == str(cell_id) and self.digiflot.state != self.digiflot.IDLE:
+            raise RuntimeError("Cannot change a cell during an experiment.")
+
+    def rename_cell(self, cell_id, name):
+        self._ensure_cell_admin_idle(cell_id)
+        result = self.registry.rename_cell(cell_id, name)
+        self._notify_cell_inventory_changed()
+        return result
+
+    def archive_cell(self, cell_id, archived=True):
+        self._ensure_cell_admin_idle(cell_id)
+        result = self.registry.archive_cell(cell_id, archived)
+        self._notify_cell_inventory_changed()
+        return result
+
+    def delete_empty_cell(self, cell_id):
+        self._ensure_cell_admin_idle(cell_id)
+        result = self.registry.delete_empty_cell(cell_id)
+        self._notify_cell_inventory_changed()
+        return result
+
     def save_cell(self, values):
         if self.digiflot.execution_locked or self.digiflot.recording:
             raise RuntimeError("Cell definitions cannot change during an experiment")
