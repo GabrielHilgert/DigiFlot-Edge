@@ -144,6 +144,16 @@ def delete_cell_thumbnail(cell_id: str, request: Request):
     return _invoke(service(request).delete_cell_thumbnail, cell_id)
 
 
+@router.get("/cells/{cell_id}/dimensions")
+def cell_dimensions(cell_id: str, request: Request):
+    return _invoke(service(request).registry.get_cell, cell_id)["resolved_dimensions"]
+
+
+@router.put("/cells/{cell_id}/dimensions")
+def save_cell_dimensions(cell_id: str, request: Request, payload: dict):
+    return _invoke(service(request).save_cell_dimension_measurements, cell_id, payload)
+
+
 @router.get("/cells/{cell_id}/reference-points")
 def list_reference_points(cell_id: str, request: Request):
     return _invoke(service(request).registry.reference_points, cell_id)
