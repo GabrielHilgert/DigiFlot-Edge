@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace5">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace6">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cell_inventory.css') }}?v=20261123a">
   <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125workspace5"></script>
 </head>
@@ -41,11 +41,21 @@
       <button id="cv_add_point_tool" type="button" class="button button-secondary" data-icon="crosshair">Add / edit point</button>
       <div id="cv_preview_controls" class="cv-camera-tabs"></div>
     </div>
+    <div id="cv_marking_guide" class="cv-marking-guide" role="status" aria-live="polite">
+      <div><strong id="cv_marking_title">Camera ready</strong><span id="cv_marking_instruction">Select a tool to measure, draw or edit points.</span></div>
+      <div class="cv-marking-meta"><span id="cv_marking_progress">Idle</span>
+      <button id="cv_marking_cancel" type="button" class="button button-secondary" data-icon="x" hidden>Stop picking</button></div>
+    </div>
     <div id="cv_image_mount"></div>
     <div class="cv-workspace-status"><span id="cv_view_status">Select a cell and camera.</span>
       <span id="cv_cursor_status">Cursor: —</span><span id="cv_calibration_status">Calibration: —</span></div>
+    <details class="cv-camera-accordion" id="cv_metrology_details" open>
+      <summary><span data-icon="crosshair">Optical measurements & cross-sectional area</span>
+        <span class="cv-muted">Physical dimensions · Relative scale · Cross-section outlines</span></summary>
+      <div id="cv_metrology_mount"></div>
+    </details>
     <details class="cv-camera-accordion" id="cv_camera_calibration_details">
-      <summary><span data-icon="settings">Camera calibration</span><span class="cv-muted">Optics · Relative camera · ArUco</span></summary>
+      <summary><span data-icon="settings">Camera calibration</span><span class="cv-muted">Optical profile · ArUco · ROI</span></summary>
       <div id="cv_camera_accordion_mount"></div>
     </details>
   </section>
@@ -117,18 +127,30 @@
       <details class="cv-subaccordion cv-outline-section" id="cv_outlines_details">
         <summary><span data-icon="square">Visual cross-section outlines</span></summary>
         <div class="cv-outline-editor">
-          <p class="cv-description">Draw two opposite corners on the top camera. Shape vertices stay inside the outline, not in Named Physical References.</p>
-          <div class="cv-two"><label>Shape<select id="cv_shape_type">
-            <option value="rectangle">Rectangle</option><option value="square">Square</option><option value="circle">Circle</option></select></label>
+          <p class="cv-description">Estimate the transverse XY section. Choose a drawing method, mark each vertex on the best camera image, then link one edge to an existing physical dimension. Shape vertices are not saved as physical references.</p>
+          <div class="cv-two"><label>Cross-section shape<select id="cv_shape_type">
+            <option value="rectangle">Rectangle</option><option value="square">Square</option>
+            <option value="circle">Circle</option><option value="polygon">Polygon</option></select></label>
             <label>Name<input id="cv_shape_name" maxlength="80" placeholder="Inner cell section"></label></div>
-          <div class="cv-two"><label>Link existing dimension<select id="cv_shape_anchor">
+          <label>How to mark the outline<select id="cv_shape_method">
+            <option value="diagonal">2 opposite corners · axis-aligned</option>
+            <option value="three_corners">3 consecutive corners · rotated rectangle</option>
+            <option value="four_faces">4 side midpoints · around the perimeter</option>
+          </select></label>
+          <div class="cv-two"><label>Known physical dimension<select id="cv_shape_anchor">
             <option value="width_mm">Width / diameter</option><option value="depth_mm">Depth</option></select></label>
-            <label>Linked side<select id="cv_shape_axis"><option value="horizontal">Horizontal side / diameter</option>
-              <option value="vertical">Vertical side / diameter</option></select></label></div>
+            <label id="cv_shape_axis_label">Linked image direction<select id="cv_shape_axis">
+              <option value="horizontal">Horizontal span / diameter</option>
+              <option value="vertical">Vertical span / diameter</option></select></label>
+            <label id="cv_shape_edge_label" hidden>Which outline edge matches this dimension?<select id="cv_shape_edge">
+              <option value="0">Edge 1 · point 1 → point 2</option></select></label></div>
           <div class="cv-inline-row cv-shape-actions">
-            <button type="button" class="button button-secondary" id="cv_shape_draw" data-icon="square">Draw outline</button>
+            <button type="button" class="button button-secondary" id="cv_shape_draw" data-icon="crosshair">Start marking</button>
+            <button type="button" class="button button-secondary" id="cv_shape_undo" data-icon="rotate-ccw">Undo point</button>
+            <button type="button" class="button button-secondary" id="cv_shape_finish" data-icon="check" hidden>Close polygon</button>
             <button type="button" class="button button-primary" id="cv_shape_save" data-icon="save">Save outline</button>
             <button type="button" class="button button-secondary" id="cv_shape_cancel" data-icon="eraser">Clear</button></div>
+          <div id="cv_shape_progress" class="cv-shape-progress" role="status">No vertices selected.</div>
           <div id="cv_shape_readout" class="cv-description" role="status">No shape selected. Requires a known dimension and a top-view image.</div>
           <details class="cv-quick-group"><summary>Saved outlines</summary><div id="cv_shape_list"></div></details>
         </div>
