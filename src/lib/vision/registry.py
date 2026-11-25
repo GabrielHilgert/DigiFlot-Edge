@@ -102,6 +102,12 @@ class VisionRegistry:
             from .cell_metrics import resolve_cell_dimensions
             cell["dimension_measurements"] = self.dimension_measurements(cell_id)
             cell["resolved_dimensions"] = resolve_cell_dimensions(cell, cell["dimension_measurements"])
+            from .cell_metrics import volume_curve_is_current
+            cell["volume_calibration"] = self.volume_calibration(cell_id)
+            cell["volume_calibration"]["valid"] = volume_curve_is_current(cell, cell["volume_calibration"])
+            if cell["volume_calibration"]["valid"]:
+                cell["resolved_dimensions"]["effective_area_range_cm2"] = cell["volume_calibration"]["area_range_cm2"]
+                cell["resolved_dimensions"]["volume_model"] = "calibrated_volume_curve"
             return cell
 
     def cell_vertical_reference(self, cell_id):
@@ -183,6 +189,31 @@ class VisionRegistry:
             record = {"revision": current["revision"] + 1, "pairs": pairs, "updated_at": _timestamp()}
             _write(self.root / "dimension_measurements" / f"{_safe_id(cell_id)}.json", record)
             return record
+
+    def volume_calibration(self, cell_id):
+        """Measured fill-volume curve, versioned separately from ArUco geometry."""
+        with self.lock:
+            self.get_cell_base(cell_id)
+            return {"revision": 0, "points": [], "raw_points": [],
+                    "datum_reference_id": "cell_bottom", "valid": False,
+                    **_read(self.root / "volume_calibrations" / f"{_safe_id(cell_id)}.json", {})}
+
+    def save_volume_calibration(self, cell_id, values):
+        from .cell_metrics import normalize_volume_curve
+        with self.lock:
+            cell = self.get_cell(cell_id)
+            current = self.volume_calibration(cell_id)
+            expected = (values or {}).get("expected_revision")
+            if expected is not None and int(expected) != current["revision"]:
+                raise RuntimeError("Volume calibration was updated in another tab. Reload the cell.")
+            curve = normalize_volume_curve(cell, values)
+            comparable = ("points", "datum_reference_id", "reference_revision",
+                          "bottom_y_cm", "datum_y_cm")
+            if all(curve.get(key) == current.get(key) for key in comparable):
+                return current
+            result = {**curve, "revision": current["revision"] + 1, "updated_at": _timestamp()}
+            _write(self.root / "volume_calibrations" / f"{_safe_id(cell_id)}.json", result)
+            return result
 
     def save_cell(self, record):
         if not isinstance(record, dict):
