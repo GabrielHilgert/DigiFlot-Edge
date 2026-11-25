@@ -365,13 +365,9 @@
       view.visible.map(point=>'<option value="'+esc(point.id)+'">'+esc(view.label(point))+
         (point.position_cm?'':' · not placed')+'</option>').join('');
     const from=$('cv_measure_from'),to=$('cv_measure_to');
-    const before=[from.value,to.value];
     from.innerHTML=refOptions;to.innerHTML=refOptions;
     const defaults=field==='height_mm'?['cell_top','cell_bottom']:['',''];
-    const values=[pair.from_id||defaults[0],pair.to_id||defaults[1]];
-    from.value=values[0];to.value=values[1];
-    if(!from.value)from.value=before[0]&&[...from.options].some(o=>o.value===before[0])?before[0]:'';
-    if(!to.value)to.value=before[1]&&[...to.options].some(o=>o.value===before[1])?before[1]:'';
+    from.value=pair.from_id||defaults[0];to.value=pair.to_id||defaults[1];
     $('cv_measure_axis').value=pair.axis||measurementAxisDefault[field];
     state.measurePointIds=[from.value,to.value].filter(Boolean);
     updateMeasurementPreview();
@@ -561,7 +557,7 @@
       const dot=document.createElement('span');dot.className='cv-physical-pin';
       if(point.id===state.activePoint||state.measurePointIds.includes(point.id))dot.classList.add('selected');
       dot.style.left=100*xy[0]+'%';dot.style.top=100*xy[1]+'%';
-      dot.title=point.name+' · '+(state.view==='rectified'?'physical cm':'camera observation');
+      dot.dataset.label=point.name;dot.title=point.name+' · '+(state.view==='rectified'?'physical cm':'camera observation');
       layer.append(dot);
     }
   }
