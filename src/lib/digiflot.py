@@ -1577,6 +1577,10 @@ class DigiFlot:
                 profile["working_volume_l"] = volume
                 profile["working_volume_source"] = "operator"
             self.virtual_camera_id = chosen
+            # Remember the physical pair independently from operational sensor settings.
+            # Idle HIFIE can restore this selection after the experiment is reset.
+            self.vision.registry.save_settings({"last_used_cell_id": cell["id"],
+                                                "last_used_camera_id": chosen})
             self.experiment["cell_profile"] = deepcopy(profile)
             self.experiment["physical_cell_id"] = cell["id"]
             _atomic_write_json(self.run_directory / "physical_cell_snapshot.json", deepcopy(cell))

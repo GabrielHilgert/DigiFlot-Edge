@@ -747,11 +747,34 @@ class VisionService:
         finally:
             self._roi_snapshot_lock.release()
 
+    def _suggest_standalone_hifie(self):
+        """Recover the last used cell and a currently calibrated camera, without opening it."""
+        settings = self.registry.settings()
+        cell_id = settings.get("last_used_cell_id") or settings.get("cell_id")
+        if not cell_id:
+            return None
+        try:
+            cell = self.registry.get_cell(cell_id)
+        except (KeyError, ValueError):
+            return None
+        preferred = settings.get("last_used_camera_id") or settings.get("camera_id")
+        candidates = sorted(self.digiflot.cameras, key=lambda cam: str(cam) != str(preferred))
+        for camera_id in candidates:
+            assoc = self.registry.association(camera_id, cell["id"])
+            if (assoc is not None and assoc.get("cell_revision") == cell["revision"] and
+                    assoc.get("camera_revision") == self.registry.camera_profile(camera_id)["revision"]):
+                return {"cell_id": cell["id"], "camera_id": int(camera_id), "ready": True}
+        if preferred is not None and str(preferred) in {str(key) for key in self.digiflot.cameras}:
+            return {"cell_id": cell["id"], "camera_id": int(preferred), "ready": False}
+        return {"cell_id": cell["id"], "camera_id": None, "ready": False}
+
     def standalone_hifie_inventory(self):
         """Idle-only configuration; never creates or modifies an experiment."""
         selected = getattr(self, "_standalone_target", None) if self.digiflot.state == getattr(self.digiflot, "IDLE", "Idle") else None
         return {"available": self.digiflot.state == getattr(self.digiflot, "IDLE", "Idle"),
                 "selected": dict(selected) if selected else None,
+                "suggested": self._suggest_standalone_hifie() if
+                    self.digiflot.state == getattr(self.digiflot, "IDLE", "Idle") else None,
                 "cells": [{"id": cell["id"], "name": cell["name"]} for cell in self.registry.list_cells()],
                 "cameras": [{"id": camera.id, "name": camera.name}
                             for camera in self.digiflot.cameras.values()]}
@@ -786,6 +809,8 @@ class VisionService:
             self._standalone_target = target
             self._standalone_owner_id = str(owner_id)
             self._standalone_until = time.monotonic() + 600.0
+        self.registry.save_settings({"last_used_cell_id": target["cell_id"],
+                                     "last_used_camera_id": target["camera_id"]})
         return self.standalone_hifie_inventory()
 
     def _standalone_hifie_active(self):

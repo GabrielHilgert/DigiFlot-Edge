@@ -458,7 +458,7 @@ class VisionRegistry:
     def save_settings(self, values):
         with self.lock:
             old = self.settings()
-            for key in ("camera_id", "cell_id"):
+            for key in ("camera_id", "cell_id", "last_used_cell_id", "last_used_camera_id"):
                 if key in values:
                     old[key] = _safe_id(values[key]) if values[key] is not None else None
             if "enabled" in values:

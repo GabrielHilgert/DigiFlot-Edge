@@ -1296,7 +1296,7 @@ function calibrationMarkup(snapshot) {
             return '<div class="calibration-block"><strong>HIFIE</strong><span>Configure in Idle or during sensor calibration.</span></div>';
         if(!state.calibrationMode) {
             const info=state.standaloneHifie||{cells:[],cameras:[],selected:null};
-            const chosen=info.selected||{};
+            const chosen=info.selected||info.suggested||{};
             const cells=info.cells.map(item=>'<option value="'+escapeHtml(item.id)+'" '+(chosen.cell_id===item.id?'selected':'')+'>'+escapeHtml(item.name)+'</option>').join("");
             const cameras=info.cameras.map(item=>'<option value="'+escapeHtml(item.id)+'" '+(String(chosen.camera_id)===String(item.id)?'selected':'')+'>'+escapeHtml(item.name)+'</option>').join("");
             return '<div class="calibration-block hifie-standalone"><div><strong>HIFIE · Standalone calibration</strong>'+
@@ -1304,7 +1304,7 @@ function calibrationMarkup(snapshot) {
                 '<div class="hifie-standalone-selectors"><label>Cell<select class="hifie-standalone-cell"><option value="">Select cell</option>'+cells+'</select></label>'+
                 '<label>Camera<select class="hifie-standalone-camera"><option value="">Select camera</option>'+cameras+'</select></label></div>'+
                 '<div class="calibration-actions"><button type="button" class="button button-secondary hifie-standalone-select" data-icon="check">Use cell & camera</button>'+
-                '<button type="button" class="button button-primary open-virtual-calibration" data-icon="scan" '+(!chosen.cell_id?'disabled':'')+'>Configure HIFIE</button>'+
+                '<button type="button" class="button button-primary open-virtual-calibration" data-icon="scan" '+(!info.selected?.cell_id?'disabled':'')+'>Configure HIFIE</button>'+
                 '<a class="button button-secondary" href="/cells" data-icon="ruler">Cell references</a></div></div>';
         }
         const item = calibrationItem(snapshot.id) || {};
@@ -2302,8 +2302,21 @@ document.getElementById("virtual_confirm").addEventListener("click", async () =>
 async function initialise() {
     try {
         await refreshDigiFlotState();
-        if(state.maintenanceMode)
+        if(state.maintenanceMode){
             state.standaloneHifie=await requestJson("/api/vision/virtual-sensors/froth-interface/standalone").catch(()=>null);
+            const suggestion=state.standaloneHifie?.suggested;
+            // Do not open the camera here: select only the validated association.
+            if(suggestion?.ready && !state.standaloneHifie?.selected){
+                try {
+                    state.standaloneHifie=await requestJson("/api/vision/virtual-sensors/froth-interface/standalone",{
+                        method:"PUT",headers:{"Content-Type":"application/json"},
+                        body:JSON.stringify({cell_id:suggestion.cell_id,camera_id:suggestion.camera_id})
+                    });
+                } catch(error) {
+                    console.warn("HIFIE automatic selection unavailable:",error);
+                }
+            }
+        }
         await loadSensors();
         const requested = new URLSearchParams(window.location.search).get("review");
         if (requested && state.digiflot.state === "Ready") {
