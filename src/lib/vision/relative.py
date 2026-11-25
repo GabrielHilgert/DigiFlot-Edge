@@ -37,8 +37,8 @@ def normalized_distance(pair, frame_size, camera_profile, image_space, axis="dir
     if image_space == "raw":
         K, D, model = optical_parameters(camera_profile, (width, height))
         coords = _undistort_points(coords, K, D, model)
-    elif image_space != "undistorted":
-        raise ValueError("Select raw or undistorted image coordinates")
+    elif image_space not in ("undistorted", "rectified"):
+        raise ValueError("Select a raw, undistorted or rectified image")
     if axis not in MEASURE_AXES: raise ValueError("Invalid image measurement axis")
     delta = np.abs(coords[1]-coords[0]); distance = float(delta[0] if axis == "horizontal" else delta[1] if axis == "vertical" else np.linalg.norm(delta))
     if not math.isfinite(distance) or distance < 3:
