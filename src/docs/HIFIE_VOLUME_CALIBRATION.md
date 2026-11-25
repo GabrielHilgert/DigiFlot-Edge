@@ -75,3 +75,14 @@ Future API (separate from detector configuration): `GET/PUT /api/vision/cells/{c
 - One-point and multi-point curves, interpolation, bounded extrapolation, conflicting/duplicate data, and changed bottom references.
 - Idle standalone calibration must not start a run, continuous operational worker or sensor recording.
 - Frozen-frame preview must be independent from Live mode; leaving the modal must release the preview even after failed diagnostics stop.
+
+## Implemented in Cells (November 25, 2026)
+
+- The three mandatory named physical references are `outlet_level`, `cell_top` and `cell_bottom`. Their coordinates can be unset; their identities cannot be deleted or repurposed. The automatic ArUco reference also remains fixed. Older cells receive missing references without removing saved custom points.
+- `cell.geometry` stores nominal dimensions. `dimension_measurements` stores named point pairs for width, depth and collection height; cell height comes from the fixed top/bottom pair. The computed `resolved_dimensions` prefers measured distances, then derived positions, then nominal parameters. The resolved geometric cross-section is not an experimentally calibrated effective area.
+- Experimental V(h) curves are stored independently at `vision/volume_calibrations/<cell_id>.json`. A fill measurement can use any calibrated named reference; the system translates its height to the known Cell bottom, inserts the fixed origin `(0 cm, 0 L)` and fits a monotonic piecewise-linear curve through the known fills.
+- Above the final known fill, V(h) is extrapolated linearly using the last measured slope. Each segment's slope estimates the local effective cross-sectional area, in cm². The result carries `extrapolated` and `volume_calibration_revision` provenance.
+- Changing named physical references invalidates the existing V(h) curve without erasing its original fill points. Reconfirming/re-saving the curve uses the revised positions. Editing nominal dimensions does not alter a measured calibration.
+- HIFIE volume capture now prioritizes a valid experimental V(h) curve; its fallback is resolved cylindrical/rectangular geometry, and it otherwise records heights only. The volume under an interface is bulk region volume, **not automatically water volume** in a gas/solids suspension.
+
+The derived area is based on the known fill-volume relation; it should not be mistaken for a spatially uniform area where the piecewise slopes differ.
