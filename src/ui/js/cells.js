@@ -32,7 +32,7 @@
   const action = callback => async () => { try { await callback(); } catch (err) { toast(err.message, true); } };
   const showImage = (data, view='raw') => {
     if (!data?.jpeg_base64) return;
-    state.view = view;state.imageSpace=data.image_space||'raw';
+    state.view=view;state.imageSpace=view==='rectified'?'rectified':data.image_space||'raw';
     state.opticsCorrected=Boolean(data.optics_corrected)||view==='rectified';
     state.capturedCameraId=state.cameraId;
     state.capturedProfileRevision=state.profile?.revision??null;
@@ -1384,19 +1384,47 @@
       destinationSelect.value=String(second.id);
     showWorkspaceStatus();
   }
+  async function openBestCamera(cameraId,{requireMetric=false,focus=false,force=false}={}){
+    if(cameraId==null||cameraId==='')throw new Error('Choose a camera first.');
+    const switching=String(cameraId)!==String(state.cameraId);
+    if(switching){
+      if(state.namedDirty)throw new Error('Save edited physical references before switching cameras.');
+      await loadCamera(cameraId);
+      $('camera_select').value=String(cameraId);
+    }
+    const metric=Boolean(state.cellId&&state.association&&
+      state.association.camera_revision===state.profile?.revision&&
+      state.association.cell_revision===state.cell?.revision);
+    const optics=state.profile?.optics?.mode&&state.profile.optics.mode!=='none';
+    const choices=[...(metric?['rectified']:[]),...(optics?['undistorted']:[]),...(!requireMetric?['raw']:[])];
+    if(requireMetric&&!metric)throw new Error('No current metric plane for this camera. Use a known cell dimension or revalidate its saved ArUco.');
+    const current=state.view==='rectified'?'rectified':state.imageSpace==='undistorted'?'undistorted':'raw';
+    if(!force&&!switching&&choices[0]===current&&$('camera_image').naturalWidth){
+      if(focus)$('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
+      updateMarkingGuide();return current;
+    }
+    const errors=[];
+    for(const choice of choices){
+      try{
+        if(choice==='rectified')await rectifiedSnapshot();
+        else if(choice==='undistorted')await refreshUndistortedSnapshot();
+        else await refreshRawSnapshot();
+        if(focus)$('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
+        updateMarkingGuide();return choice;
+      }catch(error){errors.push(choice+': '+error.message);}
+    }
+    throw new Error('Camera '+cameraId+' could not provide a measurement frame. '+errors.join('; '));
+  }
   async function selectCameraRole(role){
     const camera=state.cameraRoles[role];
     if(camera==null)throw new Error('No '+role+' camera is available.');
-    if(String(camera)===String(state.cameraId))return;
-    if(state.namedDirty&&!window.confirm('There are unsaved physical references. Switch cameras without saving?'))return;
+    await openBestCamera(camera,{focus:true});
     setWorkspaceTool('select');
-    await loadCamera(camera);
-    $('camera_select').value=String(camera);
-    try{
-      if(state.association && state.association.camera_revision===state.profile?.revision &&
-          state.association.cell_revision===state.cell?.revision)await rectifiedSnapshot();
-      else await refreshUndistortedSnapshot();
-    }catch(error){toast('Camera selected. Start its preview if capture is unavailable: '+error.message,true);}
+  }
+  async function refreshRawSnapshot(){
+    if(state.cameraId==null)throw new Error('Select a camera.');
+    const data=await api('/cameras/'+state.cameraId+'/snapshot?show_grid=false');
+    showImage(data,'raw');
   }
   async function refreshUndistortedSnapshot(){
     if(state.cameraId==null)throw new Error('Select a camera first.');
@@ -1406,16 +1434,9 @@
   }
   async function switchRelativeCamera(cameraId,rectified){
     if(!cameraId||!state.cellId)throw new Error('Select a cell and camera before calibration.');
-    if(String(cameraId)!==String(state.cameraId))await loadCamera(cameraId);
-    $('camera_select').value=String(cameraId);
-    if(rectified){
-      if(!state.association||state.association.camera_revision!==state.profile?.revision||
-          state.association.cell_revision!==state.cell?.revision)
-        throw new Error('This source needs a current saved ArUco association; revalidate its original calibration first.');
-      await rectifiedSnapshot();
-    }else await refreshUndistortedSnapshot();
-    $('cv_camera_calibration_details').open=true;
-    $('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
+    const view=await openBestCamera(cameraId,{requireMetric:rectified,focus:true});
+    $('cv_metrology_details').open=true;
+    return view;
   }
   async function pickRelativeSource(){
     const source=$('cv_relative_source').value,destination=$('cv_relative_destination').value;
@@ -1438,6 +1459,7 @@
         throw new Error('No current source ArUco plane and no independent known dimension. '+error.message);
       }
       state.relativeSourceLengthMm=known.value_mm;state.relativeSourceMode='resolved_dimension';
+      await openBestCamera(source,{focus:true}).catch(()=>{});
       setWorkspaceTool('select');
       text('cv_relative_source_status','Using saved cell '+$('cv_relative_reference').selectedOptions[0].textContent+
         ': '+known.value_mm.toFixed(2)+' mm ('+known.source+'). Source image is unavailable; no ArUco re-detection needed.');
@@ -1455,11 +1477,7 @@
       state.relativePairs={reference:[],target:[]};
       state.relativeDestinationCameraId=destination;
     }
-    if(String(state.cameraId)!==destination||state.view==='rectified'){
-      await switchRelativeCamera(destination,false);
-    }else if(!state.frame||state.imageSpace!=='undistorted'){
-      await refreshUndistortedSnapshot();
-    }
+    await switchRelativeCamera(destination,false);
     const key=which==='relative_reference'?'reference':'target';
     state.relativePairs[key]=[];
     setWorkspaceTool(which);drawWorkspaceMeasurements();
@@ -1709,16 +1727,12 @@
   $('named_reference_list').addEventListener('click',e=>{if(e.target.dataset.refAction)action(()=>handleNamedPoint(e))();});
   $('named_reference_list').addEventListener('change',e=>action(()=>handleNamedPoint(e))());
   $('camera_select').addEventListener('change',action(async()=>{
-    await loadCamera($('camera_select').value);
-    showWorkspaceStatus();
+    await openBestCamera($('camera_select').value);
+    setWorkspaceTool('select');
   }));
   $('cv_side_camera').addEventListener('click',action(()=>selectCameraRole('side')));
   $('cv_top_camera').addEventListener('click',action(()=>selectCameraRole('top')));
-  $('cv_raw_view').addEventListener('click',action(async()=>{
-    if(state.cameraId==null)throw new Error('Select a camera.');
-    const result=await api('/cameras/'+state.cameraId+'/snapshot?show_grid=false');
-    showImage(result,'raw');
-  }));
+  $('cv_raw_view').addEventListener('click',action(refreshRawSnapshot));
   $('cv_undistorted_view').addEventListener('click',action(refreshUndistortedSnapshot));
   $('cv_rectified_view').addEventListener('click',action(rectifiedSnapshot));
   $('cv_zoom_fit').addEventListener('click',()=>changeZoom(1));
