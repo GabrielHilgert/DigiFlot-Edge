@@ -107,16 +107,18 @@
   }
   function setWorkspaceTool(mode){
     state.uiTool=mode;
-    for(const id of ['cv_pick_measure','cv_relative_pick_reference','cv_relative_pick_target','cv_pan_mode']){
+    for(const id of ['cv_pick_measure','cv_relative_pick_source','cv_relative_pick_reference','cv_relative_pick_target','cv_pan_mode']){
       const button=$(id);button.classList.toggle('cv-active-tool',
         (id==='cv_pick_measure'&&mode==='measure')||(id==='cv_pan_mode'&&mode==='pan')||
+        (id==='cv_relative_pick_source'&&mode==='relative_source')||
         (id==='cv_relative_pick_reference'&&mode==='relative_reference')||
         (id==='cv_relative_pick_target'&&mode==='relative_target'));
       button.setAttribute('aria-pressed',String(button.classList.contains('cv-active-tool')));
     }
     $('image_help').textContent=mode==='pan'?'Drag to pan. Wheel to zoom. Fit returns to the original view.':
-      mode==='measure'?'Click two endpoints for the selected dimension. Save explicitly to update cell references.':
-      mode.startsWith('relative_')?'Select two endpoints on one frozen raw/undistorted frame in the same physical plane.':
+      mode==='measure'?'Click two EXISTING physical reference dots; no new references will be created.':
+      mode==='relative_source'?'On the calibrated source plane, select two points spanning the known length.':
+      mode.startsWith('relative_')?'Select two endpoints on the destination camera frame for this measurement.':
       state.view==='rectified'?'Rectified plane · place references or drag the analysis ROI.':
       'Raw camera · drag the sensor ROI. Use an existing saved calibration when available.';
   }
@@ -153,47 +155,90 @@
     overlay.replaceChildren();
     const img=$('camera_image'),r=img.getBoundingClientRect(),outer=$('image_surface').getBoundingClientRect();
     if(!img.naturalWidth||!r.width)return;
-    const elements=[{points:state.measurePoints,color:'#49b8ef',label:'Dimension'},
-      {points:state.relativePairs.reference,color:'#eab25f',label:'Known length'},
-      {points:state.relativePairs.target,color:'#87d7b3',label:'Estimated length'}];
-    for(const entry of elements){
-      const pts=entry.points||[];
-      const xy=pts.map(p=>[r.left-outer.left+p[0]*r.width,r.top-outer.top+p[1]*r.height]);
+    const ids=[$('cv_measure_from').value,$('cv_measure_to').value];
+    const currentSource=String(state.cameraId)===String(state.relativeSourceCameraId);
+    const currentTarget=String(state.cameraId)===String(state.relativeDestinationCameraId);
+    const items=[
+      {points:ids.every(Boolean)?ids.map(referencePointInView):[],color:'#49b8ef',label:'Physical dimension',
+       axis:$('cv_measure_axis').value},
+      {points:currentSource&&state.view==='rectified'?state.relativeSourcePoints:[],
+       color:'#eab25f',label:'Calibrated source length',axis:$('cv_relative_source_axis').value},
+      {points:currentTarget?state.relativePairs.reference:[],
+       color:'#f2a74d',label:'Reference on destination',axis:$('cv_relative_reference_axis').value},
+      {points:currentTarget?state.relativePairs.target:[],
+       color:'#87d7b3',label:'Target dimension',axis:$('cv_relative_target_axis').value}
+    ];
+    const addLine=(a,b,color,guide=false)=>{
+      const line=document.createElement('div');line.className='cv-measure-line'+(guide?' cv-projection-guide':'');
+      const length=Math.hypot(b[0]-a[0],b[1]-a[1]);
+      Object.assign(line.style,{left:a[0]+'px',top:a[1]+'px',width:length+'px',
+        transform:'rotate('+Math.atan2(b[1]-a[1],b[0]-a[0])+'rad)',background:color});
+      overlay.append(line);
+    };
+    for(const entry of items){
+      const ps=(entry.points||[]).filter(p=>Array.isArray(p)&&p.every(Number.isFinite));
+      const xy=ps.map(p=>[r.left-outer.left+p[0]*r.width,r.top-outer.top+p[1]*r.height]);
       for(const [i,p] of xy.entries()){
         const marker=document.createElement('span');marker.className='cv-measure-pin';
         marker.style.left=p[0]+'px';marker.style.top=p[1]+'px';marker.style.background=entry.color;
         marker.title=entry.label+' · point '+(i+1);overlay.append(marker);
       }
-      if(xy.length===2){
-        const line=document.createElement('div');line.className='cv-measure-line';
-        const [p,q]=xy;const length=Math.hypot(q[0]-p[0],q[1]-p[1]);
-        Object.assign(line.style,{left:p[0]+'px',top:p[1]+'px',width:length+'px',
-          transform:'rotate('+Math.atan2(q[1]-p[1],q[0]-p[0])+'rad)',background:entry.color});
-        overlay.append(line);
-      }
+      if(xy.length!==2)continue;
+      const [a,b]=xy;
+      if(entry.axis==='horizontal'){
+        addLine([a[0],a[1]],[b[0],a[1]],entry.color);
+        addLine([b[0],a[1]],b,entry.color,true);
+      }else if(entry.axis==='vertical'){
+        addLine([a[0],a[1]],[a[0],b[1]],entry.color);
+        addLine([a[0],b[1]],b,entry.color,true);
+      }else addLine(a,b,entry.color);
     }
   }
+
   function captureWorkspacePoint(p){
-    if(state.uiTool==='measure'){
-      if(state.measurePoints.length>=2)state.measurePoints=[];
-      state.measurePoints.push(p);
-      const points=state.measurePoints;
-      if(points.length===2){
-        const d=(state.view==='rectified'&&state.plane)?
-          Math.hypot(...[0,1].map(i=>planePoint(points[1])[i]-planePoint(points[0])[i]))*10:null;
-        text('cv_measure_status',d!=null?'Measured distance: '+d.toFixed(2)+' mm · Save to link to cell geometry':
-          'Two points selected · '+(state.relativeRecord?'Relative scale available; use relative calibration panel to save.':'Pixels only. Calibrate this camera first.'));
-      }else text('cv_measure_status','First endpoint placed · select the second endpoint.');
-    }else{
-      const field=state.uiTool==='relative_reference'?'reference':'target';
-      const target=state.relativePairs[field];
-      if(target.length>=2)target.length=0;
-      target.push(p);
-      text('cv_relative_readout',target.length===1?'First '+field+' endpoint placed · pick the second.':
-        'Two '+field+' endpoints placed · '+state.relativePairs.reference.length+
-        '/2 reference · '+state.relativePairs.target.length+'/2 target.');
+    const mode=state.uiTool;
+    if(mode==='measure'){
+      const nearest=nearestReferenceOnImage(p);
+      if(!nearest){
+        text('cv_measure_status','No saved reference near that click. Use the existing markers, or place a named physical reference first.');
+        return;
+      }
+      let ids=state.measurePointIds||[];
+      if(ids.length>=2)ids=[];
+      if(ids.includes(nearest.id)){text('cv_measure_status','Select two different physical references.');return;}
+      ids.push(nearest.id);state.measurePointIds=ids;
+      $('cv_measure_from').value=ids[0]||'';$('cv_measure_to').value=ids[1]||'';
+      updateMeasurementPreview();return;
     }
-    drawWorkspaceMeasurements();
+    if(mode==='relative_source'){
+      if(state.view!=='rectified'||!state.plane){
+        text('cv_relative_source_status','Select a rectified image of the calibrated source.');return;
+      }
+      if(state.relativeSourcePoints.length>=2)state.relativeSourcePoints=[];
+      const nearest=nearestReferenceOnImage(p);
+      state.relativeSourcePoints.push(nearest?.point||p);
+      if(state.relativeSourcePoints.length===2){
+        state.relativeSourceCm=state.relativeSourcePoints.map(planePoint);
+        state.relativeSourceCalibrationId=state.capturedCalibrationId;
+        state.relativeSourceCameraRevision=state.capturedProfileRevision;
+        const axis=$('cv_relative_source_axis').value;
+        const length=projectedMetricValue(...state.relativeSourceCm,axis);
+        text('cv_relative_source_status',length.toFixed(2)+' mm · '+axis+
+          ' · source '+state.relativeSourceCameraId+' · next: pick the same length on destination');
+        text('cv_relative_readout','Calibrated source length: '+length.toFixed(2)+' mm. Now select its matching endpoints on the other camera.');
+      }else text('cv_relative_source_status','First source endpoint selected. Click the second.');
+    }else if(mode==='relative_reference'||mode==='relative_target'){
+      if(String(state.cameraId)!==String(state.relativeDestinationCameraId)){
+        text('cv_relative_readout','Switch to the destination camera before picking its reference or target.');return;
+      }
+      const key=mode==='relative_reference'?'reference':'target',pair=state.relativePairs[key];
+      if(pair.length>=2)pair.length=0;
+      const nearest=nearestReferenceOnImage(p);pair.push(nearest?.point||p);
+      text('cv_relative_readout',pair.length===1?'First '+key+' endpoint selected. Click the second.':
+        'Selected '+key+' length on destination camera. '+state.relativePairs.reference.length+
+        '/2 reference points, '+state.relativePairs.target.length+'/2 target points.');
+    }
+    drawWorkspaceMeasurements();relativeReadout();
   }
 
   function setCellForm(cell) {
