@@ -52,6 +52,7 @@ jobs:
           node tests/test_hifie_derived_measurements.js
           node tests/test_hifie_standalone_ui.js
           node tests/test_hifie_cleanup_release.js
+          node tests/test_hifie_standalone_defaults.js
       - name: Verify documentation links
         run: node tests/test_documentation_links.js
       - name: Compile Python sources
@@ -80,6 +81,8 @@ jobs:
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_sensor_multiplex_hifie.py' -v
       - name: HIFIE level reference and geometry-derived volume
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_hifie_derived_measurements.py' -v
+      - name: HIFIE last-used standalone defaults
+        run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_hifie_standalone_defaults.py' -v
       - name: Scraping timing and GPIO worker tests
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_scraping_timing.py' -v
       - name: Required measurements for manual-stage transitions
