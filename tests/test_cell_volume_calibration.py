@@ -52,6 +52,17 @@ class VolumeCurveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"inside"):
             normalize_volume_curve(self.cell,{"points":[{"height_cm":25,"volume_l":1.}]})
 
+    def test_nominal_height_can_supply_missing_bottom_with_lower_provenance(self):
+        self.cell["reference_points"]["points"][3]["position_cm"] = None
+        self.cell["reference_points"]["points"][3]["source"] = "unset"
+        self.cell["geometry"] = {"shape": "custom", "height_mm": 200}
+        curve = normalize_volume_curve(self.cell, {"datum_reference_id":"outlet_level",
+            "points":[{"height_cm": -4, "volume_l": .3}]})
+        self.assertEqual(curve["bottom_source"], "nominal_derived")
+        self.assertTrue(volume_curve_is_current(self.cell, curve))
+        self.cell["geometry"]["height_mm"] = 210
+        self.assertFalse(volume_curve_is_current(self.cell, curve))
+
     def test_revision_invalidated_by_reference_edits(self):
         curve=normalize_volume_curve(self.cell,{"points":[{"height_cm":6,"volume_l":.3}]})
         self.assertTrue(volume_curve_is_current(self.cell,curve))
