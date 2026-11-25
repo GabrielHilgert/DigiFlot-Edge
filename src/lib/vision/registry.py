@@ -73,13 +73,17 @@ class VisionRegistry:
         self.lock = threading.RLock()
         self._successful_match_cache = {}  # Cache disk proofs between live lores frames.
 
-    def list_cells(self):
+    def list_cells(self, include_archived=False):
         with self.lock:
             result = []
             for path in sorted((self.root / "cells").glob("*.json")):
                 try:
                     record = _read(path)
                     if isinstance(record, dict) and record.get("id"):
+                        lifecycle = self.cell_lifecycle(record["id"])
+                        if lifecycle["archived"] and not include_archived:
+                            continue
+                        record["archived"] = lifecycle["archived"]
                         record["thumbnail"] = self.thumbnail_info(record["id"])
                         record["reference_points_revision"] = self.reference_points(record["id"]).get("revision", 0)
                         record["vertical_reference_revision"] = self.cell_vertical_reference(record["id"]).get("revision", 0)
@@ -99,6 +103,7 @@ class VisionRegistry:
             cell["reference_points_revision"] = cell["reference_points"].get("revision", 0)
             cell["vertical_reference_revision"] = cell["vertical_reference"].get("revision", 0)
             cell["thumbnail"] = self.thumbnail_info(cell_id)
+            cell["archived"] = self.cell_lifecycle(cell_id)["archived"]
             from .cell_metrics import resolve_cell_dimensions
             cell["dimension_measurements"] = self.dimension_measurements(cell_id)
             cell["resolved_dimensions"] = resolve_cell_dimensions(cell, cell["dimension_measurements"])
@@ -220,6 +225,66 @@ class VisionRegistry:
             result = {**curve, "revision": current["revision"] + 1, "updated_at": _timestamp()}
             _write(self.root / "volume_calibrations" / f"{_safe_id(cell_id)}.json", result)
             return result
+
+    def cell_lifecycle(self, cell_id):
+        """Presentation/availability metadata. Never changes the geometrical revision."""
+        with self.lock:
+            self.get_cell_base(cell_id)
+            return {"archived": False,
+                    **_read(self.root / "cell_lifecycle" / f"{_safe_id(cell_id)}.json", {})}
+
+    def rename_cell(self, cell_id, name):
+        with self.lock:
+            original = self.get_cell_base(cell_id)
+            new_name = str(name or "").strip()
+            if not 1 <= len(new_name) <= 80:
+                raise ValueError("Cell name must contain 1–80 characters")
+            if new_name == original["name"]:
+                return self.get_cell(cell_id)
+            updated = {**original, "name": new_name, "renamed_at": _timestamp()}
+            # Name-only edits are not physical geometry changes.
+            _write(self.root / "cells" / f"{_safe_id(cell_id)}.json", updated)
+            return self.get_cell(cell_id)
+
+    def archive_cell(self, cell_id, archived=True):
+        with self.lock:
+            self.get_cell_base(cell_id)
+            current = self.cell_lifecycle(cell_id)
+            if bool(current["archived"]) == bool(archived):
+                return {"cell_id": cell_id, **current}
+            result = {"archived": bool(archived), "updated_at": _timestamp()}
+            _write(self.root / "cell_lifecycle" / f"{_safe_id(cell_id)}.json", result)
+            return {"cell_id": cell_id, **result}
+
+    def delete_empty_cell(self, cell_id):
+        """Permanent deletion is restricted to unreferenced archived draft cells."""
+        with self.lock:
+            cell_id = _safe_id(cell_id)
+            self.get_cell_base(cell_id)
+            if not self.cell_lifecycle(cell_id)["archived"]:
+                raise RuntimeError("Archive the cell before permanently deleting it.")
+            dependent = ["reference_points", "cell_references", "dimension_measurements",
+                         "volume_calibrations", "cell_thumbnails"]
+            if any((self.root / folder / f"{cell_id}.json").exists() for folder in dependent):
+                raise RuntimeError("Cell contains physical measurements or a photo; keep it archived.")
+            if self.thumbnail_path(cell_id).exists():
+                raise RuntimeError("Cell contains a stored photo; keep it archived.")
+            if any((self.root / "associations").glob(f"*__{cell_id}")):
+                raise RuntimeError("Cell has camera calibration history; keep it archived.")
+            if any((self.root / "relative_calibrations").glob(f"*__{cell_id}.json")):
+                raise RuntimeError("Cell has relative camera calibration; keep it archived.")
+            if any((self.root / "virtual_sensors").glob(f"*/*__{cell_id}.json")):
+                raise RuntimeError("Cell has HIFIE profiles; keep it archived.")
+            for path in (self.root / "virtual_sensors").glob("*/successful/*.json"):
+                item = _read(path, {})
+                if str((item.get("context") or {}).get("cell_id")) == cell_id:
+                    raise RuntimeError("Cell has validated HIFIE history; keep it archived.")
+            settings = self.settings()
+            if cell_id in (str(settings.get("cell_id")), str(settings.get("last_used_cell_id"))):
+                raise RuntimeError("Cell is selected or last used by the vision worker; keep it archived.")
+            (self.root / "cells" / f"{cell_id}.json").unlink()
+            (self.root / "cell_lifecycle" / f"{cell_id}.json").unlink(missing_ok=True)
+            return {"deleted": True, "cell_id": cell_id}
 
     def save_cell(self, record):
         if not isinstance(record, dict):
