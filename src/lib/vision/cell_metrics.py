@@ -126,3 +126,95 @@ def resolve_cell_dimensions(cell, pairs=None):
             "effective_area_cm2": None, "geometry_shape": shape,
             "dimension_revision": (pairs or {}).get("revision", 0),
             "reference_revision": library.get("revision", 0)}
+
+
+def _physical_position(cell, ident):
+    points = {p["id"]: p for p in complete_reference_points(cell.get("reference_points"))["points"]}
+    return _position(points, ident, cell.get("marker_layout"))
+
+
+def normalize_volume_curve(cell, payload):
+    """Express known fills relative to a chosen datum, then anchor V(0)=0 at Cell bottom."""
+    if not isinstance(payload, dict):
+        raise ValueError("Volume calibration must be an object")
+    reference_id = str(payload.get("datum_reference_id") or "cell_bottom")
+    bottom, bottom_source = _physical_position(cell, "cell_bottom")
+    datum, datum_source = _physical_position(cell, reference_id)
+    if bottom is None:
+        raise ValueError("Place Cell bottom in named physical references before calibrating V(h).")
+    if datum is None:
+        raise ValueError("The chosen reference has no physical coordinate. Place it in Cells.")
+    raw_points = payload.get("points")
+    if not isinstance(raw_points, list) or not 1 <= len(raw_points) <= 64:
+        raise ValueError("Provide 1 to 64 known-volume calibration points.")
+    known = []
+    limit = ((cell.get("resolved_dimensions") or {}).get("dimensions") or {}).get("height_mm")
+    max_height = float(limit["value_mm"]) / 10 if limit else None
+    for raw in raw_points:
+        if not isinstance(raw, dict):
+            raise ValueError("Each known fill requires height_cm and volume_l.")
+        try:
+            height = float(raw["height_cm"])
+            volume = float(raw["volume_l"])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError("Calibration height and volume must be numeric.") from None
+        if not math.isfinite(height) or not math.isfinite(volume) or volume <= 0:
+            raise ValueError("Known fill volume must be positive and all values finite.")
+        bottom_height = bottom[1] - datum[1] + height
+        if bottom_height <= 0 or (max_height is not None and bottom_height > max_height + .01):
+            raise ValueError("A known fill must lie above Cell bottom and inside the calibrated cell height.")
+        known.append({"height_cm": bottom_height, "volume_l": volume,
+                      "relative_height_cm": height})
+    known.sort(key=lambda point: point["height_cm"])
+    previous_h = previous_v = 0.
+    for point in known:
+        if point["height_cm"] - previous_h <= 1e-6 or point["volume_l"] < previous_v:
+            raise ValueError("Known fills require distinct increasing heights and nondecreasing volumes.")
+        previous_h, previous_v = point["height_cm"], point["volume_l"]
+    points = [{"height_cm": 0., "volume_l": 0., "fixed_origin": True}] + [
+        {"height_cm": round(point["height_cm"], 7), "volume_l": point["volume_l"]} for point in known]
+    slopes = [1000 * (b["volume_l"]-a["volume_l"]) / (b["height_cm"]-a["height_cm"])
+              for a, b in zip(points, points[1:])]
+    return {"schema_version": 1, "model": "piecewise_linear", "datum_reference_id": reference_id,
+            "datum_y_cm": datum[1], "bottom_y_cm": bottom[1],
+            "datum_source": datum_source, "bottom_source": bottom_source,
+            "reference_revision": cell.get("reference_points_revision", 0),
+            "points": points, "raw_points": [
+                {"height_cm": p["relative_height_cm"], "volume_l": p["volume_l"]} for p in known],
+            "area_range_cm2": [min(slopes), max(slopes)]}
+
+
+def volume_curve_is_current(cell, curve):
+    if not curve or not curve.get("points"):
+        return False
+    if curve.get("reference_revision") != cell.get("reference_points_revision"):
+        return False
+    bottom, _ = _physical_position(cell, "cell_bottom")
+    datum, _ = _physical_position(cell, curve.get("datum_reference_id"))
+    return bool(bottom and datum and
+                abs(bottom[1]-float(curve.get("bottom_y_cm", float("nan")))) < 1e-6 and
+                abs(datum[1]-float(curve.get("datum_y_cm", float("nan")))) < 1e-6)
+
+
+def evaluate_volume_curve(curve, height_cm):
+    """Piecewise V(h), linear extrapolation above last known fill."""
+    if not curve or not curve.get("valid"):
+        raise ValueError("No current experimental volume calibration is available.")
+    height = float(height_cm)
+    if not math.isfinite(height) or height < -.01:
+        raise ValueError("Volume height must be at or above Cell bottom.")
+    height = max(0., height)
+    points = curve["points"]
+    previous, selected = points[0], points[-1]
+    for next_point in points[1:]:
+        selected = next_point
+        if height <= next_point["height_cm"]:
+            break
+        previous = next_point
+    else:
+        previous, selected = points[-2], points[-1]
+    slope = (selected["volume_l"]-previous["volume_l"]) / (selected["height_cm"]-previous["height_cm"])
+    volume = previous["volume_l"] + slope * (height-previous["height_cm"])
+    return {"volume_l": volume, "effective_area_cm2": slope*1000,
+            "extrapolated": height > points[-1]["height_cm"]+1e-8,
+            "calibration_revision": curve.get("revision")}
