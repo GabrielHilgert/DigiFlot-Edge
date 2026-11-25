@@ -56,6 +56,7 @@ jobs:
           node tests/test_cell_geometry_ui.js
           node tests/test_cell_reference_aliases.js
           node tests/test_cells_workspace_ui.js
+          node tests/test_cells_metric_ui.js
       - name: Verify documentation links
         run: node tests/test_documentation_links.js
       - name: Compile Python sources
@@ -94,6 +95,8 @@ jobs:
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_cell_workspace.py' -v
       - name: Saved ArUco revalidation without visible markers
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_cells_saved_aruco_reuse.py' -v
+      - name: Projected cell measurement axes and cross-camera reference scale
+        run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_cells_metric_axes.py' -v
       - name: Scraping timing and GPIO worker tests
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_scraping_timing.py' -v
       - name: Required measurements for manual-stage transitions
