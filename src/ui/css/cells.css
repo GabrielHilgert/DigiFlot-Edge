@@ -225,3 +225,88 @@ a { color: inherit; text-decoration: none; }
 .cell-vision-page .cv-volume-axis{stroke:currentColor;stroke-width:1;opacity:.5;fill:none}
 .cell-vision-page .cv-volume-line{stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;fill:none}
 .cell-vision-page .cv-volume-points-markers{fill:var(--accent);stroke:var(--surface);stroke-width:1}
+
+
+/* Cells measurement workspace: preserve existing calibration internals while separating UI roles. */
+.cell-vision-page.page-shell{width:min(1580px,calc(100% - 44px))}
+.cell-vision-page .cv-registry-mount{margin-bottom:18px}
+.cell-vision-page .cv-registry-mount>.cell-profile-card{padding:21px 23px}
+.cell-vision-page .cv-registry-mount .cv-card-head{align-items:center;margin-bottom:12px}
+.cell-vision-page .cv-registry-mount .cv-select-panel{width:100%;margin-bottom:12px}
+.cell-vision-page .cv-registry-mount .cv-cell-photo{max-width:100%;margin:0}
+.cell-vision-page .cv-registry-actions{margin-left:auto;justify-content:flex-end}
+.cell-vision-page .cv-registry-actions>.button{min-height:36px;font-size:.81rem}
+.cell-vision-page .cv-archived-toggle{white-space:nowrap;margin-left:4px}
+.cell-vision-page .cv-workspace-card{margin-bottom:18px}
+.cell-vision-page .cv-workspace-card>.cv-card-head{align-items:center;margin-bottom:14px}
+.cell-vision-page #cv_camera_selector_mount{min-width:min(100%,260px)}
+.cell-vision-page #cv_camera_selector_mount .cv-select-panel{padding:9px 12px}
+.cell-vision-page #cv_camera_selector_mount select{min-height:36px}
+.cell-vision-page .cv-workspace-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;
+  padding:10px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-soft);margin-bottom:13px}
+.cell-vision-page .cv-camera-tabs{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.cell-vision-page .cv-camera-tabs>.button{min-height:34px;padding:7px 10px;font-size:.79rem;white-space:nowrap}
+.cell-vision-page .cv-camera-tabs>.button:empty{min-width:36px}
+.cell-vision-page .cv-workspace-toolbar .cv-toolbar-divider{height:26px;width:1px;background:var(--border);margin:0 3px}
+.cell-vision-page .cv-active-tool,.cell-vision-page .button.cv-active-tool{border-color:var(--accent);background:var(--accent-soft);color:var(--text);box-shadow:inset 0 0 0 1px var(--accent)}
+.cell-vision-page #cv_preview_controls{margin-left:auto}
+.cell-vision-page #cv_image_mount{width:100%}
+.cell-vision-page #cv_image_mount .cv-image-panel{width:100%}
+.cell-vision-page #cv_image_mount .cv-image-surface{width:100%;min-height:480px;max-height:min(75vh,820px);overflow:hidden;border-radius:12px;cursor:crosshair}
+.cell-vision-page #cv_image_mount .cv-image-surface img{max-height:min(73vh,795px);max-width:100%;object-fit:contain;will-change:transform}
+.cell-vision-page #cv_image_mount .cv-image-help{margin:8px 0 0}
+.cell-vision-page .cv-workspace-status{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-top:12px;
+  padding:10px 12px;background:var(--surface-soft);border:1px solid var(--border);border-radius:8px;color:var(--text-soft);font-size:.77rem}
+.cell-vision-page .cv-workspace-panels{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-items:start}
+.cell-vision-page .cv-workspace-panel{min-width:0}
+.cell-vision-page .cv-workspace-panel .cv-card-head{margin-bottom:12px}
+.cell-vision-page .cv-workspace-panel>label{margin-top:13px}
+.cell-vision-page .cv-measure-actions{margin-top:12px}
+.cell-vision-page .cv-measure-actions .button{flex:1}
+.cell-vision-page .cv-existing-pair-editor{margin-top:16px}
+.cell-vision-page .cv-reference-panel .cv-reference-editor{border:0;background:transparent;padding:0}
+.cell-vision-page .cv-reference-panel .cv-reference-editor>.cv-group-heading{display:none}
+.cell-vision-page .cv-reference-panel .cv-reference-editor>.cv-description{display:none}
+.cell-vision-page .cv-reference-panel #named_reference_list{max-height:620px}
+.cell-vision-page .cv-calibration-panel .camera-profile-card{padding:0;border:0;box-shadow:none;background:transparent}
+.cell-vision-page .cv-calibration-panel .camera-profile-card>.cv-card-head{display:none}
+.cell-vision-page .cv-calibration-panel .cv-worker-panel{margin-top:14px}
+.cell-vision-page .cv-calibration-panel .cv-camera-fields>p{margin-top:9px}
+.cell-vision-page .cv-calibration-panel .cv-tools{margin-top:14px}
+.cell-vision-page .cv-calibration-panel .cv-tools>.cv-reference-editor{display:none}
+.cell-vision-page .cv-calibration-panel .cv-tools>.cv-physical-roi{margin-top:7px}
+.cell-vision-page .cv-relative-calibration{border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface-soft);padding:14px;margin-top:16px}
+.cell-vision-page .cv-relative-calibration .cv-two{margin-top:12px}
+.cell-vision-page .cv-relative-calibration .cv-inline-row{margin-top:11px}
+.cell-vision-page .cv-relative-calibration .cv-inline-row .button{flex:1}
+.cell-vision-page #cv_relative_readout{padding:10px 11px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin:12px 0}
+.cell-vision-page .cv-saved-summary{padding:12px 13px;background:var(--surface-soft);border:1px solid var(--border);border-radius:9px;color:var(--text-soft);font-size:.82rem;margin-bottom:13px}
+.cell-vision-page #cv_aruco_mount{margin-top:16px}
+.cell-vision-page #cv_aruco_mount>.cv-field-group:first-child{padding:13px;background:var(--surface-soft);border:1px solid var(--border);border-radius:9px}
+.cell-vision-page #cv_aruco_mount>.cv-tools{padding:13px}
+.cell-vision-page .cv-geometry-panel{grid-column:span 2}
+.cell-vision-page .cv-volume-panel{grid-column:span 1}
+.cell-vision-page .cv-geometry-panel #cv_geometry_mount>.cv-field-group{margin-top:0}
+.cell-vision-page .cv-geometry-panel .cv-nominal-card,.cell-vision-page .cv-geometry-panel .cv-resolved-card{margin-top:13px}
+.cell-vision-page .cv-geometry-panel #cv_geometry_mount>.cv-card-actions{margin-top:12px}
+.cell-vision-page .cv-volume-panel #cv_volume_mount>.cv-dimension-card{margin-top:0}
+.cell-vision-page .cv-measure-pin{width:13px;height:13px;position:absolute;border:2px solid #fff;border-radius:50%;transform:translate(-50%,-50%);box-shadow:0 1px 5px #0009;pointer-events:none}
+.cell-vision-page .cv-measure-line{height:2px;position:absolute;transform-origin:0 50%;pointer-events:none}
+.cell-vision-page #cv_measure_overlay{position:absolute;inset:0;pointer-events:none;z-index:3}
+.cell-vision-page .cv-inventory-dialog>strong{display:block;color:var(--text);font-size:.95rem;margin-top:15px}
+@media(max-width:1250px){
+  .cell-vision-page .cv-workspace-panels{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cell-vision-page .cv-calibration-panel{grid-column:span 2}
+  .cell-vision-page .cv-geometry-panel{grid-column:span 1}
+  .cell-vision-page .cv-volume-panel{grid-column:span 1}
+}
+@media(max-width:780px){
+  .cell-vision-page .cv-workspace-panels{grid-template-columns:minmax(0,1fr)}
+  .cell-vision-page .cv-calibration-panel,.cell-vision-page .cv-geometry-panel,.cell-vision-page .cv-volume-panel{grid-column:span 1}
+  .cell-vision-page #cv_image_mount .cv-image-surface{min-height:290px}
+  .cell-vision-page .cv-workspace-card>.cv-card-head{flex-direction:column;align-items:stretch}
+  .cell-vision-page #cv_camera_selector_mount{min-width:0}
+  .cell-vision-page .cv-registry-actions{margin-left:0;justify-content:flex-start}
+  .cell-vision-page #cv_preview_controls{margin-left:0}
+  .cell-vision-page .cv-workspace-toolbar .cv-toolbar-divider{display:none}
+}
