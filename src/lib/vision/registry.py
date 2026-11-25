@@ -157,6 +157,10 @@ class VisionRegistry:
                 valid_outlines[-1]["area_cm2"] if valid_outlines else None)
             cell["resolved_dimensions"]["visual_area_source"] = (
                 "visual_outline_estimate" if valid_outlines else None)
+            height = cell["resolved_dimensions"]["dimensions"].get("height_mm")
+            cell["resolved_dimensions"]["visual_capacity_l"] = (
+                valid_outlines[-1]["area_cm2"]*height["value_mm"]/10000
+                if valid_outlines and height else None)
             return cell
 
     def cell_vertical_reference(self, cell_id):
