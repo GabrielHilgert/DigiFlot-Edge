@@ -760,6 +760,8 @@ class VisionService:
         """Choose a calibrated camera/cell for standalone tuning and benchmarking."""
         if self.digiflot.state != getattr(self.digiflot, "IDLE", "Idle") or self.digiflot.recording:
             raise RuntimeError("Standalone HIFIE calibration requires Idle state.")
+        if self._benchmarking:
+            raise RuntimeError("Wait until the HIFIE benchmark finishes before changing the cell or camera.")
         if not owner_id:
             raise ValueError("A browser tab identity is required for standalone calibration.")
         camera = self.digiflot.get_camera(int(camera_id))
