@@ -57,7 +57,7 @@ def _position(points, ident, layout, visited=None):
     return [float(pos[0]), float(pos[1])], "measured" if source in ("image_selection", "measured", "reused") else "derived"
 
 
-def resolve_cell_dimensions(cell, pairs=None):
+def resolve_cell_dimensions(cell, pairs=None, relative_estimates=None):
     cell = cell or {}
     geometry = cell.get("geometry") or {}
     library = complete_reference_points(cell.get("reference_points"))
@@ -71,7 +71,7 @@ def resolve_cell_dimensions(cell, pairs=None):
             return
         entry = {"value_mm": cm*10., "source": provenance, "references": references or []}
         previous = dimensions.get(field)
-        rank = {"measured": 3, "derived": 2, "nominal": 1}
+        rank = {"measured": 4, "derived": 3, "relative_estimate": 2, "nominal": 1}
         if previous is None or rank[provenance] > rank[previous["source"]]:
             dimensions[field] = entry
 
@@ -99,6 +99,15 @@ def resolve_cell_dimensions(cell, pairs=None):
             quality = "measured" if source_a == source_b == "measured" else "derived"
             record(field, distance, quality, [selected["from_id"], selected["to_id"]])
 
+    for measurement in relative_estimates or []:
+        field = measurement.get("target_field")
+        try:
+            estimate = float(measurement["target_mm"])
+            if field in ("height_mm",) + PAIR_FIELDS and math.isfinite(estimate) and estimate > 0:
+                record(field, estimate / 10, "relative_estimate")
+        except (KeyError, ValueError, TypeError):
+            continue
+
     for field in ("height_mm",) + PAIR_FIELDS:
         try:
             value = geometry.get(field)
@@ -118,6 +127,7 @@ def resolve_cell_dimensions(cell, pairs=None):
         area_sources = [width["source"], depth["source"]]
     area_source = ("measured_geometry" if all(x == "measured" for x in area_sources) else
                    "nominal_geometry" if all(x == "nominal" for x in area_sources) else
+                   "relative_geometry" if "relative_estimate" in area_sources else
                    "mixed_geometry") if area_sources else None
     height = dimensions.get("height_mm")
     return {"dimensions": dimensions, "references": levels,
