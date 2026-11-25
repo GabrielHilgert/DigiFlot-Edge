@@ -785,43 +785,42 @@
   }
   async function beginShapeDrawing(){
     if(!state.cellId)throw new Error('Select and save the physical cell first.');
-    const top=state.cameraRoles.top;
-    if(top!=null&&String(top)!==String(state.cameraId))await selectCameraRole('top');
-    if(!$('camera_image').naturalWidth){
-      await refreshUndistortedSnapshot();
-    }
-    if(state.imageSpace==='raw'){
-      // Prefer the corrected frame to reduce lens distortion on image-space area estimates.
-      await refreshUndistortedSnapshot();
-    }
-    state.shapePoints=[];state.activeShapeId=null;setWorkspaceTool('shape');
-    $('cv_outlines_details').open=true;
-    text('cv_shape_readout','Click two opposite corners of the outline on the image.');
-    $('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
+    const camera=state.cameraRoles.top??state.cameraId;
+    if(camera==null)throw new Error('Select a top camera to measure the cell transverse XY section.');
+    await openBestCamera(camera,{focus:true});
+    state.shapePoints=[];state.activeShapeId=null;state.shapeDone=false;state.shapeCapture=null;
+    $('cv_metrology_details').open=true;$('cv_outlines_details').open=true;
+    shapeMethodOptions();setWorkspaceTool('shape');updateShapeReadout();
   }
   async function saveShapeOutline(){
     if(!state.cellId||state.cameraId==null)throw new Error('Select a cell and camera.');
-    if(state.shapePoints.length!==2)throw new Error('Draw the outline with two clicks before saving.');
-    if(state.capturedCameraId!==state.cameraId||state.capturedProfileRevision!==state.profile?.revision)
-      throw new Error('Camera profile changed since the image was captured; refresh the camera.');
-    const name=$('cv_shape_name').value.trim(),kind=$('cv_shape_type').value;
+    if(!shapeReady())throw new Error('Finish all required shape points before saving.');
+    if(!state.shapeCapture||state.shapeCapture.cameraId!==state.capturedCameraId||
+        state.shapeCapture.revision!==state.capturedProfileRevision||
+        state.shapeCapture.calibrationId!==state.capturedCalibrationId||
+        state.shapeCapture.imageSpace!==state.imageSpace)
+      throw new Error('The image geometry changed after the first click. Redraw the contour on the current view.');
+    const name=$('cv_shape_name').value.trim(),kind=$('cv_shape_type').value,
+      method=$('cv_shape_method').value;
     if(!name||name.length>80)throw new Error('Name the geometric outline before saving.');
     const img=$('camera_image'),items=[...(state.visualShapes.items||[])],
       ident=state.activeShapeId||'shape_'+Math.random().toString(36).slice(2,12);
-    const item={id:ident,name,kind,plane:'XY',camera_id:String(state.cameraId),
+    const item={id:ident,name,kind,method,plane:'XY',camera_id:String(state.cameraId),
       camera_revision:state.profile.revision,frame_size:[img.naturalWidth,img.naturalHeight],
       image_space:state.imageSpace,optics_corrected:state.opticsCorrected,
-      bounds_norm:constrainShapePoints(state.shapePoints,kind),
+      points_norm:state.shapePoints.map(p=>[...p]),anchor_edge:Number($('cv_shape_edge').value)||0,
       anchor_field:$('cv_shape_anchor').value,anchor_axis:$('cv_shape_axis').value};
+    if(method==='diagonal'||method==='diameter')item.bounds_norm=item.points_norm;
     const idx=items.findIndex(other=>other.id===ident);
     if(idx>=0)items[idx]=item;else items.push(item);
-    const updated=await api('/cells/'+encodeURIComponent(state.cellId)+'/geometric-shapes',{
+    await api('/cells/'+encodeURIComponent(state.cellId)+'/geometric-shapes',{
       method:'PUT',body:{items,expected_revision:state.visualShapes.revision}});
     state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
     state.visualShapes=state.cell.geometric_shapes;
-    state.shapePoints=[];state.activeShapeId=null;renderShapeList();renderCellResolvedDimensions();
+    state.shapePoints=[];state.activeShapeId=null;state.shapeDone=false;state.shapeCapture=null;
+    renderShapeList();renderCellResolvedDimensions();updateShapeProgress();
     setWorkspaceTool('select');drawWorkspaceShapes();
-    toast('Visual geometric area saved separately. Physical ArUco references and V(h) remain unchanged.');
+    toast('Estimated transverse area saved. Named physical references, ArUco and V(h) were not changed.');
   }
   async function changeShape(actionName,id){
     const item=state.visualShapes.items?.find(x=>x.id===id);if(!item)return;
@@ -832,18 +831,25 @@
         method:'PUT',body:{items,expected_revision:state.visualShapes.revision}});
       state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
       state.visualShapes=state.cell.geometric_shapes;
-      state.shapePoints=[];state.activeShapeId=null;renderShapeList();drawWorkspaceShapes();
-      return;
+      state.shapePoints=[];state.activeShapeId=null;state.shapeDone=false;
+      renderShapeList();drawWorkspaceShapes();return;
     }
-    if(String(state.cameraId)!==String(item.camera_id))await loadCamera(item.camera_id);
-    $('camera_select').value=String(item.camera_id);
-    if(!$('camera_image').naturalWidth||state.imageSpace!==item.image_space)
-      await (item.image_space==='rectified'?rectifiedSnapshot():item.image_space==='undistorted'?
-        refreshUndistortedSnapshot():refreshSnapshot());
-    state.activeShapeId=item.id;state.shapePoints=item.bounds_norm.map(p=>[...p]);
+    await openBestCamera(item.camera_id,{focus:true,exactSpace:item.image_space});
+    if(state.profile?.revision!==item.camera_revision)
+      throw new Error('The original optics changed; redraw this shape before estimating its area.');
+    state.activeShapeId=item.id;
+    state.shapePoints=(item.points_norm||item.bounds_norm).map(p=>[...p]);
+    state.shapeDone=true;state.shapeCapture={cameraId:state.capturedCameraId,
+      revision:state.capturedProfileRevision,calibrationId:state.capturedCalibrationId,
+      imageSpace:state.imageSpace};
     $('cv_shape_name').value=item.name;$('cv_shape_type').value=item.kind;
+    shapeMethodOptions();
+    $('cv_shape_method').value=item.method||(
+      item.kind==='circle'?'diameter':item.kind==='polygon'?'vertices':'diagonal');
     $('cv_shape_anchor').value=item.anchor_field;$('cv_shape_axis').value=item.anchor_axis;
-    $('cv_outlines_details').open=true;updateShapeReadout();drawWorkspaceShapes();
+    renderShapeEdgeOptions();$('cv_shape_edge').value=String(item.anchor_edge||0);
+    $('cv_metrology_details').open=true;$('cv_outlines_details').open=true;
+    setWorkspaceTool('shape');updateShapeReadout();
   }
   function openPointEditor(point=null,click=null,continueMode=null){
     if(!state.cellId||!state.named)throw new Error('Select and save the physical cell first.');
