@@ -27,4 +27,24 @@ vm.runInNewContext(extract("  function captureWorkspacePoint(","\n  function set
 assert.deepEqual(state.measurePointIds,["cell_top","cell_bottom"]);
 assert.equal(refs.cv_measure_from.value,"cell_top");
 assert.equal(refs.cv_measure_to.value,"cell_bottom");
-console.log("Cells projection axes, existing-point selection and source/destination workflow checks passed.");
+const controls={cv_relative_source:{value:"1"},cv_relative_destination:{value:"2"},
+  cv_relative_reference:{value:"width_mm"},cv_relative_target:{value:"depth_mm"},
+  cv_relative_source_status:{textContent:""},cv_relative_readout:{textContent:""}};
+const trace=[],flowState={cameraId:2,frame:null,view:"raw",imageSpace:"raw",relativeSourceCm:[],
+  relativeSourcePoints:[],relativePairs:{reference:[],target:[]},relativeSourceCameraId:null};
+const flowContext={state:flowState,$:id=>controls[id],text:(id,value)=>{controls[id].textContent=value;},
+  switchRelativeCamera:async(id,rectified)=>{trace.push([String(id),rectified]);
+    flowState.cameraId=Number(id);flowState.view=rectified?"rectified":"raw";
+    flowState.imageSpace=rectified?"raw":"undistorted";flowState.frame={};},
+  setWorkspaceTool:mode=>{flowState.uiTool=mode;},drawWorkspaceMeasurements:()=>{}};
+const flow=extract("  async function pickRelativeSource(){","\n  function relativeReadout(){");
+(async()=>{
+  const workflow=vm.runInNewContext(flow+"\n(async()=>{await pickRelativeSource();"+ 
+    "state.relativeSourceCm=[[0,0],[10,0]];await pickRelativeDestination('relative_reference');})()",flowContext);
+  await workflow;
+  assert.deepEqual(trace,[["1",true],["2",false]]);
+  assert.equal(flowState.uiTool,"relative_reference");
+  assert.equal(flowState.relativeSourceCameraId,"1");
+  assert.equal(flowState.relativeDestinationCameraId,"2");
+  console.log("Cells axes, point reuse and source-to-destination switching passed.");
+})().catch(error=>{console.error(error);process.exitCode=1;});
