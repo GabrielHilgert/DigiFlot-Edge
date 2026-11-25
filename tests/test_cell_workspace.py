@@ -49,7 +49,8 @@ class WorkspaceTests(unittest.TestCase):
     def test_relative_calibration_is_distinct_from_aruco_and_overrides_nominal(self):
         values = {"source_camera_id": 1, "reference_field": "width_mm",
                   "target_field": "depth_mm", "frame_size": [800, 600],
-                  "image_space": "raw", "reference_pair": [[.1, .2], [.5, .2]],
+                  "image_space": "raw", "camera_revision": 0, "capture_camera_id": 2,
+                  "reference_pair": [[.1, .2], [.5, .2]],
                   "target_pair": [[.2, .2], [.2, .4]]}
         relative = self.registry.save_relative_calibration(2, self.cell["id"], values)
         self.assertAlmostEqual(relative["reference_mm"], 100)
@@ -73,7 +74,8 @@ class WorkspaceTests(unittest.TestCase):
         revision=initial["reference_points_revision"]
         saved=self.registry.save_reference_observation(self.cell["id"], 2, {
             "reference_id":"cell_bottom", "position_norm":[.3,.8], "frame_size":[800,600],
-            "image_space":"undistorted", "expected_revision":0})
+            "image_space":"undistorted", "camera_revision":0,
+            "capture_camera_id":2, "expected_revision":0})
         self.assertEqual(saved["revision"], 1)
         cell=self.registry.get_cell(self.cell["id"])
         self.assertEqual(cell["reference_points_revision"], revision)
@@ -87,7 +89,8 @@ class WorkspaceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"another tab"):
             self.registry.save_reference_observation(self.cell["id"], 2, {
                 "reference_id":"cell_top", "position_norm":[.3,.2],
-                "frame_size":[800,600], "expected_revision":0})
+                "frame_size":[800,600], "camera_revision":0,
+                "capture_camera_id":2, "expected_revision":0})
 
     def test_invalid_relative_input_is_rejected(self):
         values = {"reference_field": "width_mm", "target_field": "depth_mm",
