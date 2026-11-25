@@ -757,6 +757,8 @@ class VisionService:
             cell = self.registry.get_cell(cell_id)
         except (KeyError, ValueError):
             return None
+        if cell.get("archived"):
+            return None
         preferred = settings.get("last_used_camera_id") or settings.get("camera_id")
         candidates = sorted(self.digiflot.cameras, key=lambda cam: str(cam) != str(preferred))
         for camera_id in candidates:
@@ -789,6 +791,8 @@ class VisionService:
             raise ValueError("A browser tab identity is required for standalone calibration.")
         camera = self.digiflot.get_camera(int(camera_id))
         cell = self.registry.get_cell(str(cell_id))
+        if cell.get("archived"):
+            raise ValueError("Restore this archived cell before standalone HIFIE calibration.")
         association = self.registry.association(camera.id, cell["id"])
         if association is None or association.get("cell_revision") != cell["revision"]:
             raise ValueError("Confirm the camera–cell ArUco geometry in Cells before HIFIE calibration.")
@@ -1397,6 +1401,9 @@ class VisionService:
 
     def archive_cell(self, cell_id, archived=True):
         self._ensure_cell_admin_idle(cell_id)
+        if (archived and (self._standalone_target or {}).get("cell_id") == str(cell_id)
+                and self.digiflot.preview_camera_id is not None):
+            raise RuntimeError("Close the standalone HIFIE camera preview before archiving this cell.")
         result = self.registry.archive_cell(cell_id, archived)
         self._notify_cell_inventory_changed()
         return result
