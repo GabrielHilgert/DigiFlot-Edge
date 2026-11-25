@@ -39,7 +39,7 @@ class NamedReferenceTests(unittest.TestCase):
             points[0]={**points[0],"position_cm":positions[0],"source":"image_selection"}
             saved=registry.save_reference_points(cell["id"],{
                 "default_reference_id":"outlet_level","points":points})
-            self.assertEqual(len(saved["points"]),20)
+            self.assertEqual(len(saved["points"]),22)
             self.assertEqual(saved["revision"],1)
             self.assertEqual(registry.save_reference_points(cell["id"],saved)["revision"],1)
             association={"reference_points":saved,"calibration":{"layout":self.layout},
