@@ -113,6 +113,8 @@
       relative?'Relative camera estimate is saved independently. The ArUco association was not altered.':
       'No ArUco association for this camera. Select a calibrated source camera below to estimate its scale.');
     $('cv_rectified_view').disabled=!association;
+    $('cv_reuse_saved_aruco').hidden=!association||valid;
+    $('cv_reuse_saved_aruco').disabled=!association||valid;
     $('cv_raw_view').classList.toggle('cv-active-tool',state.view==='raw'&&state.imageSpace==='raw');
     $('cv_undistorted_view').classList.toggle('cv-active-tool',state.imageSpace==='undistorted');
     $('cv_rectified_view').classList.toggle('cv-active-tool',state.view==='rectified');
@@ -1015,6 +1017,16 @@
         (ref.value_mm*d1/d0).toFixed(2)+' mm · ratio '+(d1/d0).toFixed(3)+
         ' · '+(state.imageSpace==='undistorted'?'optically corrected':'raw pixels; distortion may affect accuracy'));
   }
+  async function reuseSavedArUco(){
+    if(!state.cellId||state.cameraId==null||!state.association)
+      throw new Error('No saved ArUco calibration is available.');
+    if(!window.confirm('Confirm the physical ArUco ruler has not moved relative to the cell, and the camera optics are unchanged. Revalidate the saved homography without detecting any marker?'))return;
+    const saved=await api('/associations/'+state.cameraId+'/'+encodeURIComponent(state.cellId)+'/reuse',
+      {method:'POST',body:{ruler_unchanged:true}});
+    await loadAssociation();
+    toast('Saved homography revalidated as '+saved.calibration_id+'. Previous version retained.');
+  }
+
   async function saveRelativeCalibration(){
     if(!state.cellId||state.cameraId==null)throw new Error('Choose a cell and camera.');
     if(state.view==='rectified')throw new Error('Switch to Raw or Undistorted image before measuring relative lengths.');
@@ -1222,6 +1234,7 @@
     }));
   }
   $('cv_save_relative').addEventListener('click',action(saveRelativeCalibration));
+  $('cv_reuse_saved_aruco').addEventListener('click',action(reuseSavedArUco));
   for(const id of ['cv_relative_reference','cv_relative_target'])
     $(id).addEventListener('change',relativeReadout);
   $('optics_mode').addEventListener('change',()=>{$('lens_preset').disabled=$('optics_mode').value!=='preset';});
