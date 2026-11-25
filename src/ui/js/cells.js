@@ -6,6 +6,8 @@
     roi: [0, 0, 1, 1], analysisRoi: null, roiDirty: false, view: 'raw', plane: null, drag: null, named:null, activePoint:null, pointClick:null, namedDirty:false, dimensionMeasurements:null,
     imageSpace:'raw',uiTool:'select',pickClick:null,panDrag:null,measurePoints:[],relativePairs:{reference:[],target:[]},
     capturedCameraId:null,capturedProfileRevision:null,capturedCalibrationId:null,
+    measurePointIds:[],relativeSourcePoints:[],relativeSourceCm:[],relativeSourceCalibrationId:null,
+    relativeSourceCameraRevision:null,relativeDestinationCameraId:null,relativeSourceCameraId:null,
     cameraRoles:{side:null,top:null},relativeRecord:null,zoom:1,panX:0,panY:0,showArchived:false};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
@@ -72,6 +74,21 @@
     registry.querySelector('.cv-card-head').append(management);
     $('cv_measure_mount').querySelector('.cv-dimension-card').classList.add('cv-existing-pair-editor');
     $('cv_geometry_mount').querySelector('.cv-resolved-card').classList.add('cv-resolved-visible');
+    // Keep established camera / ROI / HIFIE nodes, but put their settings in
+    // nested disclosures under the single full-width camera workspace.
+    const calibrationPanel=$('cv_workspace_panels').querySelector('.cv-calibration-panel');
+    $('cv_camera_accordion_mount').append(calibrationPanel);
+    calibrationPanel.classList.remove('card','cv-workspace-panel');
+    const accordion=(name,icon,content,expanded=false)=>{
+      const details=document.createElement('details');details.className='cv-subaccordion';details.open=expanded;
+      const summary=document.createElement('summary');summary.dataset.icon=icon;summary.textContent=name;
+      details.append(summary,content);return details;
+    };
+    calibrationPanel.append(accordion('Optical profile & vision worker','sliders',$('cv_camera_calib_mount')));
+    calibrationPanel.append(accordion('Relative camera calibration','crosshair',$('cv_relative_panel')));
+    calibrationPanel.append(accordion('ArUco / planar calibration & analysis ROI','scan',$('cv_aruco_mount')));
+    const mappings=$('cv_measure_mount').querySelector('.cv-existing-pair-editor');
+    $('cv_measure_mount').append(accordion('Advanced named-reference mappings','settings',mappings));
     grid.remove();calibration.remove();
     window.DigiFlotIcons?.decorate(document);
   }
@@ -268,25 +285,103 @@
     return {visible,aliases,label,canonicalId:id=>aliases.get(id)||id};
   }
 
+  const measurementAxisDefault={height_mm:'vertical',width_mm:'horizontal',
+    depth_mm:'vertical',collection_height_mm:'vertical'};
   function renderCellDimensionPairs(){
     const host=$('cell_dimension_pairs'),view=referenceDisplayModel();
     const opts=[{id:'',name:'Not mapped'},...view.visible].map(p=>
       '<option value="'+esc(p.id)+'">'+esc(view.label(p))+'</option>').join('');
     const pairs=state.dimensionMeasurements?.pairs||{};
-    host.innerHTML=['width_mm','depth_mm','collection_height_mm'].map(field=>{
+    host.innerHTML=['height_mm','width_mm','depth_mm','collection_height_mm'].map(field=>{
       const pair=pairs[field]||{};
       return '<div class="cv-dimension-pair" data-dimension-field="'+field+'"><strong>'+dimensionLabels[field]+'</strong>'+
         '<div class="cv-two"><label>From<select data-dimension-end="from_id">'+opts+'</select></label>'+
-        '<label>To<select data-dimension-end="to_id">'+opts+'</select></label></div></div>';
+        '<label>To<select data-dimension-end="to_id">'+opts+'</select></label></div>'+
+        '<label>Measurement axis<select data-dimension-end="axis">'+
+        ['horizontal','vertical','direct'].map(axis=>'<option value="'+axis+'">'+
+        ({horizontal:'Horizontal ΔX',vertical:'Vertical ΔY',direct:'Direct distance'}[axis])+'</option>').join('')+
+        '</select></label></div>';
     }).join('');
     for(const row of host.querySelectorAll('[data-dimension-field]')){
       const pair=pairs[row.dataset.dimensionField]||{};
-      for(const select of row.querySelectorAll('select'))
-        select.value=view.canonicalId(pair[select.dataset.dimensionEnd]||'');
+      for(const select of row.querySelectorAll('[data-dimension-end]'))
+        select.value=select.dataset.dimensionEnd==='axis'?(pair.axis||'direct'):
+          view.canonicalId(pair[select.dataset.dimensionEnd]||'');
     }
     $('save_dimension_pairs').disabled=!state.cellId;
     text('dimension_revision',state.cellId?
       'Measured mapping revision '+(state.dimensionMeasurements?.revision||0):'Save the cell first');
+    renderMeasurementSelectors();
+  }
+
+  function renderMeasurementSelectors(){
+    const field=$('cv_measure_target').value, pair=(state.dimensionMeasurements?.pairs||{})[field]||{};
+    const view=referenceDisplayModel(),refOptions='<option value="">Select existing point</option>'+
+      view.visible.map(point=>'<option value="'+esc(point.id)+'">'+esc(view.label(point))+
+        (point.position_cm?'':' · not placed')+'</option>').join('');
+    const from=$('cv_measure_from'),to=$('cv_measure_to');
+    const before=[from.value,to.value];
+    from.innerHTML=refOptions;to.innerHTML=refOptions;
+    const defaults=field==='height_mm'?['cell_top','cell_bottom']:['',''];
+    const values=[pair.from_id||defaults[0],pair.to_id||defaults[1]];
+    from.value=values[0];to.value=values[1];
+    if(!from.value)from.value=before[0]&&[...from.options].some(o=>o.value===before[0])?before[0]:'';
+    if(!to.value)to.value=before[1]&&[...to.options].some(o=>o.value===before[1])?before[1]:'';
+    $('cv_measure_axis').value=pair.axis||measurementAxisDefault[field];
+    state.measurePointIds=[from.value,to.value].filter(Boolean);
+    updateMeasurementPreview();
+  }
+
+  function physicalReferencePosition(refId,visited=new Set()){
+    if(!refId||visited.has(refId))return null;
+    visited.add(refId);
+    const point=state.named?.points?.find(p=>p.id===refId);
+    if(!point)return null;
+    if(refId==='aruco_reference'){
+      return [0,Math.max(Number(state.cell?.marker_layout?.span_cm||14),
+        Number(state.cell?.marker_layout?.marker_size_cm||2))];
+    }
+    if(point.source==='derived'&&point.derived_from){
+      const base=physicalReferencePosition(point.derived_from,visited);
+      return base&&point.offset_y_cm!=null?[base[0],base[1]+Number(point.offset_y_cm)]:null;
+    }
+    return point.position_cm||null;
+  }
+  function referencePointInView(id){
+    if(!id)return null;
+    if(state.view==='rectified'&&state.plane){
+      const point=physicalReferencePosition(id);if(!point)return null;
+      const lo=state.plane.min_xy_cm,hi=state.plane.max_xy_cm;
+      return [(point[0]-lo[0])/(hi[0]-lo[0]),(point[1]-lo[1])/(hi[1]-lo[1])];
+    }
+    const observation=state.cell?.reference_observations?.[String(state.cameraId)]?.observations?.[id];
+    return observation&&observation.image_space===state.imageSpace&&
+      observation.camera_revision===state.profile?.revision?observation.position_norm:null;
+  }
+  function nearestReferenceOnImage(point){
+    const img=$('camera_image'),r=img.getBoundingClientRect();
+    let closest=null,dist=Infinity;
+    for(const ref of referenceDisplayModel().visible){
+      const p=referencePointInView(ref.id);if(!p)continue;
+      const d=Math.hypot((p[0]-point[0])*r.width,(p[1]-point[1])*r.height);
+      if(d<dist){dist=d;closest={id:ref.id,point:p};}
+    }
+    return dist<=24?closest:null;
+  }
+  function projectedMetricValue(a,b,axis='direct'){
+    const dx=Math.abs(a[0]-b[0]),dy=Math.abs(a[1]-b[1]);
+    return (axis==='horizontal'?dx:axis==='vertical'?dy:Math.hypot(dx,dy))*10;
+  }
+  function updateMeasurementPreview(){
+    const from=$('cv_measure_from').value,to=$('cv_measure_to').value,axis=$('cv_measure_axis').value;
+    state.measurePointIds=[from,to].filter(Boolean);
+    const a=physicalReferencePosition(from),b=physicalReferencePosition(to);
+    if(a&&b&&from!==to){
+      text('cv_measure_status',dimensionLabels[$('cv_measure_target').value]+': '+
+        projectedMetricValue(a,b,axis).toFixed(2)+' mm · '+axis+' · existing references');
+    }else text('cv_measure_status',from&&to?'References are not metrically placed on this cell.':
+      'Choose two named points, or click two existing markers in the camera.');
+    drawWorkspaceMeasurements();
   }
 
   async function saveCellDimensionPairs(){
@@ -298,7 +393,8 @@
       const b=row.querySelector('[data-dimension-end="to_id"]').value;
       if(a||b){
         if(!a||!b||a===b)throw new Error('Choose two different reference points for '+dimensionLabels[row.dataset.dimensionField]);
-        pairs[row.dataset.dimensionField]={from_id:a,to_id:b};
+        pairs[row.dataset.dimensionField]={from_id:a,to_id:b,
+          axis:row.querySelector('[data-dimension-end="axis"]').value};
       }
     }
     state.dimensionMeasurements=await api('/cells/'+encodeURIComponent(state.cellId)+'/dimensions',{
