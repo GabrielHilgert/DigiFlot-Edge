@@ -1068,11 +1068,25 @@ function cleanupVirtualSession() {
     // Serialize cleanup after any camera operation. tune-release now owns
     // releasing the calibration preview, not a second camera-stop request.
     virtualCleanup=virtualCleanup.catch(()=>{}).then(async()=>{
-        await stop;
-        if(virtualBenchmarkTask)await virtualBenchmarkTask.catch(()=>{});
-        await requestJson("/api/vision/virtual-sensors/froth-interface/tune-release",
-            {method:"POST"}).catch(()=>{});
-        virtualRoiTask=null;
+        try { await stop; }
+        catch(error) { console.warn("HIFIE live preview release failed:",error); }
+        try {
+            if(virtualBenchmarkTask)await virtualBenchmarkTask.catch(error=>
+                console.warn("HIFIE benchmark cleanup:",error));
+        } finally {
+            // Always release the tab's camera ownership, even if diagnostics stop fails.
+            const controller=new AbortController();
+            const timer=window.setTimeout(()=>controller.abort(),15000);
+            try {
+                await requestJson("/api/vision/virtual-sensors/froth-interface/tune-release",
+                    {method:"POST",signal:controller.signal});
+            } catch(error) {
+                console.warn("HIFIE camera ownership release failed:",error);
+            } finally {
+                window.clearTimeout(timer);
+                virtualRoiTask=null;
+            }
+        }
     });
 }
 
