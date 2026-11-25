@@ -3,7 +3,7 @@
   const $ = id => document.getElementById(id);
   const state = {cells: [], cameras: [], settings: {}, profile: null, cell: null,
     cameraId: null, cellId: null, association: null, pending: null, frame: null,
-    roi: [0, 0, 1, 1], analysisRoi: null, roiDirty: false, view: 'raw', plane: null, drag: null, named:null, activePoint:null, pointClick:null, namedDirty:false};
+    roi: [0, 0, 1, 1], analysisRoi: null, roiDirty: false, view: 'raw', plane: null, drag: null, named:null, activePoint:null, pointClick:null, namedDirty:false, dimensionMeasurements:null};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -40,8 +40,12 @@
     state.cell = cell;
     state.named = JSON.parse(JSON.stringify(cell?.reference_points || {default_reference_id:'outlet_level',points:[
       {id:'outlet_level',name:'Outlet level',type:'custom',position_cm:null,direction:'up',source:'unset'},
-      {id:'aruco_reference',name:'ArUco reference',type:'aruco',position_cm:null,direction:'up',source:'automatic'}]}));
+      {id:'aruco_reference',name:'ArUco reference',type:'aruco',position_cm:null,direction:'up',source:'automatic'},
+      {id:'cell_top',name:'Cell top',type:'top',position_cm:null,direction:'down',source:'unset'},
+      {id:'cell_bottom',name:'Cell bottom',type:'bottom',position_cm:null,direction:'up',source:'unset'}]}));
     state.activePoint=null;state.namedDirty=false;renderNamedPoints();
+    state.dimensionMeasurements=cell?.dimension_measurements||{revision:0,pairs:{}};
+    renderCellDimensionPairs();renderCellResolvedDimensions();
     $('cell_name').value = cell?.name || '';
     $('cell_volume').value = cell?.working_volume_l ?? '';
     const g = cell?.geometry || {};
@@ -66,10 +70,70 @@
   }
 
 
+  const dimensionLabels={height_mm:'Height',width_mm:'Width / diameter',depth_mm:'Depth',collection_height_mm:'Collection height'};
+  function renderCellResolvedDimensions(){
+    const data=state.cell?.resolved_dimensions||{},dimensions=data.dimensions||{};
+    const sources={measured:'Measured · ArUco',derived:'Derived · references',nominal:'Nominal fallback',
+      measured_geometry:'Measured geometry',mixed_geometry:'Mixed nominal / measured',nominal_geometry:'Nominal geometry'};
+    const fmt=(value,digits=1)=>Number(value).toLocaleString(undefined,{maximumFractionDigits:digits});
+    const rows=Object.entries(dimensionLabels).map(([field,label])=>{
+      const item=dimensions[field];
+      return '<div class="cv-metric"><span>'+label+'</span><strong>'+(item?fmt(item.value_mm)+' mm':'—')+
+        '</strong><small>'+(item?sources[item.source]||item.source:'No dimension available')+'</small></div>';
+    });
+    rows.push('<div class="cv-metric"><span>Geometric cross-section</span><strong>'+
+      (data.geometric_area_cm2!=null?fmt(data.geometric_area_cm2,2)+' cm²':'—')+
+      '</strong><small>'+(sources[data.geometric_area_source]||'Not available · effective area uncalibrated')+'</small></div>');
+    rows.push('<div class="cv-metric"><span>Geometric capacity</span><strong>'+
+      (data.geometric_capacity_l!=null?fmt(data.geometric_capacity_l,3)+' L':'—')+
+      '</strong><small>Geometric estimate · not the working volume</small></div>');
+    $('cell_resolved_dimensions').innerHTML=rows.join('');
+  }
+
+  function renderCellDimensionPairs(){
+    const host=$('cell_dimension_pairs'),points=state.named?.points||[];
+    const opts=[{id:'',name:'Not mapped'},...points].map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
+    const pairs=state.dimensionMeasurements?.pairs||{};
+    host.innerHTML=['width_mm','depth_mm','collection_height_mm'].map(field=>{
+      const pair=pairs[field]||{};
+      return '<div class="cv-dimension-pair" data-dimension-field="'+field+'"><strong>'+dimensionLabels[field]+'</strong>'+
+        '<div class="cv-two"><label>From<select data-dimension-end="from_id">'+opts+'</select></label>'+
+        '<label>To<select data-dimension-end="to_id">'+opts+'</select></label></div></div>';
+    }).join('');
+    for(const row of host.querySelectorAll('[data-dimension-field]')){
+      const pair=pairs[row.dataset.dimensionField]||{};
+      for(const select of row.querySelectorAll('select'))
+        select.value=pair[select.dataset.dimensionEnd]||'';
+    }
+    $('save_dimension_pairs').disabled=!state.cellId;
+    text('dimension_revision',state.cellId?
+      'Measured mapping revision '+(state.dimensionMeasurements?.revision||0):'Save the cell first');
+  }
+
+  async function saveCellDimensionPairs(){
+    if(!state.cellId)throw new Error('Save the cell first');
+    if(state.namedDirty)throw new Error('Save named references before assigning measured dimensions.');
+    const pairs={};
+    for(const row of $('cell_dimension_pairs').querySelectorAll('[data-dimension-field]')){
+      const a=row.querySelector('[data-dimension-end="from_id"]').value;
+      const b=row.querySelector('[data-dimension-end="to_id"]').value;
+      if(a||b){
+        if(!a||!b||a===b)throw new Error('Choose two different reference points for '+dimensionLabels[row.dataset.dimensionField]);
+        pairs[row.dataset.dimensionField]={from_id:a,to_id:b};
+      }
+    }
+    state.dimensionMeasurements=await api('/cells/'+encodeURIComponent(state.cellId)+'/dimensions',{
+      method:'PUT',body:{pairs,expected_revision:state.dimensionMeasurements?.revision||0}});
+    state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+    state.dimensionMeasurements=state.cell.dimension_measurements;
+    renderCellDimensionPairs();renderCellResolvedDimensions();
+    toast('Measured geometry updated independently from nominal parameters.');
+  }
+
   function renderNamedPoints() {
     const record=state.named||{points:[]},list=$('named_reference_list');
     list.innerHTML=record.points.map(p=>{
-      const locked=p.id==='aruco_reference';
+      const locked=['aruco_reference','outlet_level','cell_top','cell_bottom'].includes(p.id);
       const pos=p.source==='automatic'?'Automatic from markers':p.position_cm?p.position_cm.map(n=>Number(n).toFixed(2)).join(', ')+' cm':'Not calibrated';
       return '<div class="cv-named-point'+(state.activePoint===p.id?' active':'')+'" data-ref-id="'+esc(p.id)+'">'+
         '<label><input type="radio" name="ref_default" value="'+esc(p.id)+'" '+(record.default_reference_id===p.id?'checked':'')+' title="Default reference"></label>'+
@@ -90,7 +154,8 @@
             '</select></div><div class="cv-named-coord"><label>X cm <input data-ref-field="x_cm" type="number" step="any" value="'+esc(p.position_cm?.[0]??'')+'" placeholder="0"></label>'+
             '<label>Y cm <input data-ref-field="y_cm" type="number" step="any" value="'+esc(p.position_cm?.[1]??'')+'" placeholder="Measured level"></label></div>')+
         '</div><div class="cv-named-actions"><button class="button button-secondary" data-icon="'+(state.activePoint===p.id?'x':'crosshair')+'" data-icon-only data-ref-action="place" type="button" '+(locked?'disabled':'')+'>'+
-        (state.activePoint===p.id?'Cancel':'Place')+'</button><button class="button button-secondary" data-icon="trash-2" data-icon-only data-ref-action="delete" type="button" '+(locked?'disabled':'')+'>Remove</button></div></div>';
+        (state.activePoint===p.id?'Cancel':'Place')+'</button>'+
+        (locked?'':'<button class="button button-secondary" data-icon="trash-2" data-icon-only data-ref-action="delete" type="button">Remove</button>')+'</div></div>';
     }).join('');
     window.DigiFlotIcons?.decorate(list);
     text('reference_status',!state.cellId?'Save the cell first':state.activePoint?
@@ -125,7 +190,9 @@
   async function saveNamedPoints() {
     if(!state.cellId)throw new Error('Save the cell first');
     state.named=await api('/cells/'+encodeURIComponent(state.cellId)+'/reference-points',
-      {method:'PUT',body:state.named});state.namedDirty=false;renderNamedPoints();
+      {method:'PUT',body:state.named});state.namedDirty=false;
+    state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+    renderNamedPoints();renderCellDimensionPairs();renderCellResolvedDimensions();
     toast('Named references saved (revision '+state.named.revision+').');
   }
 
@@ -162,6 +229,8 @@
       renderNamedPoints();return;
     }
     if(action==='delete'){
+      if(['aruco_reference','outlet_level','cell_top','cell_bottom'].includes(point.id))
+        throw new Error('This physical reference is mandatory; clear its coordinates instead.');
       state.named.points=state.named.points.filter(p=>p.id!==point.id);
       if(state.named.default_reference_id===point.id)state.named.default_reference_id='aruco_reference';
       if(state.activePoint===point.id)state.activePoint=null;
@@ -655,6 +724,7 @@
   $('new_cell').addEventListener('click',action(async()=>{ $('cell_select').value='';await loadCell(null);toast('Enter a new physical cell.'); }));
   $('cell_select').addEventListener('change',action(async()=>loadCell($('cell_select').value)));
   $('save_cell').addEventListener('click',action(saveCell));
+  $('save_dimension_pairs').addEventListener('click',action(saveCellDimensionPairs));
   $('save_cell_reference').addEventListener('click',action(saveCellReference));
   $('reference_add').addEventListener('click',action(addNamedPoint));
   $('reference_save').addEventListener('click',action(saveNamedPoints));
