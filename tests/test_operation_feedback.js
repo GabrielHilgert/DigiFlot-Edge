@@ -67,7 +67,7 @@ async function test() {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname,"../src/ui/js/operation-feedback.js"),"utf8"),context2);
     await conflictWindow.fetch("/api/cameras/0/preview/start",{method:"POST"});
     assert.equal(requests2[0].opts.headers.get("X-DigiFlot-Tab-Id"),"second-tab");
-    assert.match(msg.textContent,/POST \\/api\\/cameras\\/0\\/preview\\/start/);
+    assert.ok(msg.textContent.includes("POST /api/cameras/0/preview/start"));
     assert.match(msg.textContent,/another browser tab/);
     assert.equal(classNames.contains("error"),true);
     const previousMessage=msg.textContent;
@@ -76,7 +76,7 @@ async function test() {
     assert.equal(msg.textContent,previousMessage,
         "An auxiliary estimate conflict must not masquerade as a camera or cell-selection error");
     await conflictWindow.fetch("/api/digiflot/calibration/cell/select",{method:"POST"});
-    assert.match(msg.textContent,/POST \\/api\\/digiflot\\/calibration\\/cell\\/select/);
+    assert.ok(msg.textContent.includes("POST /api/digiflot/calibration/cell/select"));
     assert.equal(previous,1);
     assert.equal(underlying,nativeFetch);
     console.log("Global operation feedback and camera-tab conflict checks passed");
