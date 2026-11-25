@@ -395,7 +395,9 @@
     }).join('');
     window.DigiFlotIcons?.decorate(list);
     text('reference_status',!state.cellId?'Save the cell first':state.activePoint?
-      'Click the point on the rectified plane. Saved coordinates remain independent of camera crop.':
+      state.view==='rectified'?
+        'Click the reference on the rectified physical plane; coordinates will be saved in cm.':
+        'Click the reference in this camera frame; it will be saved as a camera observation, without changing ArUco coordinates.':
       'Default: '+(view.visible.find(p=>p.id===view.canonicalId(record.default_reference_id))?.name||'—')+
       (state.namedDirty?' · Unsaved changes':''));
     $('reference_save').disabled=!state.cellId;
