@@ -1230,8 +1230,9 @@
   async function saveRelativeCalibration(){
     if(!state.cellId)throw new Error('Select a cell.');
     const source=state.relativeSourceCameraId,destination=state.relativeDestinationCameraId;
-    if(!source||!destination||String(state.cameraId)!==String(destination))
-      throw new Error('Complete the source and destination measurements on their corresponding cameras.');
+    if(!source||!destination||String(state.cameraId)!==String(destination)||
+        source!==$('cv_relative_source').value||destination!==$('cv_relative_destination').value)
+      throw new Error('Camera selection changed. Complete the source and destination measurements on the selected cameras.');
     if(state.relativeSourceCm.length!==2||
         state.relativePairs.reference.length!==2||state.relativePairs.target.length!==2)
       throw new Error('The calibrated length and BOTH destination lengths need two endpoints each.');
@@ -1435,8 +1436,17 @@
     state.relativeSourcePoints=[];state.relativeSourceCm=[];state.relativeSourceCameraId=null;
     state.relativePairs={reference:[],target:[]};void refreshCameraRoles();drawWorkspaceMeasurements();
   });
-  for(const id of ['cv_relative_reference','cv_relative_target','cv_relative_source_axis',
-    'cv_relative_reference_axis','cv_relative_target_axis'])
+  $('cv_relative_reference').addEventListener('change',()=>{
+    const axis=measurementAxisDefault[$('cv_relative_reference').value]||'direct';
+    $('cv_relative_source_axis').value=axis;$('cv_relative_reference_axis').value=axis;
+    state.relativeSourcePoints=[];state.relativeSourceCm=[];
+    state.relativePairs={reference:[],target:[]};relativeReadout();drawWorkspaceMeasurements();
+  });
+  $('cv_relative_target').addEventListener('change',()=>{
+    $('cv_relative_target_axis').value=measurementAxisDefault[$('cv_relative_target').value]||'direct';
+    state.relativePairs.target=[];relativeReadout();drawWorkspaceMeasurements();
+  });
+  for(const id of ['cv_relative_source_axis','cv_relative_reference_axis','cv_relative_target_axis'])
     $(id).addEventListener('change',()=>{relativeReadout();drawWorkspaceMeasurements();});
   $('cv_save_relative').addEventListener('click',action(saveRelativeCalibration));
   $('cv_reuse_saved_aruco').addEventListener('click',action(reuseSavedArUco));
