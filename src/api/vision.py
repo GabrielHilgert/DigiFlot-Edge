@@ -181,6 +181,16 @@ def save_cell_dimensions(cell_id: str, request: Request, payload: dict):
     return _invoke(service(request).save_cell_dimension_measurements, cell_id, payload)
 
 
+@router.get("/cells/{cell_id}/reference-observations/{camera_id}")
+def list_reference_observations(cell_id: str, camera_id: int, request: Request):
+    return _invoke(service(request).registry.reference_observations, cell_id).get(str(camera_id), {})
+
+
+@router.put("/cells/{cell_id}/reference-observations/{camera_id}")
+def save_reference_observation(cell_id: str, camera_id: int, request: Request, payload: dict):
+    return _invoke(service(request).save_reference_observation, cell_id, camera_id, payload)
+
+
 @router.get("/cells/{cell_id}/reference-points")
 def list_reference_points(cell_id: str, request: Request):
     return _invoke(service(request).registry.reference_points, cell_id)
