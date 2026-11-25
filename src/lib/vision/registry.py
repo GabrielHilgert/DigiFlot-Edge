@@ -113,16 +113,20 @@ class VisionRegistry:
             for record in relative:
                 source_assoc = self.association(record["source_camera_id"], cell_id)
                 source = cell["resolved_dimensions"]["dimensions"].get(record.get("reference_field"))
-                current = bool(source_assoc and
+                mode = record.get("source_mode", "resolved_dimension")
+                source_current = bool(source_assoc and
                     source_assoc.get("calibration_id") == record.get("source_aruco_calibration_id") and
+                    source_assoc.get("camera_revision") == self.camera_profile(record["source_camera_id"])["revision"])
+                dimension_current = bool(source and source.get("source") == record.get("reference_source") and
+                    abs(source["value_mm"]-record.get("reference_mm", -1)) < .001)
+                current = bool(
                     record.get("cell_revision") == cell["revision"] and
                     record.get("camera_revision") == self.camera_profile(record["camera_id"])["revision"] and
                     record.get("reference_points_revision") == cell["reference_points_revision"] and
                     record.get("dimension_revision") == cell["dimension_measurements"]["revision"] and
-                    source_assoc.get("camera_revision") == self.camera_profile(record["source_camera_id"])["revision"] and
-                    (record.get("source_mode") == "calibrated_pair" or (
-                      source and source.get("source") == record.get("reference_source") and
-                      abs(source["value_mm"]-record.get("reference_mm", -1)) < .001)))
+                    ((mode == "calibrated_pair" and source_current) or
+                     (mode == "resolved_dimension" and dimension_current and
+                      (not record.get("source_aruco_calibration_id") or source_current))))
                 verified.append({**record, "valid": current})
             cell["relative_measurements"] = verified
             # A relative estimate is lower-confidence than reference-measured or
@@ -338,17 +342,17 @@ class VisionRegistry:
             if camera_id == source_id:
                 raise ValueError("Source and target must be different cameras")
             source_association = self.association(source_id, cell_id)
-            if source_association is None:
-                raise ValueError("Calibrate the source camera first or reuse its saved ArUco association")
-            if source_association.get("cell_revision") != cell["revision"] or (
-                    source_association.get("camera_revision") != self.camera_profile(source_id)["revision"]):
-                raise RuntimeError("Source ArUco calibration is outdated. Review its original profile first")
+            source_current = bool(source_association and
+                source_association.get("cell_revision") == cell["revision"] and
+                source_association.get("camera_revision") == self.camera_profile(source_id)["revision"])
             base = cell["resolved_dimensions"]["dimensions"]
             field = values.get("reference_field")
             known = base.get(field)
             from .cell_metrics import projected_distance_cm
             source_pair = values.get("source_points_cm")
             if source_pair is not None:
+                if not source_current:
+                    raise RuntimeError("Source ArUco calibration is not current. Revalidate it first.")
                 if (values.get("source_calibration_id") != source_association["calibration_id"] or
                         values.get("source_camera_revision") != self.camera_profile(source_id)["revision"]):
                     raise RuntimeError("The calibrated source image changed; repeat source point selection")
@@ -383,7 +387,7 @@ class VisionRegistry:
                 raise RuntimeError("Relative calibration changed in another tab; reload before saving")
             item = {"schema_version": 1, "camera_id": camera_id, "cell_id": _safe_id(cell_id),
                     "source_camera_id": source_id,
-                    "source_aruco_calibration_id": source_association["calibration_id"],
+                    "source_aruco_calibration_id": source_association["calibration_id"] if source_current else None,
                     "source_points_cm": source_pair, "source_axis": source_axis,
                     "source_mode": source_mode,
                     "cell_revision": cell["revision"],
