@@ -107,6 +107,26 @@ class VisionRegistry:
             from .cell_metrics import resolve_cell_dimensions
             cell["dimension_measurements"] = self.dimension_measurements(cell_id)
             cell["resolved_dimensions"] = resolve_cell_dimensions(cell, cell["dimension_measurements"])
+            relative = self.relative_calibrations_for_cell(cell_id)
+            verified = []
+            for record in relative:
+                source_assoc = self.association(record["source_camera_id"], cell_id)
+                source = cell["resolved_dimensions"]["dimensions"].get(record.get("reference_field"))
+                current = bool(source_assoc and
+                    source_assoc.get("calibration_id") == record.get("source_aruco_calibration_id") and
+                    record.get("cell_revision") == cell["revision"] and
+                    record.get("camera_revision") == self.camera_profile(record["camera_id"])["revision"] and
+                    record.get("reference_points_revision") == cell["reference_points_revision"] and
+                    record.get("dimension_revision") == cell["dimension_measurements"]["revision"] and
+                    source and abs(source["value_mm"]-record.get("reference_mm", -1)) < .001)
+                verified.append({**record, "valid": current})
+            cell["relative_measurements"] = verified
+            # A relative estimate is lower-confidence than reference-measured or
+            # reference-derived dimensions, but is preferred over a nominal fallback.
+            estimates = [r for r in verified if r["valid"]]
+            if estimates:
+                cell["resolved_dimensions"] = resolve_cell_dimensions(
+                    cell, cell["dimension_measurements"], relative_estimates=estimates)
             from .cell_metrics import volume_curve_is_current
             cell["volume_calibration"] = self.volume_calibration(cell_id)
             cell["volume_calibration"]["valid"] = volume_curve_is_current(cell, cell["volume_calibration"])
@@ -225,6 +245,68 @@ class VisionRegistry:
             result = {**curve, "revision": current["revision"] + 1, "updated_at": _timestamp()}
             _write(self.root / "volume_calibrations" / f"{_safe_id(cell_id)}.json", result)
             return result
+
+    def relative_calibration(self, camera_id, cell_id):
+        """One relative metric estimate per target camera and cell; ArUco stays untouched."""
+        with self.lock:
+            self.get_cell_base(cell_id)
+            return _read(self.root / "relative_calibrations" /
+                         f"{_safe_id(camera_id)}__{_safe_id(cell_id)}.json", None)
+
+    def relative_calibrations_for_cell(self, cell_id):
+        with self.lock:
+            cell_id = _safe_id(cell_id)
+            items = []
+            for path in (self.root / "relative_calibrations").glob(f"*__{cell_id}.json"):
+                try:
+                    record = _read(path)
+                    if record and record.get("cell_id") == cell_id:
+                        items.append(record)
+                except (ValueError, OSError):
+                    continue
+            return items
+
+    def save_relative_calibration(self, camera_id, cell_id, values):
+        """No changes to camera profile, reference geometry or saved homographies."""
+        from .relative import relative_scale
+        with self.lock:
+            cell = self.get_cell(cell_id)
+            camera_id = _safe_id(camera_id)
+            source_id = _safe_id(values.get("source_camera_id"))
+            if camera_id == source_id:
+                raise ValueError("Source and target must be different cameras")
+            source_association = self.association(source_id, cell_id)
+            if source_association is None:
+                raise ValueError("Calibrate the source camera first or reuse its saved ArUco association")
+            if source_association.get("cell_revision") != cell["revision"] or (
+                    source_association.get("camera_revision") != self.camera_profile(source_id)["revision"]):
+                raise RuntimeError("Source ArUco calibration is outdated. Review its original profile first")
+            base = cell["resolved_dimensions"]["dimensions"]
+            field = values.get("reference_field")
+            known = base.get(field)
+            if known is None:
+                raise ValueError("Select a known cell dimension from the calibrated source")
+            profile = self.camera_profile(camera_id)
+            calculated = relative_scale(values, known["value_mm"], profile)
+            previous = self.relative_calibration(camera_id, cell_id) or {}
+            expected = values.get("expected_revision")
+            if expected is not None and int(expected) != int(previous.get("revision", 0)):
+                raise RuntimeError("Relative calibration changed in another tab; reload before saving")
+            item = {"schema_version": 1, "camera_id": camera_id, "cell_id": _safe_id(cell_id),
+                    "source_camera_id": source_id,
+                    "source_aruco_calibration_id": source_association["calibration_id"],
+                    "cell_revision": cell["revision"],
+                    "camera_revision": profile["revision"],
+                    "reference_points_revision": cell["reference_points_revision"],
+                    "dimension_revision": cell["dimension_measurements"]["revision"],
+                    "reference_field": field,
+                    "target_field": values["target_field"],
+                    "reference_source": known["source"],
+                    **calculated, "revision": int(previous.get("revision", 0)) + 1,
+                    "updated_at": _timestamp()}
+            _write(self.root / "relative_calibrations" /
+                   f"{camera_id}__{_safe_id(cell_id)}.json", item)
+            return item
 
     def cell_lifecycle(self, cell_id):
         """Presentation/availability metadata. Never changes the geometrical revision."""
