@@ -1354,7 +1354,7 @@
         String(c.id)===String(item.id))?.name||item.id)+(valid?' · saved metric view':' · cell dimension fallback')+'</option>';
     }).join('');
     if([...sourceSelect.options].some(o=>o.value===oldSource))sourceSelect.value=oldSource;
-    else if(first?.association&&[...sourceSelect.options].some(o=>o.value===String(first.id)))
+    else if(first&&[...sourceSelect.options].some(o=>o.value===String(first.id)))
       sourceSelect.value=String(first.id);
     const chosenSource=sourceSelect.value;
     destinationSelect.innerHTML='<option value="">Select target camera</option>'+source.filter(item=>
@@ -1655,6 +1655,24 @@
     $('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
     toast('Click the camera image. Existing markers open their editor; empty positions create one new point.');
   });
+  $('cv_shape_draw').addEventListener('click',action(beginShapeDrawing));
+  $('cv_shape_save').addEventListener('click',action(saveShapeOutline));
+  $('cv_shape_cancel').addEventListener('click',()=>{
+    state.shapePoints=[];state.activeShapeId=null;setWorkspaceTool('select');
+    text('cv_shape_readout','Outline selection cleared. Saved outlines are unchanged.');
+    drawWorkspaceShapes();
+  });
+  for(const id of ['cv_shape_anchor','cv_shape_axis','cv_shape_type']){
+    $(id).addEventListener('change',()=>{
+      if(state.shapePoints.length===2)
+        state.shapePoints=constrainShapePoints(state.shapePoints,$('cv_shape_type').value);
+      updateShapeReadout();drawWorkspaceShapes();
+    });
+  }
+  $('cv_shape_list').addEventListener('click',event=>{
+    const button=event.target.closest('[data-shape-action]');if(!button)return;
+    action(()=>changeShape(button.dataset.shapeAction,button.dataset.shapeId))();
+  });
   $('cv_quick_refs').addEventListener('click',e=>{
     const button=e.target.closest('[data-quick-edit]');if(!button)return;
     const point=state.named?.points?.find(p=>p.id===button.dataset.quickEdit);
@@ -1761,7 +1779,7 @@
       state.panDrag={x:event.clientX,y:event.clientY,panX:state.panX,panY:state.panY};
       img.setPointerCapture(event.pointerId);return;
     }
-    if(['measure','relative_source','relative_reference','relative_target'].includes(state.uiTool)){
+    if(['measure','relative_source','relative_reference','relative_target','shape'].includes(state.uiTool)){
       if(state.uiTool==='relative_source'&&state.view!=='rectified'){
         toast('The known source length must be selected on the rectified calibrated image.',true);return;
       }
