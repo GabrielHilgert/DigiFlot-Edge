@@ -118,7 +118,9 @@ class VisionRegistry:
                     record.get("camera_revision") == self.camera_profile(record["camera_id"])["revision"] and
                     record.get("reference_points_revision") == cell["reference_points_revision"] and
                     record.get("dimension_revision") == cell["dimension_measurements"]["revision"] and
-                    source and abs(source["value_mm"]-record.get("reference_mm", -1)) < .001)
+                    source_assoc.get("camera_revision") == self.camera_profile(record["source_camera_id"])["revision"] and
+                    source and source.get("source") == record.get("reference_source") and
+                    abs(source["value_mm"]-record.get("reference_mm", -1)) < .001)
                 verified.append({**record, "valid": current})
             cell["relative_measurements"] = verified
             # A relative estimate is lower-confidence than reference-measured or
@@ -284,8 +286,8 @@ class VisionRegistry:
             base = cell["resolved_dimensions"]["dimensions"]
             field = values.get("reference_field")
             known = base.get(field)
-            if known is None:
-                raise ValueError("Select a known cell dimension from the calibrated source")
+            if known is None or known.get("source") == "relative_estimate":
+                raise ValueError("Choose a measured or nominal source dimension; relative estimates cannot calibrate another camera")
             profile = self.camera_profile(camera_id)
             calculated = relative_scale(values, known["value_mm"], profile)
             previous = self.relative_calibration(camera_id, cell_id) or {}
@@ -389,6 +391,11 @@ class VisionRegistry:
                           "marker_layout": layout}
             if old and all(old.get(key) == value for key, value in comparable.items()):
                 return old
+            if old and all(old.get(key) == value for key, value in comparable.items() if key != "name"):
+                # A display-name edit cannot invalidate previously accepted metric calibration.
+                result = {**old, "name": name, "renamed_at": _timestamp()}
+                _write(path, result)
+                return result
             result = {"schema_version": 1, "id": ident, **comparable,
                       "revision": int(old.get("revision", 0)) + 1, "updated_at": _timestamp()}
             _write(path, result)
@@ -473,6 +480,10 @@ class VisionRegistry:
                 raise ValueError("Invalid ROI coordinates") from None
             if not all(math.isfinite(x) for x in roi) or not (0 <= roi[0] < roi[2] <= 1 and 0 <= roi[1] < roi[3] <= 1):
                 raise ValueError("ROI must be inside normalized sensor coordinates")
+            if (current.get("roi_norm") == roi and current.get("optics") == optics and
+                    current.get("invert") == bool(fields.get("invert", current["invert"])) and
+                    current.get("sensor_size") == fields.get("sensor_size", current.get("sensor_size"))):
+                return current
             result = {"schema_version": 1, "camera_id": current["camera_id"], "roi_norm": roi,
                       "invert": bool(fields.get("invert", current["invert"])), "optics": optics,
                       "sensor_size": fields.get("sensor_size", current.get("sensor_size")),
