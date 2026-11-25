@@ -1438,6 +1438,14 @@ class VisionService:
         self._notify_cell_inventory_changed()
         return result
 
+    def save_reference_observation(self, cell_id, camera_id, payload):
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Physical reference observations require Idle state")
+        self.digiflot.get_camera(int(camera_id))
+        result = self.registry.save_reference_observation(cell_id, camera_id, payload)
+        self._notify_cell_inventory_changed()
+        return result
+
     def save_cell_dimension_measurements(self, cell_id, values):
         if self.digiflot.execution_locked or self.digiflot.recording:
             raise RuntimeError("Measured cell dimensions cannot change during acquisition")
