@@ -4,9 +4,9 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125volume1">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace1">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cell_inventory.css') }}?v=20261123a">
-  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125volume1"></script>
+  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125workspace1"></script>
 </head>
 <body>
 {% include "_navbar.html" %}
@@ -14,7 +14,72 @@
   <header class="page-header"><div><p class="eyebrow">DigiFlot / Vision</p><h1>Cells</h1>
   <p class="page-description">Flotation cells, reusable ArUco geometry and a planar analysis ROI for real-time vision.</p></div>
   <div class="cv-inline-row"><a id="return_to_sensor_calibration" class="button button-secondary" href="/sensors?calibration=1" hidden>Back to sensor calibration</a><span class="state-badge" id="vision_state">Loading</span></div></header>
-  <div class="cell-vision-grid">
+  <section id="cv_registry_mount" class="cv-registry-mount"></section>
+  <section class="card cv-workspace-card" id="cv_workspace">
+    <div class="cv-card-head"><div><p class="eyebrow">02 / Camera workspace</p><h2>Physical measurement canvas</h2>
+      <p class="cv-description">Reuse saved ArUco geometry, or calibrate the second view relatively. Camera data stays separate from cell measurements.</p></div>
+      <div id="cv_camera_selector_mount"></div></div>
+    <div class="cv-workspace-toolbar">
+      <div class="cv-camera-tabs" role="group" aria-label="Select measurement camera">
+        <button id="cv_side_camera" type="button" class="button button-secondary" data-icon="video">Side view</button>
+        <button id="cv_top_camera" type="button" class="button button-secondary" data-icon="camera">Top view</button>
+      </div>
+      <div class="cv-toolbar-divider"></div>
+      <div class="cv-camera-tabs" role="group" aria-label="Image correction">
+        <button id="cv_raw_view" type="button" class="button button-secondary" data-icon="image">Raw</button>
+        <button id="cv_undistorted_view" type="button" class="button button-secondary" data-icon="wand">Undistorted</button>
+        <button id="cv_rectified_view" type="button" class="button button-secondary" data-icon="scan">Rectified</button>
+      </div>
+      <div class="cv-toolbar-divider"></div>
+      <div class="cv-camera-tabs cv-zoom-controls" role="group" aria-label="Zoom and navigate">
+        <button id="cv_zoom_out" type="button" class="button button-secondary" data-icon="zoom-out" title="Zoom out" aria-label="Zoom out"></button>
+        <button id="cv_zoom_fit" type="button" class="button button-secondary" data-icon="maximize">Fit</button>
+        <button id="cv_zoom_in" type="button" class="button button-secondary" data-icon="zoom-in" title="Zoom in" aria-label="Zoom in"></button>
+        <button id="cv_pan_mode" type="button" class="button button-secondary" data-icon="corner-up-left">Pan</button>
+      </div>
+      <div id="cv_preview_controls" class="cv-camera-tabs"></div>
+    </div>
+    <div id="cv_image_mount"></div>
+    <div class="cv-workspace-status"><span id="cv_view_status">Select a cell and camera.</span>
+      <span id="cv_cursor_status">Cursor: —</span><span id="cv_calibration_status">Calibration: —</span></div>
+  </section>
+  <div class="cv-workspace-panels" id="cv_workspace_panels">
+    <section class="card cv-workspace-panel cv-measure-panel"><div class="cv-card-head"><div><p class="eyebrow">03 / Physical dimensions</p><h2>Measurements</h2></div></div>
+      <p class="cv-description">Pick two points on a calibrated plane or choose saved named endpoints.</p>
+      <label>Dimension to measure<select id="cv_measure_target">
+        <option value="height_mm">Height</option><option value="width_mm">Width / diameter</option>
+        <option value="depth_mm">Depth</option><option value="collection_height_mm">Collection height</option></select></label>
+      <div class="cv-inline-row cv-measure-actions"><button type="button" id="cv_pick_measure" class="button button-primary" data-icon="crosshair">Pick 2 points</button>
+        <button type="button" id="cv_clear_measure" class="button button-secondary" data-icon="eraser">Clear</button></div>
+      <p id="cv_measure_status" class="cv-description" role="status">No measurement selected.</p>
+      <div id="cv_measure_mount"></div></section>
+    <section class="card cv-workspace-panel cv-reference-panel"><div class="cv-card-head"><div><p class="eyebrow">04 / Cell-owned landmarks</p><h2>Physical references</h2></div></div>
+      <p class="cv-description">Points belong to the cell, not to the camera. The existing ArUco plane is only one possible source of their coordinates.</p>
+      <div id="cv_refs_mount"></div></section>
+    <section class="card cv-workspace-panel cv-calibration-panel"><div class="cv-card-head"><div><p class="eyebrow">05 / Optical geometry</p><h2>Camera calibration</h2></div></div>
+      <div class="cv-saved-summary" id="cv_saved_summary">Checking previously saved calibration…</div>
+      <div id="cv_camera_calib_mount"></div>
+      <section class="cv-relative-calibration" id="cv_relative_panel">
+        <div class="cv-group-heading"><strong>Relative camera calibration</strong><span>Does not replace ArUco</span></div>
+        <p class="cv-description">Use an existing calibrated camera and known physical dimension to estimate the metric scale of this camera. For reliable XY dimensions, both clicked lengths must lie in the same physical plane.</p>
+        <div class="cv-two"><label>Calibrated source camera<select id="cv_relative_source"></select></label>
+          <label>Known physical length<select id="cv_relative_reference">
+            <option value="width_mm">Width / diameter</option><option value="height_mm">Height</option>
+            <option value="depth_mm">Depth</option><option value="collection_height_mm">Collection height</option></select></label></div>
+        <div class="cv-two"><label>Dimension to estimate<select id="cv_relative_target">
+          <option value="depth_mm">Depth</option><option value="width_mm">Width / diameter</option>
+          <option value="height_mm">Height</option><option value="collection_height_mm">Collection height</option></select></label>
+          <label>Captured plane<select id="cv_relative_plane"><option value="XY">Top · XY</option><option value="XZ">Side · XZ</option></select></label></div>
+        <div class="cv-inline-row"><button type="button" id="cv_relative_pick_reference" class="button button-secondary" data-icon="crosshair">Pick known length</button>
+          <button type="button" id="cv_relative_pick_target" class="button button-secondary" data-icon="ruler">Pick estimated length</button></div>
+        <div id="cv_relative_readout" class="cv-description">Select a target camera and place two point pairs.</div>
+        <button type="button" id="cv_save_relative" class="button button-primary" data-icon="save">Save relative calibration</button>
+      </section>
+      <div id="cv_aruco_mount"></div></section>
+    <section class="card cv-workspace-panel cv-geometry-panel"><div class="cv-card-head"><div><p class="eyebrow">06 / Derived model</p><h2>Cell geometry</h2></div></div><div id="cv_geometry_mount"></div></section>
+    <section class="card cv-workspace-panel cv-volume-panel"><div class="cv-card-head"><div><p class="eyebrow">07 / Known fill volumes</p><h2>Volume calibration</h2></div></div><div id="cv_volume_mount"></div></section>
+  </div>
+  <div class="cell-vision-grid" id="cv_original_layout">
     <section class="card cell-profile-card"><div class="cv-card-head"><div><p class="eyebrow">01 / Flotation cell</p><h2>Cell registry</h2></div><button type="button" class="button button-secondary" id="new_cell" data-icon="plus">New cell</button></div>
       <div class="cv-select-panel"><label>Stored cell <select id="cell_select"><option value="">Select a cell</option></select></label></div>
       <div class="cv-cell-photo">
@@ -120,6 +185,19 @@
         <p id="calibration_message" class="cv-description">No pending calibration.</p>
       </div></div>
   </section>
+<dialog id="cv_rename_dialog" class="cv-inventory-dialog">
+  <div class="cv-inventory-dialog-head"><h2>Rename cell</h2><button id="cv_rename_close" type="button" class="button button-secondary" data-icon="x" aria-label="Close rename dialog">Close</button></div>
+  <p class="cv-description">Only the display name changes. Cell ID, ArUco association history, geometry revisions and HIFIE calibration remain unchanged.</p>
+  <label>New cell name<input id="cv_rename_input" maxlength="80" autocomplete="off"></label>
+  <div class="cv-inline-row"><button id="cv_rename_save" class="button button-primary" type="button" data-icon="save">Save name</button></div>
+</dialog>
+<dialog id="cv_delete_dialog" class="cv-inventory-dialog">
+  <div class="cv-inventory-dialog-head"><h2>Archive or delete cell</h2><button id="cv_delete_close" type="button" class="button button-secondary" data-icon="x" aria-label="Close cell management">Close</button></div>
+  <p class="cv-description">Archive hides the cell from active selection while preserving all measurements, ArUco calibrations and experimental history. Permanent deletion is only allowed for empty, unreferenced archived draft cells.</p>
+  <strong id="cv_delete_name"></strong>
+  <div class="cv-inline-row" style="margin-top:16px"><button id="cv_archive_cell" class="button button-secondary" type="button" data-icon="folder-open">Archive cell</button>
+    <button id="cv_delete_empty" class="button button-secondary" type="button" data-icon="trash-2">Delete empty archived cell</button></div>
+</dialog>
 <dialog id="cell_photo_modal" class="cv-inventory-dialog">
   <div class="cv-inventory-dialog-head"><h2>Capture cell photo</h2><button id="close_cell_photo" type="button" class="button button-secondary" data-icon="x" aria-label="Close">Close</button></div>
   <label>Camera <select id="photo_camera"></select></label>
