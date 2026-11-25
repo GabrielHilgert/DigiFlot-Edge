@@ -3,7 +3,9 @@
   const $ = id => document.getElementById(id);
   const state = {cells: [], cameras: [], settings: {}, profile: null, cell: null,
     cameraId: null, cellId: null, association: null, pending: null, frame: null,
-    roi: [0, 0, 1, 1], analysisRoi: null, roiDirty: false, view: 'raw', plane: null, drag: null, named:null, activePoint:null, pointClick:null, namedDirty:false, dimensionMeasurements:null};
+    roi: [0, 0, 1, 1], analysisRoi: null, roiDirty: false, view: 'raw', plane: null, drag: null, named:null, activePoint:null, pointClick:null, namedDirty:false, dimensionMeasurements:null,
+    imageSpace:'raw',uiTool:'select',pickClick:null,panDrag:null,measurePoints:[],relativePairs:{reference:[],target:[]},
+    cameraRoles:{side:null,top:null},relativeRecord:null,zoom:1,panX:0,panY:0,showArchived:false};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -24,7 +26,9 @@
   const action = callback => async () => { try { await callback(); } catch (err) { toast(err.message, true); } };
   const showImage = (data, view='raw') => {
     if (!data?.jpeg_base64) return;
-    state.view = view;
+    state.view = view;state.imageSpace=data.image_space||'raw';
+    state.measurePoints=[];state.relativePairs={reference:[],target:[]};
+    state.zoom=1;state.panX=0;state.panY=0;
     state.frame = data.frame || null;
     state.plane = data.plane || null;
     state.drag = null;
@@ -34,7 +38,140 @@
       ? 'Rectified plane: drag to select the physical analysis ROI. Save analysis ROI to apply it during recording.'
       : 'Raw camera: drag to adjust the sensor ROI. Open Rectified plane to select the physical analysis ROI.';
     $('camera_image').src = `data:image/jpeg;base64,${data.jpeg_base64}`;
+    showWorkspaceStatus();
+    applyCanvasViewport();
   };
+
+  function arrangeCellsWorkspace() {
+    // Move existing UI nodes, not clones: their IDs, handlers and stored settings survive.
+    const grid=$('cv_original_layout'),registry=grid.querySelector('.cell-profile-card');
+    const camera=grid.querySelector('.camera-profile-card'),calibration=document.querySelector('.vision-calibration-card');
+    const dimensions=registry.querySelector('.cv-field-group'),volume=dimensions.querySelector('.cv-volume-card');
+    const measured=dimensions.querySelector('.cv-dimension-card:not(.cv-resolved-card):not(.cv-nominal-card):not(.cv-volume-card)');
+    $('cv_volume_mount').append(volume);$('cv_measure_mount').append(measured);
+    $('cv_geometry_mount').append(dimensions,registry.querySelector('.cv-card-actions'));
+    const arucoGroup=registry.querySelector('.cv-field-group'),legacyGroup=registry.querySelector('.cv-legacy-reference');
+    const refs=calibration.querySelector('.cv-reference-editor'),image=calibration.querySelector('.cv-image-panel');
+    const calibrationTools=calibration.querySelector('.cv-tools');
+    $('cv_refs_mount').append(refs);
+    $('cv_aruco_mount').append(arucoGroup,legacyGroup,calibrationTools);
+    $('cv_image_mount').append(image);
+    $('cv_camera_selector_mount').append(camera.querySelector('.cv-select-panel'));
+    $('cv_camera_calib_mount').append(camera);
+    const buttons=calibration.querySelector('.cv-card-head > .cv-inline-row');
+    if(buttons)$('cv_preview_controls').append(...buttons.children);
+    $('cv_registry_mount').append(registry);
+    const management=document.createElement('div');management.className='cv-inline-row cv-registry-actions';
+    management.innerHTML='<button type="button" class="button button-secondary" id="cv_rename_open" data-icon="settings">Rename</button>'+
+      '<button type="button" class="button button-secondary" id="cv_archive_open" data-icon="folder-open">Archive / Delete</button>'+
+      '<label class="cv-inline cv-archived-toggle"><input type="checkbox" id="cv_show_archived">Show archived</label>';
+    registry.querySelector('.cv-card-head').append(management);
+    $('cv_measure_mount').querySelector('.cv-dimension-card').classList.add('cv-existing-pair-editor');
+    $('cv_geometry_mount').querySelector('.cv-resolved-card').classList.add('cv-resolved-visible');
+    grid.remove();calibration.remove();
+    window.DigiFlotIcons?.decorate(document);
+  }
+
+  function applyCanvasViewport(){
+    const img=$('camera_image');
+    img.style.transform='translate('+state.panX+'px,'+state.panY+'px) scale('+state.zoom+')';
+    img.style.transformOrigin='center center';
+    text('cv_zoom_fit',state.zoom===1?'Fit':Math.round(state.zoom*100)+'%');
+    renderSelection();drawWorkspaceMeasurements();
+  }
+  function changeZoom(next){
+    const value=Math.max(1,Math.min(8,Number(next)||1));
+    if(value===1){state.panX=0;state.panY=0;}
+    state.zoom=value;applyCanvasViewport();
+  }
+  function setWorkspaceTool(mode){
+    state.uiTool=mode;
+    for(const id of ['cv_pick_measure','cv_relative_pick_reference','cv_relative_pick_target','cv_pan_mode']){
+      const button=$(id);button.classList.toggle('cv-active-tool',
+        (id==='cv_pick_measure'&&mode==='measure')||(id==='cv_pan_mode'&&mode==='pan')||
+        (id==='cv_relative_pick_reference'&&mode==='relative_reference')||
+        (id==='cv_relative_pick_target'&&mode==='relative_target'));
+      button.setAttribute('aria-pressed',String(button.classList.contains('cv-active-tool')));
+    }
+    $('image_help').textContent=mode==='pan'?'Drag to pan. Wheel to zoom. Fit returns to the original view.':
+      mode==='measure'?'Click two endpoints for the selected dimension. Save explicitly to update cell references.':
+      mode.startsWith('relative_')?'Select two endpoints on one frozen raw/undistorted frame in the same physical plane.':
+      state.view==='rectified'?'Rectified plane · place references or drag the analysis ROI.':
+      'Raw camera · drag the sensor ROI. Use an existing saved calibration when available.';
+  }
+  function showWorkspaceStatus(){
+    text('cv_view_status',state.view==='rectified'?'Rectified physical plane':
+      state.imageSpace==='undistorted'?'Optically corrected camera image':'Raw camera image');
+    const association=state.association,relative=state.relativeRecord;
+    const valid=association&&association.camera_revision===state.profile?.revision&&
+      association.cell_revision===state.cell?.revision;
+    const status=valid?'Saved ArUco · metric':association?'Saved ArUco · review revisions':
+      relative?'Relative scale · '+(relative.valid===false?'outdated':'estimated'):'Pixels only · calibrate';
+    text('cv_calibration_status',status);
+    text('cv_saved_summary',valid?'Saved ArUco homography is ready. Current markers are not needed. Re-detection is optional.':
+      association?'Saved ArUco is available, but its camera or cell revision changed. Review before using metric results.':
+      relative?'Relative camera estimate is saved independently. The ArUco association was not altered.':
+      'No ArUco association for this camera. Select a calibrated source camera below to estimate its scale.');
+    $('cv_rectified_view').disabled=!association;
+    $('cv_raw_view').classList.toggle('cv-active-tool',state.view==='raw'&&state.imageSpace==='raw');
+    $('cv_undistorted_view').classList.toggle('cv-active-tool',state.imageSpace==='undistorted');
+    $('cv_rectified_view').classList.toggle('cv-active-tool',state.view==='rectified');
+    const side=state.cameraRoles.side,top=state.cameraRoles.top;
+    for(const [id,cam] of [['cv_side_camera',side],['cv_top_camera',top]]){
+      const button=$(id);button.disabled=cam==null;
+      button.classList.toggle('cv-active-tool',cam!=null&&String(cam)===String(state.cameraId));
+    }
+  }
+
+  function drawWorkspaceMeasurements(){
+    let overlay=$('cv_measure_overlay');
+    if(!overlay){overlay=document.createElement('div');overlay.id='cv_measure_overlay';
+      $('image_surface').append(overlay);}
+    overlay.replaceChildren();
+    const img=$('camera_image'),r=img.getBoundingClientRect(),outer=$('image_surface').getBoundingClientRect();
+    if(!img.naturalWidth||!r.width)return;
+    const elements=[{points:state.measurePoints,color:'#49b8ef',label:'Dimension'},
+      {points:state.relativePairs.reference,color:'#eab25f',label:'Known length'},
+      {points:state.relativePairs.target,color:'#87d7b3',label:'Estimated length'}];
+    for(const entry of elements){
+      const pts=entry.points||[];
+      const xy=pts.map(p=>[r.left-outer.left+p[0]*r.width,r.top-outer.top+p[1]*r.height]);
+      for(const [i,p] of xy.entries()){
+        const marker=document.createElement('span');marker.className='cv-measure-pin';
+        marker.style.left=p[0]+'px';marker.style.top=p[1]+'px';marker.style.background=entry.color;
+        marker.title=entry.label+' · point '+(i+1);overlay.append(marker);
+      }
+      if(xy.length===2){
+        const line=document.createElement('div');line.className='cv-measure-line';
+        const [p,q]=xy;const length=Math.hypot(q[0]-p[0],q[1]-p[1]);
+        Object.assign(line.style,{left:p[0]+'px',top:p[1]+'px',width:length+'px',
+          transform:'rotate('+Math.atan2(q[1]-p[1],q[0]-p[0])+'rad)',background:entry.color});
+        overlay.append(line);
+      }
+    }
+  }
+  function captureWorkspacePoint(p){
+    if(state.uiTool==='measure'){
+      if(state.measurePoints.length>=2)state.measurePoints=[];
+      state.measurePoints.push(p);
+      const points=state.measurePoints;
+      if(points.length===2){
+        const d=(state.view==='rectified'&&state.plane)?
+          Math.hypot(...[0,1].map(i=>planePoint(points[1])[i]-planePoint(points[0])[i]))*10:null;
+        text('cv_measure_status',d!=null?'Measured distance: '+d.toFixed(2)+' mm · Save to link to cell geometry':
+          'Two points selected · '+(state.relativeRecord?'Relative scale available; use relative calibration panel to save.':'Pixels only. Calibrate this camera first.'));
+      }else text('cv_measure_status','First endpoint placed · select the second endpoint.');
+    }else{
+      const field=state.uiTool==='relative_reference'?'reference':'target';
+      const target=state.relativePairs[field];
+      if(target.length>=2)target.length=0;
+      target.push(p);
+      text('cv_relative_readout',target.length===1?'First '+field+' endpoint placed · pick the second.':
+        'Two '+field+' endpoints placed · '+state.relativePairs.reference.length+
+        '/2 reference · '+state.relativePairs.target.length+'/2 target.');
+    }
+    drawWorkspaceMeasurements();
+  }
 
   function setCellForm(cell) {
     state.cell = cell;
@@ -74,6 +211,7 @@
   function renderCellResolvedDimensions(){
     const data=state.cell?.resolved_dimensions||{},dimensions=data.dimensions||{};
     const sources={measured:'Measured · ArUco',derived:'Derived · references',nominal:'Nominal fallback',
+      relative_estimate:'Relative camera · estimated',relative_geometry:'Estimated / relative geometry',
       measured_geometry:'Measured geometry',mixed_geometry:'Mixed nominal / measured',nominal_geometry:'Nominal geometry'};
     const fmt=(value,digits=1)=>Number(value).toLocaleString(undefined,{maximumFractionDigits:digits});
     const rows=Object.entries(dimensionLabels).map(([field,label])=>{
