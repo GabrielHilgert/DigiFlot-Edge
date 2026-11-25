@@ -126,7 +126,10 @@ class VisionRegistry:
                     record.get("dimension_revision") == cell["dimension_measurements"]["revision"] and
                     ((mode == "calibrated_pair" and source_current) or
                      (mode == "resolved_dimension" and dimension_current and
-                      (not record.get("source_aruco_calibration_id") or source_current))))
+                      (not record.get("source_aruco_calibration_id") or source_current))) and
+                    (not record.get("target_aruco_calibration_id") or (
+                        self.association(record["camera_id"], cell_id) or {}).get("calibration_id") ==
+                        record["target_aruco_calibration_id"]))
                 verified.append({**record, "valid": current})
             cell["relative_measurements"] = verified
             # A relative estimate is lower-confidence than reference-measured or
@@ -400,6 +403,13 @@ class VisionRegistry:
                 raise RuntimeError("The target camera/optics changed since this image; capture a fresh frame")
             if values.get("physical_plane", "XY") not in ("XY", "XZ", "YZ"):
                 raise ValueError("Select the physical observation plane")
+            target_assoc=self.association(camera_id,cell_id) if values.get("image_space") == "rectified" else None
+            if values.get("image_space") == "rectified":
+                if (not target_assoc or target_assoc.get("calibration_id") !=
+                        values.get("target_calibration_id") or
+                        target_assoc.get("cell_revision") != cell["revision"] or
+                        target_assoc.get("camera_revision") != profile["revision"]):
+                    raise RuntimeError("Rectified target plane was changed; capture a new calibration image")
             calculated = relative_scale(values, source_mm, profile)
             previous = self.relative_calibration(camera_id, cell_id) or {}
             expected = values.get("expected_revision")
@@ -408,6 +418,7 @@ class VisionRegistry:
             item = {"schema_version": 1, "camera_id": camera_id, "cell_id": _safe_id(cell_id),
                     "source_camera_id": source_id,
                     "source_aruco_calibration_id": source_association["calibration_id"] if source_current else None,
+                    "target_aruco_calibration_id": target_assoc["calibration_id"] if target_assoc else None,
                     "source_points_cm": source_pair, "source_axis": source_axis,
                     "source_mode": source_mode,
                     "cell_revision": cell["revision"],
