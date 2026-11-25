@@ -242,6 +242,11 @@ def save_analysis_roi(camera_id: int, cell_id: str, request: Request, payload: d
     return _invoke(service(request).save_analysis_roi, camera_id, cell_id, payload)
 
 
+@router.post("/associations/{camera_id}/{cell_id}/reuse")
+def reuse_confirmed_aruco(camera_id: int, cell_id: str, request: Request, payload: dict):
+    return _invoke(service(request).reuse_confirmed_aruco, camera_id, cell_id, payload)
+
+
 @router.post("/associations/{camera_id}/{cell_id}/detect")
 def detect(camera_id: int, cell_id: str, request: Request):
     return _invoke(service(request).detect, camera_id, cell_id)
