@@ -365,7 +365,10 @@
     const record=state.named||{points:[]},list=$('named_reference_list'),view=referenceDisplayModel(record.points);
     list.innerHTML=view.visible.map(p=>{
       const locked=['aruco_reference','outlet_level','cell_top','cell_bottom'].includes(p.id);
-      const pos=p.source==='automatic'?'Automatic from markers':p.position_cm?p.position_cm.map(n=>Number(n).toFixed(2)).join(', ')+' cm':'Not calibrated';
+      const observation=state.cell?.reference_observations?.[String(state.cameraId)]?.observations?.[p.id];
+      const pos=p.source==='automatic'?'Automatic from markers':p.position_cm?
+        p.position_cm.map(n=>Number(n).toFixed(2)).join(', ')+' cm' :
+        observation?'Observed on selected camera · '+observation.image_space:'No measured coordinates';
       return '<div class="cv-named-point'+(state.activePoint===p.id?' active':'')+'" data-ref-id="'+esc(p.id)+'">'+
         '<label><input type="radio" name="ref_default" value="'+esc(p.id)+'" '+(view.canonicalId(record.default_reference_id)===p.id?'checked':'')+' title="Default reference"></label>'+
         '<div class="cv-named-main"><input data-ref-field="name" value="'+esc(p.name)+'" '+(locked?'disabled':'')+' maxlength="80" aria-label="Name">'+
@@ -384,7 +387,7 @@
             '</select></div><label class="cv-named-coord">ΔY from reference (cm) <input data-ref-field="offset_y_cm" type="number" step="any" value="'+esc(p.offset_y_cm??0)+'"></label>' :
             '</select></div><div class="cv-named-coord"><label>X cm <input data-ref-field="x_cm" type="number" step="any" value="'+esc(p.position_cm?.[0]??'')+'" placeholder="0"></label>'+
             '<label>Y cm <input data-ref-field="y_cm" type="number" step="any" value="'+esc(p.position_cm?.[1]??'')+'" placeholder="Measured level"></label></div>')+
-        '</div><div class="cv-named-actions"><button class="button button-secondary" data-icon="'+(state.activePoint===p.id?'x':'crosshair')+'" data-icon-only data-ref-action="place" type="button" '+(locked?'disabled':'')+'>'+
+        '</div><div class="cv-named-actions"><button class="button button-secondary" data-icon="'+(state.activePoint===p.id?'x':'crosshair')+'" data-icon-only data-ref-action="place" type="button" '+(p.id==='aruco_reference'?'disabled':'')+'>'+
         (state.activePoint===p.id?'Cancel':'Place')+'</button>'+
         (locked?'':'<button class="button button-secondary" data-icon="trash-2" data-icon-only data-ref-action="delete" type="button">Remove</button>')+'</div></div>';
     }).join('');
@@ -397,24 +400,41 @@
     drawNamedPoints();
   }
 
-  function drawNamedPoints() {
+  function drawNamedPoints(){
     const layer=$('reference_overlays'),img=$('camera_image');layer.replaceChildren();
-    if(state.view!=='rectified'||!state.plane||!img.naturalWidth||!state.named)return;
+    if(!img.naturalWidth||!state.named)return;
     const outer=$('image_surface').getBoundingClientRect(),rect=img.getBoundingClientRect();
-    Object.assign(layer.style,{left:(rect.left-outer.left)+'px',top:(rect.top-outer.top)+'px',
+    Object.assign(layer.style,{left:rect.left-outer.left+'px',top:rect.top-outer.top+'px',
       width:rect.width+'px',height:rect.height+'px'});
-    const [x0,y0]=state.plane.min_xy_cm,[x1,y1]=state.plane.max_xy_cm;
-    for(const point of referenceDisplayModel().visible) {
-      const auto=point.type==='aruco'&&point.source==='automatic';
-      const pos=auto?[x0,Math.max(Number(state.cell?.marker_layout?.span_cm||14),
-        Number(state.cell?.marker_layout?.marker_size_cm||2))]:point.position_cm;
-      if(!pos)continue;
-      const x=(pos[0]-x0)/(x1-x0),y=(pos[1]-y0)/(y1-y0);
-      if(y<0||y>1)continue;
-      const line=document.createElement('div');line.className='cv-named-overlay'+
-        (point.id===state.named.default_reference_id?' selected':'');line.style.top=(100*y)+'%';
-      const pin=document.createElement('span');pin.style.left=(100*x)+'%';line.appendChild(pin);
-      layer.appendChild(line);
+    const calibrated=state.view==='rectified'&&state.plane;
+    const observationSet=state.cell?.reference_observations?.[String(state.cameraId)]?.observations||{};
+    const bounds=state.plane;
+    for(const point of referenceDisplayModel().visible){
+      let x,y;
+      if(calibrated){
+        const auto=point.type==='aruco'&&point.source==='automatic';
+        const pos=auto?[bounds.min_xy_cm[0],Math.max(Number(state.cell?.marker_layout?.span_cm||14),
+          Number(state.cell?.marker_layout?.marker_size_cm||2))]:point.position_cm;
+        if(!pos)continue;
+        [x,y]=[(pos[0]-bounds.min_xy_cm[0])/(bounds.max_xy_cm[0]-bounds.min_xy_cm[0]),
+          (pos[1]-bounds.min_xy_cm[1])/(bounds.max_xy_cm[1]-bounds.min_xy_cm[1])];
+      }else{
+        const observation=observationSet[point.id];
+        if(!observation||observation.image_space!==state.imageSpace||
+           observation.camera_revision!==state.profile?.revision)continue;
+        [x,y]=observation.position_norm;
+      }
+      if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||x>1||y<0||y>1)continue;
+      const element=document.createElement('div');
+      element.className=calibrated?'cv-named-overlay':'cv-observed-overlay';
+      if(point.id===state.activePoint||point.id===state.named.default_reference_id)
+        element.classList.add('selected');
+      element.style.top=100*y+'%';
+      if(calibrated){
+        const pin=document.createElement('span');pin.style.left=100*x+'%';element.append(pin);
+      }else element.style.left=100*x+'%';
+      element.title=point.name+(calibrated?' · ArUco physical cm':' · camera pixel observation');
+      layer.append(element);
     }
   }
 
@@ -458,7 +478,8 @@
     const action=event.target.dataset.refAction;
     if(action==='place'){
       state.activePoint=state.activePoint===point.id?null:point.id;
-      if(state.activePoint&&state.view!=='rectified')await rectifiedSnapshot();
+      // In Rectified mode the click edits ArUco-local cm; in Raw/Undistorted
+      // it stores a camera-specific observation without changing physical cm.
       renderNamedPoints();return;
     }
     if(action==='delete'){
@@ -883,10 +904,25 @@
   function finishDrag(event) {
     if(state.pointClick){
       const p=pointOnImage(event)||state.pointClick,down=state.pointClick;state.pointClick=null;
-      if(state.activePoint&&state.plane&&Math.hypot(p[0]-down[0],p[1]-down[1])<.025){
+      if(state.activePoint&&Math.hypot(p[0]-down[0],p[1]-down[1])<.025){
         const point=state.named.points.find(x=>x.id===state.activePoint);
-        if(point){point.position_cm=planePoint(p);point.source='image_selection';
-          state.namedDirty=true;state.activePoint=null;renderNamedPoints();}
+        if(point&&state.view==='rectified'&&state.plane){
+          point.position_cm=planePoint(p);point.source='image_selection';
+          state.namedDirty=true;state.activePoint=null;renderNamedPoints();
+        }else if(point&&state.cameraId!=null&&state.cellId){
+          const currentId=state.cellId,cameraId=state.cameraId,referenceId=point.id;
+          const previous=state.cell?.reference_observations?.[String(cameraId)];
+          state.activePoint=null;renderNamedPoints();
+          void api('/cells/'+encodeURIComponent(currentId)+'/reference-observations/'+cameraId,{
+            method:'PUT',body:{reference_id:referenceId,position_norm:p,
+              frame_size:[$('camera_image').naturalWidth,$('camera_image').naturalHeight],
+              image_space:state.imageSpace,expected_revision:previous?.revision||0}
+          }).then(async()=>{
+            if(state.cellId!==currentId)return;
+            state.cell=await api('/cells/'+encodeURIComponent(currentId));
+            renderNamedPoints();toast('Camera observation saved. ArUco physical coordinates were preserved.');
+          }).catch(error=>toast(error.message,true));
+        }
       }
       return;
     }
@@ -1224,7 +1260,7 @@
       state.pickClick={p,x:event.clientX,y:event.clientY};
       img.setPointerCapture(event.pointerId);return;
     }
-    if(state.view==='rectified'&&state.activePoint){
+    if(state.activePoint){
       state.pointClick=p;img.setPointerCapture(event.pointerId);return;
     }
     state.drag={start:p,end:p};
