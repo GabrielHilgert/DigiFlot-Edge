@@ -43,6 +43,26 @@ class AxisAndRelativeTests(unittest.TestCase):
         self.assertEqual(result["dimensions"]["height_mm"]["references"],["a","b"])
         self.assertAlmostEqual(resolve_cell_dimensions({"reference_points":points})["dimensions"]["height_mm"]["value_mm"],200)
 
+    def test_relative_scale_without_any_source_aruco_uses_known_cell_width(self):
+        with tempfile.TemporaryDirectory() as path:
+            reg=VisionRegistry(path)
+            cell=reg.save_cell({"name":"4L","geometry":{"shape":"rectangular",
+                "width_mm":160,"depth_mm":100}})
+            data={"source_camera_id":1,"reference_field":"width_mm",
+                "target_field":"depth_mm","frame_size":[800,600],
+                "reference_pair":[[.1,.2],[.5,.2]],"reference_axis":"horizontal",
+                "target_pair":[[.2,.2],[.2,.5]],"target_axis":"vertical",
+                "image_space":"undistorted","capture_camera_id":2,"camera_revision":0}
+            item=reg.save_relative_calibration(2,cell["id"],data)
+            self.assertEqual(item["source_mode"],"resolved_dimension")
+            self.assertIsNone(item["source_aruco_calibration_id"])
+            self.assertAlmostEqual(item["target_mm"],90)
+            resolved=reg.get_cell(cell["id"])
+            self.assertTrue(resolved["relative_measurements"][0]["valid"])
+            self.assertAlmostEqual(resolved["resolved_dimensions"]["dimensions"]["depth_mm"]["value_mm"],90)
+            self.assertIsNone(reg.association(1,cell["id"]))
+            self.assertIsNone(reg.association(2,cell["id"]))
+
     def test_known_source_metric_pair_and_target_axis_are_distinct(self):
         with tempfile.TemporaryDirectory() as path:
             registry=VisionRegistry(path)
