@@ -88,3 +88,26 @@ The Edge exposes thumbnail GET/PUT/DELETE. The Server accepts separately uploade
 - Enable HIFIE with main video off; verify `lores` keeps running.
 - Start video on Camera 2 while Camera 1 supplies HIFIE; verify Camera 1 is not stopped.
 - Deactivate HIFIE; verify its worker-owned preview is released without closing a tab-owned preview.
+
+## Visual Cells workspace — November 2026
+
+The editor keeps existing API and DOM IDs but moves the actual elements into a new workspace: Cell registry first; full-width camera canvas with raw/undistorted/rectified views and zoom/pan; then independent Measurements, Physical references, Camera calibration, Cell geometry and Volume calibration panels. Icons are drawn from the existing offline DigiFlot icon library.
+
+### Ownership and camera models
+
+- The last confirmed ArUco camera–cell association is the default when compatible. Rectified preview does not require marker re-detection.
+- Revalidate saved ArUco is explicitly confirmed and accepts only unchanged optics and ArUco ruler geometry. It creates a new history revision with the old homography, preserving earlier files. Operators must only revalidate if the physical ruler did not move.
+- Each physical reference belongs to the cell. Camera-specific raw/undistorted observations are saved separately under local_storage/vision/reference_observations/<cell>/<camera>.json. These use normalized pixel coordinates, frame size and optical revision, and do not overwrite existing ArUco centimetre coordinates.
+- Relative calibration for a camera without markers uses a saved calibrated source camera and a known physical cell dimension. On the destination camera the operator marks two endpoints spanning that known dimension and two spanning another dimension. Target length is estimated as reference_mm multiplied by target_px/reference_px. The result is only an approximate common-plane scale, not a homography; optical correction is applied where available. Relative records are stored separately under local_storage/vision/relative_calibrations/ and never overwrite ArUco latest.json.
+- Metric measured dimensions outrank reference-derived values, which outrank relative camera estimates, which outrank nominal fallbacks. Changing optical or source geometry revisions invalidates relative estimates without deleting saved evidence.
+- Single-frame Undistorted uses existing optical parameters in OpenCV. Clicked pairs and reference observations are bound to a specific camera image and optical revision.
+
+### Cell lifecycle safety
+
+- Rename and name-only edits preserve cell ID and the geometric revision.
+- Archive is reversible, stored separately under local_storage/vision/cell_lifecycle/, and hides inactive cells without deleting calibration data. Archived entries may be listed explicitly.
+- Permanent Delete is restricted to archived, unreferenced draft cells. References, measurements, photos, camera associations, HIFIE evidence and active vision selections block permanent deletion.
+
+### Operational constraints
+
+The visual workspace does not start experiments, recording or continuous HIFIE processing. Existing ArUco/ROI endpoints and files are unchanged. Points captured in Raw/Undistorted mode are camera observations, while points captured in Rectified mode are ArUco-local physical coordinates and require an explicit save.
