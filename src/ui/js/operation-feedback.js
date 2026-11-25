@@ -142,8 +142,20 @@
             }
             if (response.status === 409 || (tracked && response.status >= 500)) {
                 const body = await response.clone().json().catch(() => ({}));
-                const detail = String(body.detail || "A conflicting operation is active");
-                notice(response.status === 409 ? detail + " Check the other calibration tab." : detail, true, true);
+                const detail = String(body.detail || (response.status === 409 ?
+                    "A conflicting operation is active" : "The request failed"));
+                const origin = method + " " + url.pathname;
+                if (tracked) {
+                    const cameraLease = /\/api\/cameras\/\d+\/preview\/start$/.test(url.pathname);
+                    notice(origin + " · " + detail +
+                        (cameraLease ? " Check whether another calibration tab owns the camera." : ""),
+                        true, true);
+                } else {
+                    // Background status/estimate requests must not display a blocking
+                    // calibration error when the user's foreground action is unaffected.
+                    console.warn("[DigiFlot] Background request failed:", origin,
+                        "HTTP " + response.status, detail);
+                }
             }
             return response;
         } catch (error) {
