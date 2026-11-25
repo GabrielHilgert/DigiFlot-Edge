@@ -635,12 +635,14 @@
     setCellForm(id ? await api(`/cells/${encodeURIComponent(id)}`) : null);
     resetView();
     await loadAssociation();
+    refreshCellActions();
+    await refreshCameraRoles();
   }
 
   async function refreshCells(selectId=state.cellId) {
-    state.cells = await api('/cells');
+    state.cells = await api('/cells'+(state.showArchived?'?include_archived=true':''));
     $('cell_select').innerHTML = '<option value="">New cell / choose a cell</option>' + state.cells.map(c =>
-      `<option value="${esc(c.id)}">${esc(c.name)} · ${esc(c.id)}</option>`).join('');
+      `<option value="${esc(c.id)}">${esc(c.name)}${c.archived?' [Archived]':''} · ${esc(c.id)}</option>`).join('');
     if (selectId && state.cells.some(c => c.id === selectId)) $('cell_select').value = selectId;
     await loadCell($('cell_select').value);
   }
@@ -721,6 +723,7 @@
       text('last_calibration','—');
       state.analysisRoi = null; state.roiDirty = false;
       updateAnalysisCaption(); renderSelection();
+      state.relativeRecord=null;showWorkspaceStatus();
       return;
     }
     state.association = await api(`/associations/${state.cameraId}/${encodeURIComponent(state.cellId)}`);
@@ -730,7 +733,12 @@
     updateAnalysisCaption(); renderSelection();
     text('last_calibration',record?.calibration_id || 'None');
     const stale = record && (record.camera_revision !== state.profile?.revision || record.cell_revision !== state.cell?.revision);
-    text('association_status',record ? `Using saved calibration #${record.revision}${stale?' (profile changed; review grid)':''}. Detect ArUco to update.` : 'No saved association yet. Detect ArUco to create one.');
+    state.relativeRecord=await api('/associations/'+state.cameraId+'/'+encodeURIComponent(state.cellId)+'/relative').catch(()=>null);
+    text('association_status',record ? `Using saved calibration #${record.revision}${stale?' (profile changed; review grid)':''}. Detect ArUco to update.` :
+      state.relativeRecord?'Relative calibration is saved; ArUco not required for this view.':
+      'No saved association yet. Use a relative scale or detect ArUco if markers are present.');
+    await refreshCameraRoles();
+    showWorkspaceStatus();
   }
 
   async function startPreview() {
@@ -793,6 +801,8 @@
 
   function resetView() {
     state.view = 'raw'; state.frame = null; state.plane = null; state.drag = null;
+    state.relativePairs={reference:[],target:[]};state.measurePoints=[];
+    state.zoom=1;state.panX=0;state.panY=0;
     $('camera_image').removeAttribute('src');
     $('roi_selection').hidden = true; $('roi_drag').hidden = true;
   }
@@ -918,7 +928,159 @@
     toast('Analysis ROI cleared. The ArUco calibration was preserved.');
   }
 
+  async function refreshCameraRoles(){
+    if(!state.cellId){state.cameraRoles={side:null,top:null};showWorkspaceStatus();return;}
+    const source=await Promise.all(state.cameras.map(async camera=>{
+      const association=await api('/associations/'+encodeURIComponent(camera.id)+'/'+encodeURIComponent(state.cellId)).catch(()=>null);
+      return {id:camera.id,association};
+    }));
+    const calibrated=source.find(item=>item.association&&
+      item.association.camera_revision===item.association.camera_profile?.revision&&
+      item.association.cell_revision===state.cell?.revision);
+    const first=calibrated||source.find(item=>item.association)||source.find(item=>String(item.id)===String(state.settings.camera_id))||source[0];
+    const second=source.find(item=>String(item.id)!==String(first?.id));
+    state.cameraRoles={side:first?.id??null,top:second?.id??null};
+    const select=$('cv_relative_source'),old=select.value;
+    select.innerHTML=source.filter(item=>item.association&&String(item.id)!==String(state.cameraId))
+      .map(item=>'<option value="'+esc(item.id)+'">'+esc(state.cameras.find(c=>String(c.id)===String(item.id))?.name||item.id)+
+        ' · saved ArUco</option>').join('');
+    if([...select.options].some(option=>option.value===old))select.value=old;
+    showWorkspaceStatus();
+  }
+  async function selectCameraRole(role){
+    const camera=state.cameraRoles[role];
+    if(camera==null)throw new Error('No '+role+' camera is available.');
+    if(String(camera)===String(state.cameraId))return;
+    if(state.namedDirty&&!window.confirm('There are unsaved physical references. Switch cameras without saving?'))return;
+    setWorkspaceTool('select');
+    await loadCamera(camera);
+    $('camera_select').value=String(camera);
+    try{
+      if(state.association && state.association.camera_revision===state.profile?.revision &&
+          state.association.cell_revision===state.cell?.revision)await rectifiedSnapshot();
+      else await refreshUndistortedSnapshot();
+    }catch(error){toast('Camera selected. Start its preview if capture is unavailable: '+error.message,true);}
+  }
+  async function refreshUndistortedSnapshot(){
+    if(state.cameraId==null)throw new Error('Select a camera first.');
+    const data=await api('/cameras/'+encodeURIComponent(state.cameraId)+'/snapshot?undistorted=true&show_grid=false');
+    showImage(data,'raw');
+    if(!data.optics_corrected)toast('No intrinsic correction is saved; displaying the original pixels.');
+  }
+  function relativeReadout(){
+    const pair=state.relativePairs;
+    if(pair.reference.length!==2||pair.target.length!==2)return;
+    const pixels=points=>Math.hypot((points[1][0]-points[0][0])*$('camera_image').naturalWidth,
+      (points[1][1]-points[0][1])*$('camera_image').naturalHeight);
+    const d0=pixels(pair.reference),d1=pixels(pair.target);
+    const ref=state.cell?.resolved_dimensions?.dimensions?.[$('cv_relative_reference').value];
+    if(ref&&d0>0)
+      text('cv_relative_readout','Approximate '+$('cv_relative_target').selectedOptions[0].textContent+': '+
+        (ref.value_mm*d1/d0).toFixed(2)+' mm · ratio '+(d1/d0).toFixed(3)+
+        ' · '+(state.imageSpace==='undistorted'?'optically corrected':'raw pixels; distortion may affect accuracy'));
+  }
+  async function saveRelativeCalibration(){
+    if(!state.cellId||state.cameraId==null)throw new Error('Choose a cell and camera.');
+    if(state.view==='rectified')throw new Error('Switch to Raw or Undistorted image before measuring relative lengths.');
+    const pairs=state.relativePairs;
+    if(pairs.reference.length!==2||pairs.target.length!==2)
+      throw new Error('Pick two reference endpoints and two target endpoints on the same captured image.');
+    const source=$('cv_relative_source').value;
+    if(!source)throw new Error('No source camera with saved ArUco calibration is available.');
+    const img=$('camera_image');
+    if(!img.naturalWidth||!img.naturalHeight)throw new Error('Capture a camera frame first.');
+    const payload={source_camera_id:source,reference_field:$('cv_relative_reference').value,
+      target_field:$('cv_relative_target').value,reference_pair:pairs.reference,target_pair:pairs.target,
+      frame_size:[img.naturalWidth,img.naturalHeight],image_space:state.imageSpace,
+      physical_plane:$('cv_relative_plane').value,expected_revision:state.relativeRecord?.revision||0};
+    const record=await api('/associations/'+state.cameraId+'/'+encodeURIComponent(state.cellId)+'/relative',
+      {method:'PUT',body:payload});
+    state.relativeRecord={...record,valid:true};
+    state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+    renderCellResolvedDimensions();showWorkspaceStatus();
+    text('cv_relative_readout','Saved · '+record.target_field+': '+record.target_mm.toFixed(2)+
+      ' mm · estimated by a '+record.reference_mm.toFixed(2)+' mm calibrated reference. ArUco preserved.');
+    toast('Relative scale saved separately from the ArUco calibration.');
+  }
+  async function saveVisualMeasurement(){
+    if(state.view!=='rectified'||!state.plane||!state.association)
+      throw new Error('Save direct physical measurements from the rectified calibrated plane. Use relative calibration for another camera.');
+    if(state.measurePoints.length!==2)throw new Error('Pick two endpoints on the camera image first.');
+    if(state.namedDirty)throw new Error('Save pending physical references before saving the measurement.');
+    const field=$('cv_measure_target').value;
+    if(!window.confirm('Saving these physical points updates the cell reference revision. An existing HIFIE benchmark may need review. Continue?'))return;
+    const positions=state.measurePoints.map(planePoint);
+    if(positions.some(p=>!p||!p.every(Number.isFinite)))throw new Error('Unable to map points to the calibrated plane.');
+    const record=JSON.parse(JSON.stringify(state.named)),reserved={
+      height_mm:['cell_top','cell_bottom'],
+      width_mm:['measured_width_a','measured_width_b'],
+      depth_mm:['measured_depth_a','measured_depth_b'],
+      collection_height_mm:['measured_collection_a','measured_collection_b']};
+    const ids=reserved[field];
+    for(let i=0;i<2;i++){
+      let point=record.points.find(p=>p.id===ids[i]);
+      if(!point){point={id:ids[i],name:field.replace('_mm','').replaceAll('_',' ')+' '+(i?'B':'A'),
+        type:'custom',direction:'up',source:'unset',position_cm:null};record.points.push(point);}
+      point.position_cm=positions[i];point.source='image_selection';
+    }
+    const saved=await api('/cells/'+encodeURIComponent(state.cellId)+'/reference-points',
+      {method:'PUT',body:record});
+    state.named=saved;state.namedDirty=false;
+    if(field!=='height_mm'){
+      const mapping={...(state.dimensionMeasurements?.pairs||{}),
+        [field]:{from_id:ids[0],to_id:ids[1]}};
+      await api('/cells/'+encodeURIComponent(state.cellId)+'/dimensions',{
+        method:'PUT',body:{pairs:mapping,expected_revision:state.dimensionMeasurements?.revision||0}});
+    }
+    state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+    state.dimensionMeasurements=state.cell.dimension_measurements;
+    renderNamedPoints();renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();
+    text('cv_measure_status','Physical dimension saved · '+field+' · source: calibrated image points.');
+    toast('Measured physical points saved. Existing ArUco homography was not changed.');
+    setWorkspaceTool('select');
+  }
+  function refreshCellActions(){
+    const has=Boolean(state.cellId),archived=Boolean(state.cell?.archived);
+    for(const id of ['cv_rename_open','cv_archive_open'])$(id).disabled=!has;
+    $('cv_archive_cell').textContent=archived?'Restore cell':'Archive cell';
+    window.DigiFlotIcons?.decorate($('cv_archive_cell').parentElement);
+    $('cv_delete_empty').disabled=!archived;
+  }
+  async function renameSelectedCell(){
+    if(!state.cellId)throw new Error('Choose a saved cell.');
+    const result=await api('/cells/'+encodeURIComponent(state.cellId)+'/name',
+      {method:'PUT',body:{name:$('cv_rename_input').value.trim()}});
+    $('cv_rename_dialog').close();await refreshCells(result.id);
+    toast('Renamed without changing geometry or camera calibration revisions.');
+  }
+  async function archiveSelectedCell(){
+    if(!state.cellId)throw new Error('Choose a saved cell.');
+    const wasArchived=Boolean(state.cell?.archived);
+    if(!window.confirm((wasArchived?'Restore':'Archive')+' '+state.cell.name+
+      '? Archive keeps physical references, calibration history and measurements.'))return;
+    const id=state.cellId;
+    await api('/cells/'+encodeURIComponent(id)+'/archive',{method:'PUT',body:{archived:!wasArchived}});
+    $('cv_delete_dialog').close();
+    await refreshCells(!wasArchived?null:id);
+    toast(wasArchived?'Cell restored.':'Cell archived. Its historical calibrations remain saved.');
+  }
+  async function deleteArchivedDraft(){
+    if(!state.cellId||!state.cell?.archived)throw new Error('Archive this cell first.');
+    const name=state.cell.name;
+    if(window.prompt('Permanent deletion only works for an empty draft. Type DELETE '+name+
+      ' to confirm:')!=='DELETE '+name)return;
+    await api('/cells/'+encodeURIComponent(state.cellId),{method:'DELETE'});
+    $('cv_delete_dialog').close();await refreshCells(null);
+    toast('Unreferenced draft cell permanently deleted.');
+  }
+
   async function initialize() {
+    arrangeCellsWorkspace();
+    $('cv_measure_mount').querySelector('.cv-measure-actions')?.remove();
+    const saveMeasure=document.createElement('button');saveMeasure.id='cv_save_measure';
+    saveMeasure.type='button';saveMeasure.className='button button-secondary';
+    saveMeasure.dataset.icon='save';saveMeasure.textContent='Save dimension';
+    $('cv_measure_mount').prepend(saveMeasure);window.DigiFlotIcons?.decorate(saveMeasure.parentElement);
     const data=await api('/status');state.settings=data.settings;state.cameras=data.cameras;
     $('camera_select').innerHTML='<option value="">Select a camera</option>'+data.cameras.map(c=>
       `<option value="${c.id}">${esc(c.name)} (#${c.id})</option>`).join('');
@@ -932,6 +1094,8 @@
     if (cameraId != null) $('camera_select').value=cameraId;
     await refreshCells(cellId);
     await loadCamera($('camera_select').value);
+    await refreshCameraRoles();
+    refreshCellActions();
   }
 
   $('capture_cell_photo').addEventListener('click',action(openPhotoModal));
