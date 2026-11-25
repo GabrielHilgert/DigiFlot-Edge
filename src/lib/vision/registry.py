@@ -120,8 +120,9 @@ class VisionRegistry:
                     record.get("reference_points_revision") == cell["reference_points_revision"] and
                     record.get("dimension_revision") == cell["dimension_measurements"]["revision"] and
                     source_assoc.get("camera_revision") == self.camera_profile(record["source_camera_id"])["revision"] and
-                    source and source.get("source") == record.get("reference_source") and
-                    abs(source["value_mm"]-record.get("reference_mm", -1)) < .001)
+                    (record.get("source_mode") == "calibrated_pair" or (
+                      source and source.get("source") == record.get("reference_source") and
+                      abs(source["value_mm"]-record.get("reference_mm", -1)) < .001)))
                 verified.append({**record, "valid": current})
             cell["relative_measurements"] = verified
             # A relative estimate is lower-confidence than reference-measured or
@@ -345,15 +346,37 @@ class VisionRegistry:
             base = cell["resolved_dimensions"]["dimensions"]
             field = values.get("reference_field")
             known = base.get(field)
-            if known is None or known.get("source") == "relative_estimate":
-                raise ValueError("Choose a measured or nominal source dimension; relative estimates cannot calibrate another camera")
+            from .cell_metrics import projected_distance_cm
+            source_pair = values.get("source_points_cm")
+            if source_pair is not None:
+                if (values.get("source_calibration_id") != source_association["calibration_id"] or
+                        values.get("source_camera_revision") != self.camera_profile(source_id)["revision"]):
+                    raise RuntimeError("The calibrated source image changed; repeat source point selection")
+                if not isinstance(source_pair, list) or len(source_pair) != 2 or any(
+                        not isinstance(p, (list, tuple)) or len(p) != 2 for p in source_pair):
+                    raise ValueError("Provide two calibrated source points in centimetres")
+                try: source_pair = [[float(v) for v in point] for point in source_pair]
+                except (TypeError, ValueError):
+                    raise ValueError("Calibrated source coordinates must be numbers") from None
+                if not all(math.isfinite(v) and abs(v) <= 2000 for point in source_pair for v in point):
+                    raise ValueError("Calibrated source coordinates are invalid")
+                source_axis = values.get("source_axis", "direct")
+                source_mm = projected_distance_cm(*source_pair, source_axis) * 10
+                if source_mm < 1:
+                    raise ValueError("Select two distinct points along the known dimension")
+                source_mode, reference_source = "calibrated_pair", "calibrated_image"
+            else:
+                if known is None or known.get("source") == "relative_estimate":
+                    raise ValueError("Choose a measured or nominal source dimension; relative estimates cannot calibrate another camera")
+                source_mm, source_mode, reference_source = known["value_mm"], "resolved_dimension", known["source"]
+                source_axis = "direct"
             profile = self.camera_profile(camera_id)
             if (str(values.get("capture_camera_id")) != camera_id or
                     values.get("camera_revision") != profile["revision"]):
                 raise RuntimeError("The target camera/optics changed since this image; capture a fresh frame")
             if values.get("physical_plane", "XY") not in ("XY", "XZ", "YZ"):
                 raise ValueError("Select the physical observation plane")
-            calculated = relative_scale(values, known["value_mm"], profile)
+            calculated = relative_scale(values, source_mm, profile)
             previous = self.relative_calibration(camera_id, cell_id) or {}
             expected = values.get("expected_revision")
             if expected is not None and int(expected) != int(previous.get("revision", 0)):
@@ -361,6 +384,8 @@ class VisionRegistry:
             item = {"schema_version": 1, "camera_id": camera_id, "cell_id": _safe_id(cell_id),
                     "source_camera_id": source_id,
                     "source_aruco_calibration_id": source_association["calibration_id"],
+                    "source_points_cm": source_pair, "source_axis": source_axis,
+                    "source_mode": source_mode,
                     "cell_revision": cell["revision"],
                     "camera_revision": profile["revision"],
                     "reference_points_revision": cell["reference_points_revision"],
@@ -368,7 +393,7 @@ class VisionRegistry:
                     "reference_field": field,
                     "target_field": values["target_field"],
                     "physical_plane": values.get("physical_plane", "XY"),
-                    "reference_source": known["source"],
+                    "reference_source": reference_source,
                     **calculated, "revision": int(previous.get("revision", 0)) + 1,
                     "updated_at": _timestamp()}
             _write(self.root / "relative_calibrations" /
