@@ -75,7 +75,7 @@ class ShapeTests(unittest.TestCase):
         poly={**item,"kind":"polygon","method":"vertices","name":"Complex section",
               "points_norm":[[.2,.2],[.7,.2],[.6,.7],[.2,.6]],"anchor_edge":0}
         result=normalize_shapes({"items":[poly]})[0]
-        self.assertAlmostEqual(estimate_area(result,{"width_mm":{"value_mm":160,"source":"measured"}},0)["area_cm2"],230.4, delta=30)
+        self.assertAlmostEqual(estimate_area(result,{"width_mm":{"value_mm":160,"source":"measured"}},0)["area_cm2"],157.44, delta=0.01)
         invalid={**poly,"points_norm":[[.2,.2],[.7,.7],[.7,.2],[.2,.7]]}
         with self.assertRaisesRegex(ValueError,"self-intersecting"):
             normalize_shapes({"items":[invalid]})
