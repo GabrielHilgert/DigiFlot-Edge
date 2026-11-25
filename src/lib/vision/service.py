@@ -568,7 +568,7 @@ class VisionService:
                 if owner_id and self.digiflot.preview_owner_id == str(owner_id):
                     calibration = self.digiflot.sensor_calibration.get("froth_interface") or {}
                     if (calibration.get("status") == "passed" and
-                            self.digiflot.state != self.digiflot.IDLE):
+                            self.digiflot.state != getattr(self.digiflot, "IDLE", "Idle")):
                         # Hand the existing preview to the operational HIFIE.
                         # Do not tear down Picamera2 just after Confirm.
                         self.digiflot.preview_owner_id = None
@@ -749,8 +749,8 @@ class VisionService:
 
     def standalone_hifie_inventory(self):
         """Idle-only configuration; never creates or modifies an experiment."""
-        selected = self._standalone_target if self.digiflot.state == self.digiflot.IDLE else None
-        return {"available": self.digiflot.state == self.digiflot.IDLE,
+        selected = getattr(self, "_standalone_target", None) if self.digiflot.state == getattr(self.digiflot, "IDLE", "Idle") else None
+        return {"available": self.digiflot.state == getattr(self.digiflot, "IDLE", "Idle"),
                 "selected": dict(selected) if selected else None,
                 "cells": [{"id": cell["id"], "name": cell["name"]} for cell in self.registry.list_cells()],
                 "cameras": [{"id": camera.id, "name": camera.name}
@@ -758,7 +758,7 @@ class VisionService:
 
     def select_standalone_hifie(self, cell_id, camera_id, owner_id=None):
         """Choose a calibrated camera/cell for standalone tuning and benchmarking."""
-        if self.digiflot.state != self.digiflot.IDLE or self.digiflot.recording:
+        if self.digiflot.state != getattr(self.digiflot, "IDLE", "Idle") or self.digiflot.recording:
             raise RuntimeError("Standalone HIFIE calibration requires Idle state.")
         if not owner_id:
             raise ValueError("A browser tab identity is required for standalone calibration.")
@@ -786,10 +786,10 @@ class VisionService:
         return self.standalone_hifie_inventory()
 
     def _standalone_hifie_active(self):
-        return self.digiflot.state == self.digiflot.IDLE and self._standalone_target is not None
+        return self.digiflot.state == getattr(self.digiflot, "IDLE", "Idle") and self._standalone_target is not None
 
     def _virtual_context(self):
-        standalone = self._standalone_target if self.digiflot.state == self.digiflot.IDLE else None
+        standalone = getattr(self, "_standalone_target", None) if self.digiflot.state == getattr(self.digiflot, "IDLE", "Idle") else None
         camera_id = standalone["camera_id"] if standalone else self.digiflot.virtual_camera_id
         cell_id = standalone["cell_id"] if standalone else (self.digiflot.cell_profile or {}).get("physical_cell_id")
         if camera_id is None or not cell_id:
@@ -935,7 +935,7 @@ class VisionService:
         return result
 
     def virtual_sensor_snapshot(self):
-        standalone = self._standalone_target if self.digiflot.state == self.digiflot.IDLE else None
+        standalone = getattr(self, "_standalone_target", None) if self.digiflot.state == getattr(self.digiflot, "IDLE", "Idle") else None
         camera_id = standalone["camera_id"] if standalone else self.digiflot.virtual_camera_id
         cell_id = standalone["cell_id"] if standalone else (self.digiflot.cell_profile or {}).get("physical_cell_id")
         camera = self.digiflot.cameras.get(int(camera_id)) if camera_id is not None else None
