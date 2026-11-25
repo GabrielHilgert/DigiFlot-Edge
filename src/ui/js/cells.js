@@ -1866,29 +1866,48 @@
   });
   $('save_cell_reference').addEventListener('click',action(saveCellReference));
   $('reference_add').addEventListener('click',action(addNamedPoint));
-  $('cv_add_point_tool').addEventListener('click',()=>{
-    setWorkspaceTool(state.uiTool==='add_point'?'select':'add_point');
-    toast('Click a reference to edit it, or an empty image position to add a named point.');
-  });
-  $('cv_add_point').addEventListener('click',()=>{
+  $('cv_add_point_tool').addEventListener('click',action(async()=>{
+    if(state.uiTool==='add_point'){setWorkspaceTool('select');return;}
+    await openBestCamera(state.cameraId??state.cameraRoles.side,{focus:true});
     setWorkspaceTool('add_point');
-    $('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
-    toast('Click the camera image. Existing markers open their editor; empty positions create one new point.');
-  });
+  }));
+  $('cv_add_point').addEventListener('click',action(async()=>{
+    await openBestCamera(state.cameraId??state.cameraRoles.side,{focus:true});
+    setWorkspaceTool('add_point');
+  }));
   $('cv_shape_draw').addEventListener('click',action(beginShapeDrawing));
   $('cv_shape_save').addEventListener('click',action(saveShapeOutline));
   $('cv_shape_cancel').addEventListener('click',()=>{
-    state.shapePoints=[];state.activeShapeId=null;setWorkspaceTool('select');
-    text('cv_shape_readout','Outline selection cleared. Saved outlines are unchanged.');
-    drawWorkspaceShapes();
+    state.shapePoints=[];state.activeShapeId=null;state.shapeDone=false;state.shapeCapture=null;
+    setWorkspaceTool('select');text('cv_shape_readout','Draft cleared; saved outlines are unchanged.');
+    updateShapeProgress();drawWorkspaceShapes();
   });
-  for(const id of ['cv_shape_anchor','cv_shape_axis','cv_shape_type']){
-    $(id).addEventListener('change',()=>{
-      if(state.shapePoints.length===2)
-        state.shapePoints=constrainShapePoints(state.shapePoints,$('cv_shape_type').value);
-      updateShapeReadout();drawWorkspaceShapes();
-    });
-  }
+  $('cv_shape_undo').addEventListener('click',()=>{
+    if(state.shapeDone)state.shapeDone=false;
+    else state.shapePoints.pop();
+    updateShapeReadout();
+  });
+  $('cv_shape_finish').addEventListener('click',()=>{
+    if($('cv_shape_method').value!=='vertices'||state.shapePoints.length<3)return;
+    state.shapeDone=true;updateShapeReadout();
+  });
+  $('cv_shape_type').addEventListener('change',()=>{
+    state.shapePoints=[];state.shapeDone=false;state.shapeCapture=null;state.activeShapeId=null;
+    shapeMethodOptions();updateShapeReadout();
+  });
+  $('cv_shape_method').addEventListener('change',()=>{
+    state.shapePoints=[];state.shapeDone=false;state.shapeCapture=null;state.activeShapeId=null;
+    const edge=!['diagonal','diameter'].includes($('cv_shape_method').value);
+    $('cv_shape_edge_label').hidden=!edge;$('cv_shape_axis_label').hidden=edge;
+    updateShapeReadout();
+  });
+  for(const id of ['cv_shape_anchor','cv_shape_axis','cv_shape_edge'])
+    $(id).addEventListener('change',updateShapeReadout);
+  $('cv_marking_cancel').addEventListener('click',()=>{
+    state.shapePoints=[];state.shapeDone=false;state.activeShapeId=null;
+    state.measurePointIds=[];setWorkspaceTool('select');updateShapeProgress();drawWorkspaceMeasurements();
+  });
+  shapeMethodOptions();
   $('cv_shape_list').addEventListener('click',event=>{
     const button=event.target.closest('[data-shape-action]');if(!button)return;
     action(()=>changeShape(button.dataset.shapeAction,button.dataset.shapeId))();
@@ -1932,12 +1951,15 @@
   for(const id of ['cv_measure_from','cv_measure_to','cv_measure_axis']){
     $(id).addEventListener('change',updateMeasurementPreview);
   }
-  $('cv_pick_measure').addEventListener('click',()=>{
+  $('cv_pick_measure').addEventListener('click',action(async()=>{
+    const preferred=state.cameraRoles.side??state.cameraId;
+    await openBestCamera(preferred,{focus:true});
+    $('cv_metrology_details').open=true;
     state.measurePointIds=[];$('cv_measure_from').value='';$('cv_measure_to').value='';
     setWorkspaceTool('measure');
-    text('cv_measure_status','Click an existing physical reference marker, then a different marker.');
+    text('cv_measure_status','Select Point A and Point B. Saved physical references are reused.');
     drawWorkspaceMeasurements();
-  });
+  }));
   $('cv_clear_measure').addEventListener('click',()=>{
     state.measurePointIds=[];state.measurePoints=[];$('cv_measure_from').value='';
     $('cv_measure_to').value='';setWorkspaceTool('select');
