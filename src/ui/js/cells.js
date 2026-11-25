@@ -9,6 +9,7 @@
     measurePointIds:[],relativeSourcePoints:[],relativeSourceCm:[],relativeSourceCalibrationId:null,
     relativeSourceCameraRevision:null,relativeDestinationCameraId:null,relativeSourceCameraId:null,
     relativeSourceLengthMm:null,relativeSourceMode:null,pointDraft:null,pendingPointUse:null,
+    visualShapes:{revision:0,items:[]},shapePoints:[],activeShapeId:null,
     cameraRoles:{side:null,top:null},relativeRecord:null,zoom:1,panX:0,panY:0,showArchived:false};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
@@ -35,6 +36,7 @@
     state.capturedProfileRevision=state.profile?.revision??null;
     state.capturedCalibrationId=data.calibration_id||null;
     state.measurePoints=[];state.relativePairs={reference:[],target:[]};
+    state.shapePoints=[];state.activeShapeId=null;
     state.zoom=1;state.panX=0;state.panY=0;
     state.frame = data.frame || null;
     state.plane = data.plane || null;
@@ -109,6 +111,7 @@
   function setWorkspaceTool(mode){
     state.uiTool=mode;
     $('cv_add_point_tool').classList.toggle('cv-active-tool',mode==='add_point');
+    $('cv_shape_draw').classList.toggle('cv-active-tool',mode==='shape');
     $('cv_add_point_tool').setAttribute('aria-pressed',String(mode==='add_point'));
     for(const id of ['cv_pick_measure','cv_relative_pick_source','cv_relative_pick_reference','cv_relative_pick_target','cv_pan_mode']){
       const button=$(id);button.classList.toggle('cv-active-tool',
@@ -118,7 +121,8 @@
         (id==='cv_relative_pick_target'&&mode==='relative_target'));
       button.setAttribute('aria-pressed',String(button.classList.contains('cv-active-tool')));
     }
-    $('image_help').textContent=mode==='add_point'?'Click a saved marker to edit, or an empty spot to create a named point.':
+    $('image_help').textContent=mode==='shape'?'Click two opposite corners of the visible cell cross-section. No physical points are created.':
+      mode==='add_point'?'Click a saved marker to edit, or an empty spot to create a named point.':
       mode==='pan'?'Drag to pan. Wheel to zoom. Fit returns to the original view.':
       mode==='measure'?'Click two EXISTING physical reference dots; no new references will be created.':
       mode==='relative_source'?'On the calibrated source plane, select two points spanning the known length.':
@@ -197,10 +201,20 @@
         addLine([a[0],b[1]],b,entry.color,true);
       }else addLine(a,b,entry.color);
     }
+    drawWorkspaceShapes();
   }
 
   function captureWorkspacePoint(p){
     const mode=state.uiTool;
+    if(mode==='shape'){
+      if(state.shapePoints.length>=2)state.shapePoints=[];
+      const nearest=nearestReferenceOnImage(p);state.shapePoints.push(nearest?.point||p);
+      if(state.shapePoints.length===2){
+        state.shapePoints=constrainShapePoints(state.shapePoints,$('cv_shape_type').value);
+        updateShapeReadout();
+      }else text('cv_shape_readout','First corner selected · click the opposite corner.');
+      drawWorkspaceShapes();return;
+    }
     if(mode==='measure'){
       const nearest=nearestReferenceOnImage(p);
       if(!nearest){
@@ -255,7 +269,9 @@
       {id:'cell_bottom',name:'Cell bottom',type:'bottom',position_cm:null,direction:'up',source:'unset'}]}));
     state.activePoint=null;state.namedDirty=false;renderNamedPoints();
     state.dimensionMeasurements=cell?.dimension_measurements||{revision:0,pairs:{}};
-    renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();
+    state.visualShapes=cell?.geometric_shapes||{revision:0,items:[]};
+    state.shapePoints=[];state.activeShapeId=null;
+    renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();renderShapeList();
     $('cell_name').value = cell?.name || '';
     $('cell_volume').value = cell?.working_volume_l ?? '';
     const g = cell?.geometry || {};
@@ -509,6 +525,132 @@
     toast('Cell volume-height calibration saved. Future HIFIE volume estimates will prefer this curve.');
   }
 
+  function constrainShapePoints(points,kind){
+    if(kind==='rectangle'||points.length!==2)return points;
+    const img=$('camera_image');
+    if(!img.naturalWidth||!img.naturalHeight)return points;
+    const a=points[0],b=points[1],side=Math.min(Math.abs(b[0]-a[0])*img.naturalWidth,
+      Math.abs(b[1]-a[1])*img.naturalHeight);
+    const sx=Math.sign(b[0]-a[0])||1,sy=Math.sign(b[1]-a[1])||1;
+    return [a,[Math.max(0,Math.min(1,a[0]+sx*side/img.naturalWidth)),
+      Math.max(0,Math.min(1,a[1]+sy*side/img.naturalHeight))]];
+  }
+  function drawWorkspaceShapes(){
+    let layer=$('cv_shape_overlay');
+    if(!layer){layer=document.createElement('div');layer.id='cv_shape_overlay';
+      $('image_surface').append(layer);}
+    layer.replaceChildren();
+    const img=$('camera_image'),r=img.getBoundingClientRect(),outer=$('image_surface').getBoundingClientRect();
+    if(!img.naturalWidth||!r.width)return;
+    const shapes=[...(state.visualShapes.items||[]).filter(item=>
+      String(item.camera_id)===String(state.cameraId)&&item.image_space===state.imageSpace&&
+      item.camera_revision===state.profile?.revision).map(item=>({
+        points:item.bounds_norm,kind:item.kind,name:item.name,saved:true}))];
+    if(state.shapePoints.length===2)shapes.push({
+      points:state.shapePoints,kind:$('cv_shape_type').value,name:$('cv_shape_name').value||'Draft outline',saved:false});
+    for(const shape of shapes){
+      const [a,b]=shape.points,element=document.createElement('div');
+      element.className='cv-visual-shape'+(shape.saved?' cv-shape-saved':'');
+      if(shape.kind==='circle')element.classList.add('cv-visual-circle');
+      const xy=[[r.left-outer.left+a[0]*r.width,r.top-outer.top+a[1]*r.height],
+        [r.left-outer.left+b[0]*r.width,r.top-outer.top+b[1]*r.height]];
+      Object.assign(element.style,{left:Math.min(xy[0][0],xy[1][0])+'px',
+        top:Math.min(xy[0][1],xy[1][1])+'px',
+        width:Math.abs(xy[1][0]-xy[0][0])+'px',
+        height:Math.abs(xy[1][1]-xy[0][1])+'px'});
+      element.title=shape.name+' · '+shape.kind;layer.append(element);
+    }
+  }
+  function updateShapeReadout(){
+    const pair=state.shapePoints,known=state.cell?.resolved_dimensions?.dimensions?.[$('cv_shape_anchor').value],
+      kind=$('cv_shape_type').value,axis=$('cv_shape_axis').value,img=$('camera_image');
+    if(pair.length!==2){text('cv_shape_readout','Draw two opposite corners. No new named physical points are needed.');return;}
+    if(!known){text('cv_shape_readout','Outline drawn, but the selected physical dimension is unknown.');return;}
+    const px=Math.abs(pair[1][0]-pair[0][0])*img.naturalWidth;
+    const py=Math.abs(pair[1][1]-pair[0][1])*img.naturalHeight;
+    if(Math.min(px,py)<5){text('cv_shape_readout','Outline is too small to estimate an area.');return;}
+    const lengthCm=known.value_mm/10;
+    const area=kind==='circle'?Math.PI*(lengthCm/2)**2:
+      kind==='square'?lengthCm**2:lengthCm**2*(axis==='horizontal'?py/px:px/py);
+    text('cv_shape_readout','Estimated cross-section: '+area.toFixed(2)+' cm² · linked '+known.value_mm.toFixed(1)+
+      ' mm ('+known.source+') · '+kind+'. Perspective and imperfect alignment may affect accuracy.');
+  }
+  function renderShapeList(){
+    const list=$('cv_shape_list');if(!list)return;
+    const items=state.visualShapes.items||[],evaluated=state.cell?.visual_area_estimates||[];
+    list.innerHTML=items.map(item=>{
+      const result=evaluated.find(x=>x.id===item.id),area=result?.valid?
+        result.area_cm2.toFixed(2)+' cm² · estimated':result?.reason||'Not calibrated';
+      return '<div class="cv-ref-item"><span class="cv-ref-dot cv-ref-present"></span>'+
+        '<span class="cv-ref-title">'+esc(item.name)+'</span><small>'+esc(area)+'</small>'+
+        '<button type="button" class="button button-secondary" data-shape-action="edit" data-shape-id="'+esc(item.id)+
+        '" data-icon="settings">Edit</button>'+
+        '<button type="button" class="button button-secondary" data-shape-action="delete" data-shape-id="'+esc(item.id)+
+        '" data-icon="trash-2" title="Remove outline">Remove</button></div>';
+    }).join('')||'<p class="cv-description">No saved outlines. Use the top camera to draw one.</p>';
+    window.DigiFlotIcons?.decorate(list);
+  }
+  async function beginShapeDrawing(){
+    if(!state.cellId)throw new Error('Select and save the physical cell first.');
+    const top=state.cameraRoles.top;
+    if(top!=null&&String(top)!==String(state.cameraId))await selectCameraRole('top');
+    if(!$('camera_image').naturalWidth){
+      await refreshUndistortedSnapshot();
+    }
+    if(state.imageSpace==='raw'){
+      // Prefer the corrected frame to reduce lens distortion on image-space area estimates.
+      await refreshUndistortedSnapshot();
+    }
+    state.shapePoints=[];state.activeShapeId=null;setWorkspaceTool('shape');
+    $('cv_outlines_details').open=true;
+    text('cv_shape_readout','Click two opposite corners of the outline on the image.');
+    $('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
+  }
+  async function saveShapeOutline(){
+    if(!state.cellId||state.cameraId==null)throw new Error('Select a cell and camera.');
+    if(state.shapePoints.length!==2)throw new Error('Draw the outline with two clicks before saving.');
+    if(state.capturedCameraId!==state.cameraId||state.capturedProfileRevision!==state.profile?.revision)
+      throw new Error('Camera profile changed since the image was captured; refresh the camera.');
+    const name=$('cv_shape_name').value.trim(),kind=$('cv_shape_type').value;
+    if(!name||name.length>80)throw new Error('Name the geometric outline before saving.');
+    const img=$('camera_image'),items=[...(state.visualShapes.items||[])],
+      ident=state.activeShapeId||'shape_'+Math.random().toString(36).slice(2,12);
+    const item={id:ident,name,kind,plane:'XY',camera_id:String(state.cameraId),
+      camera_revision:state.profile.revision,frame_size:[img.naturalWidth,img.naturalHeight],
+      image_space:state.imageSpace,bounds_norm:constrainShapePoints(state.shapePoints,kind),
+      anchor_field:$('cv_shape_anchor').value,anchor_axis:$('cv_shape_axis').value};
+    const idx=items.findIndex(other=>other.id===ident);
+    if(idx>=0)items[idx]=item;else items.push(item);
+    const updated=await api('/cells/'+encodeURIComponent(state.cellId)+'/geometric-shapes',{
+      method:'PUT',body:{items,expected_revision:state.visualShapes.revision}});
+    state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+    state.visualShapes=state.cell.geometric_shapes;
+    state.shapePoints=[];state.activeShapeId=null;renderShapeList();renderCellResolvedDimensions();
+    setWorkspaceTool('select');drawWorkspaceShapes();
+    toast('Visual geometric area saved separately. Physical ArUco references and V(h) remain unchanged.');
+  }
+  async function changeShape(actionName,id){
+    const item=state.visualShapes.items?.find(x=>x.id===id);if(!item)return;
+    if(actionName==='delete'){
+      if(!window.confirm('Delete only this visual outline? Physical references and other calibrations are retained.'))return;
+      const items=state.visualShapes.items.filter(x=>x.id!==id);
+      await api('/cells/'+encodeURIComponent(state.cellId)+'/geometric-shapes',{
+        method:'PUT',body:{items,expected_revision:state.visualShapes.revision}});
+      state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+      state.visualShapes=state.cell.geometric_shapes;
+      state.shapePoints=[];state.activeShapeId=null;renderShapeList();drawWorkspaceShapes();
+      return;
+    }
+    if(String(state.cameraId)!==String(item.camera_id))await loadCamera(item.camera_id);
+    $('camera_select').value=String(item.camera_id);
+    if(!$('camera_image').naturalWidth||state.imageSpace!==item.image_space)
+      await (item.image_space==='rectified'?rectifiedSnapshot():item.image_space==='undistorted'?
+        refreshUndistortedSnapshot():refreshSnapshot());
+    state.activeShapeId=item.id;state.shapePoints=item.bounds_norm.map(p=>[...p]);
+    $('cv_shape_name').value=item.name;$('cv_shape_type').value=item.kind;
+    $('cv_shape_anchor').value=item.anchor_field;$('cv_shape_axis').value=item.anchor_axis;
+    $('cv_outlines_details').open=true;updateShapeReadout();drawWorkspaceShapes();
+  }
   function openPointEditor(point=null,click=null,continueMode=null){
     if(!state.cellId||!state.named)throw new Error('Select and save the physical cell first.');
     if(state.namedDirty)throw new Error('Save previous reference edits before opening the point editor.');
