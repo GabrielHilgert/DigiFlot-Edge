@@ -143,7 +143,7 @@ def estimate_area(item, dimensions, camera_revision):
     if item["kind"] == "circle":
         area = math.pi * (known_cm / 2) ** 2
     elif method == "diagonal":
-        a, b = item.get("bounds_norm", item["points_norm"])
+        a, b = item.get("bounds_norm") or item["points_norm"]
         width, height = abs(b[0]-a[0])*size[0], abs(b[1]-a[1])*size[1]
         span = width if item["anchor_axis"] == "horizontal" else height
         area = (known_cm ** 2 if item["kind"] == "square" else
