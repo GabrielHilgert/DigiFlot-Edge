@@ -4,9 +4,9 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261114hif1">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125resolved1">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cell_inventory.css') }}?v=20261123a">
-  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261123a"></script>
+  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125resolved1"></script>
 </head>
 <body>
 {% include "_navbar.html" %}
@@ -28,11 +28,25 @@
         <button id="cell_dimensions_info" type="button" class="button button-secondary" data-icon="info" data-icon-only title="Dimension guide" aria-label="View dimension guide">Dimensions guide</button></div>
       <div class="cv-two"><label>Cell name <input id="cell_name" placeholder="Flotation Cell A" maxlength="80"></label>
       <label>Working volume (L) <input id="cell_volume" type="number" min="0" step="any" placeholder="Optional"></label></div>
-      <div class="cv-two"><label>Geometry <select id="cell_shape"><option value="custom">Custom</option><option value="rectangular">Rectangular</option><option value="cylindrical">Cylindrical</option></select></label>
-      <label>Height (mm) <input id="cell_height" type="number" min="0" step="any"></label></div>
-      <div class="cv-two"><label>Width / diameter (mm) <input id="cell_width" type="number" min="0" step="any"></label>
-      <label>Depth (mm, rectangular) <input id="cell_depth" type="number" min="0" step="any"></label></div>
-      <div class="cv-two"><label>Collection height (mm) <input id="cell_collection_height" type="number" min="0" step="any" placeholder="Optional"></label></div></div>
+      <label class="cv-shape-select">Geometry <select id="cell_shape"><option value="custom">Custom</option><option value="rectangular">Rectangular</option><option value="cylindrical">Cylindrical</option></select></label>
+      <div class="cv-dimension-card cv-resolved-card"><div class="cv-group-heading"><strong>Available physical properties</strong><span>Best known · resolved automatically</span></div>
+        <div id="cell_resolved_dimensions" class="cv-dimension-grid" aria-live="polite">
+          <div class="cv-metric"><span>Height</span><strong>—</strong></div><div class="cv-metric"><span>Geometric area</span><strong>—</strong></div>
+        </div><p class="cv-description">Measured reference points take priority over nominal dimensions. Geometry estimates are not effective-area calibrations.</p>
+      </div>
+      <div class="cv-dimension-card"><div class="cv-group-heading"><strong>Measured parameters</strong><span>Distances from named physical references</span></div>
+        <p class="cv-description">Cell height uses Cell top and Cell bottom automatically. For other dimensions, select two points defining that physical length in the rectified ArUco plane. Measurements require both points to have known coordinates.</p>
+        <div id="cell_dimension_pairs" class="cv-dimension-pairs"></div>
+        <div class="cv-inline-row cv-dimension-actions"><button type="button" class="button button-secondary" id="save_dimension_pairs" data-icon="save">Save measured dimensions</button>
+          <small id="dimension_revision" class="cv-hint">Save the cell first</small></div>
+      </div>
+      <div class="cv-dimension-card cv-nominal-card"><div class="cv-group-heading"><strong>Nominal Parameters</strong><span>Fallback values · mm</span></div>
+        <div class="cv-two"><label>Nominal height (mm) <input id="cell_height" type="number" min="0" step="any"></label>
+        <label>Nominal width / diameter (mm) <input id="cell_width" type="number" min="0" step="any"></label></div>
+        <div class="cv-two"><label>Nominal depth (mm, rectangular) <input id="cell_depth" type="number" min="0" step="any"></label>
+        <label>Nominal collection height (mm) <input id="cell_collection_height" type="number" min="0" step="any" placeholder="Optional"></label></div>
+        <p class="cv-description">Nominal values remain stored even when a more reliable measurement becomes available.</p>
+      </div></div>
       <div class="cv-field-group"><div class="cv-group-heading"><strong>ArUco reference</strong><span>DICT_4X4_50</span></div><p class="cv-description">L-ruler layout: marker 0 is the origin, marker 1 is vertical and marker 2 is horizontal. Dimensions follow the local marker axes.</p>
       <div class="cv-three"><label>Marker 0 ID <input id="marker_0" type="number" min="0" step="1" value="0"></label><label>Marker 1 ID <input id="marker_1" type="number" min="0" step="1" value="1"></label><label>Marker 2 ID <input id="marker_2" type="number" min="0" step="1" value="2"></label></div>
       <div class="cv-two"><label>Marker size (cm) <input id="marker_size" type="number" min="0.01" step="any" value="2"></label>
@@ -76,7 +90,7 @@
         <button class="button button-secondary" id="test_rectification" type="button" data-icon="scan">Rectified plane (full view)</button>
         <section class="cv-reference-editor">
           <div class="cv-group-heading"><strong>Named physical references</strong><span>Cell-level · stable ArUco coordinates</span></div>
-          <p class="cv-description">Outlet level is the initial default. Add as many named points as needed. Select one, open the rectified plane, and click the physical point. When the camera moves but the marker ruler stays fixed, previously saved ArUco coordinates remain valid.</p>
+          <p class="cv-description">Outlet level, Cell top and Cell bottom are mandatory references (positions can remain unset). Add as many custom points as needed. Select one, open the rectified plane, and click the physical point. When the camera moves but the marker ruler stays fixed, previously saved ArUco coordinates remain valid.</p>
           <div id="named_reference_list" class="cv-reference-list"></div>
           <div class="cv-reference-new"><input id="reference_new_name" placeholder="Reference name (e.g. Overflow weir)" maxlength="80">
             <select id="reference_new_type"><option value="custom">Custom</option><option value="top">Cell top</option><option value="bottom">Cell bottom</option></select>
