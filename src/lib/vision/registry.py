@@ -99,6 +99,9 @@ class VisionRegistry:
             cell["reference_points_revision"] = cell["reference_points"].get("revision", 0)
             cell["vertical_reference_revision"] = cell["vertical_reference"].get("revision", 0)
             cell["thumbnail"] = self.thumbnail_info(cell_id)
+            from .cell_metrics import resolve_cell_dimensions
+            cell["dimension_measurements"] = self.dimension_measurements(cell_id)
+            cell["resolved_dimensions"] = resolve_cell_dimensions(cell, cell["dimension_measurements"])
             return cell
 
     def cell_vertical_reference(self, cell_id):
@@ -122,21 +125,21 @@ class VisionRegistry:
             return result
 
     def reference_points(self, cell_id):
-        from .reference import default_reference_points
+        from .reference import default_reference_points, complete_reference_points
         with self.lock:
             cell_id = _safe_id(cell_id)
             record = _read(self.root / "reference_points" / f"{cell_id}.json")
             if record is not None:
-                return record
+                return complete_reference_points(record)
             # Non-destructive migration of older manually entered top/bottom datums.
             default = default_reference_points()
             legacy = self.cell_vertical_reference(cell_id)
             for kind, key, direction in (("top", "cell_top_y_cm", "down"),
                                          ("bottom", "cell_bottom_y_cm", "up")):
                 if legacy.get(key) is not None:
-                    default["points"].append({"id": "cell_"+kind, "name": "Cell "+kind,
-                        "type": kind, "position_cm": [0., float(legacy[key])],
-                        "direction": direction, "source": "measured"})
+                    point = next(p for p in default["points"] if p["id"] == "cell_"+kind)
+                    point.update({"position_cm": [0., float(legacy[key])],
+                                  "direction": direction, "source": "measured"})
             return default
 
     def save_reference_points(self, cell_id, values):
@@ -151,6 +154,35 @@ class VisionRegistry:
                       "updated_at": _timestamp()}
             _write(self.root / "reference_points" / f"{_safe_id(cell_id)}.json", result)
             return result
+
+    def get_cell_base(self, cell_id):
+        ident = _safe_id(cell_id)
+        cell = _read(self.root / "cells" / f"{ident}.json")
+        if cell is None:
+            raise KeyError(f"Cell not found: {ident}")
+        return cell
+
+    def dimension_measurements(self, cell_id):
+        """Reference pairs are independent from nominal geometry and ArUco revisions."""
+        with self.lock:
+            self.get_cell_base(cell_id)
+            return {"revision": 0, "pairs": {},
+                    **_read(self.root / "dimension_measurements" / f"{_safe_id(cell_id)}.json", {})}
+
+    def save_dimension_measurements(self, cell_id, values):
+        from .cell_metrics import normalize_dimension_pairs
+        with self.lock:
+            self.get_cell_base(cell_id)
+            current = self.dimension_measurements(cell_id)
+            expected = (values or {}).get("expected_revision")
+            if expected is not None and int(expected) != current["revision"]:
+                raise RuntimeError("Dimension mapping was updated in another tab. Reload the cell.")
+            pairs = normalize_dimension_pairs(values or {}, self.reference_points(cell_id))
+            if pairs == current["pairs"]:
+                return current
+            record = {"revision": current["revision"] + 1, "pairs": pairs, "updated_at": _timestamp()}
+            _write(self.root / "dimension_measurements" / f"{_safe_id(cell_id)}.json", record)
+            return record
 
     def save_cell(self, record):
         if not isinstance(record, dict):
