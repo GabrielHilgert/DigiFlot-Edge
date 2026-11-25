@@ -314,6 +314,12 @@
     rows.push('<div class="cv-metric"><span>Geometric capacity</span><strong>'+
       (data.geometric_capacity_l!=null?fmt(data.geometric_capacity_l,3)+' L':'—')+
       '</strong><small>Geometric estimate · not the working volume</small></div>');
+    if(data.visual_area_cm2!=null){
+      rows.push('<div class="cv-metric"><span>Visual section area</span><strong>'+
+        fmt(data.visual_area_cm2,2)+' cm²</strong><small>Estimated from geometric outline · separate from A-effective</small></div>');
+      if(data.visual_capacity_l!=null)rows.push('<div class="cv-metric"><span>Visual capacity estimate</span><strong>'+
+        fmt(data.visual_capacity_l,3)+' L</strong><small>Outline area × height · not measured V(h)</small></div>');
+    }
     if(data.effective_area_range_cm2){
       const [low,high]=data.effective_area_range_cm2;
       rows.push('<div class="cv-metric"><span>Calibrated effective area</span><strong>'+
