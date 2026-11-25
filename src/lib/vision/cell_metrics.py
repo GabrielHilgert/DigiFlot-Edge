@@ -7,7 +7,16 @@ from __future__ import annotations
 import math
 from .reference import aruco_bottom_y_cm, complete_reference_points
 
-PAIR_FIELDS = ("width_mm", "depth_mm", "collection_height_mm")
+PAIR_FIELDS = ("height_mm", "width_mm", "depth_mm", "collection_height_mm")
+MEASURE_AXES = ("horizontal", "vertical", "direct")
+
+
+def projected_distance_cm(a, b, axis="direct"):
+    """Physical length in the rectified cell plane, in centimetres."""
+    if axis not in MEASURE_AXES: raise ValueError("Dimension axis must be horizontal, vertical or direct")
+    delta_x, delta_y = abs(float(a[0])-float(b[0])), abs(float(a[1])-float(b[1]))
+    return delta_x if axis == "horizontal" else delta_y if axis == "vertical" else math.hypot(delta_x, delta_y)
+
 
 
 def normalize_dimension_pairs(payload, references):
@@ -22,12 +31,14 @@ def normalize_dimension_pairs(payload, references):
         pair = pairs.get(field)
         if pair in (None, {}, ""):
             continue
-        if not isinstance(pair, dict) or set(pair) - {"from_id", "to_id"}:
+        if not isinstance(pair, dict) or set(pair) - {"from_id", "to_id", "axis"}:
             raise ValueError(f"{field} requires two named physical references")
         a, b = str(pair.get("from_id") or ""), str(pair.get("to_id") or "")
         if a not in refs or b not in refs or a == b:
             raise ValueError(f"{field} requires two different saved reference points")
-        result[field] = {"from_id": a, "to_id": b}
+        axis = pair.get("axis", "direct")  # Old saved reference pairs retain Euclidean behavior.
+        if axis not in MEASURE_AXES: raise ValueError(f"{field} has an invalid measurement axis")
+        result[field] = {"from_id": a, "to_id": b, "axis": axis}
     return result
 
 
@@ -82,12 +93,6 @@ def resolve_cell_dimensions(cell, pairs=None, relative_estimates=None):
         pos, source = _physical_position(cell, ident)
         levels[ident] = {"y_cm": pos[1] if pos else None, "source": source}
 
-    top, top_source = position("cell_top")
-    bottom, bottom_source = position("cell_bottom")
-    if top and bottom and bottom[1] > top[1]:
-        quality = "measured" if top_source == bottom_source == "measured" else "derived"
-        record("height_mm", bottom[1] - top[1], quality, ["cell_top", "cell_bottom"])
-
     for field, selected in mapping.items():
         if field not in PAIR_FIELDS or not isinstance(selected, dict):
             continue
@@ -95,9 +100,17 @@ def resolve_cell_dimensions(cell, pairs=None, relative_estimates=None):
         b, source_b = position(selected.get("to_id"))
         if a and b:
             # Operator asserts both landmarks span this dimension in one physical plane.
-            distance = math.hypot(a[0]-b[0], a[1]-b[1])
+            distance = projected_distance_cm(a, b, selected.get("axis", "direct"))
             quality = "measured" if source_a == source_b == "measured" else "derived"
             record(field, distance, quality, [selected["from_id"], selected["to_id"]])
+
+    # The canonical top/bottom datum is used unless the operator supplied an
+    # explicit two-reference height mapping (including its measurement axis).
+    top, top_source = position("cell_top")
+    bottom, bottom_source = position("cell_bottom")
+    if "height_mm" not in dimensions and top and bottom and bottom[1] > top[1]:
+        quality = "measured" if top_source == bottom_source == "measured" else "derived"
+        record("height_mm", bottom[1] - top[1], quality, ["cell_top", "cell_bottom"])
 
     for measurement in relative_estimates or []:
         field = measurement.get("target_field")
