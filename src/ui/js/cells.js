@@ -1527,8 +1527,8 @@
     if((state.relativeSourceCm.length!==2&&!(state.relativeSourceLengthMm>0))||
         state.relativePairs.reference.length!==2||state.relativePairs.target.length!==2)
       throw new Error('The known physical length and BOTH destination lengths need two endpoints each.');
-    if(state.view==='rectified'||!['raw','undistorted'].includes(state.imageSpace))
-      throw new Error('Use the destination camera raw or undistorted image for its pixel-scale measurements.');
+    if(!['raw','undistorted','rectified'].includes(state.imageSpace))
+      throw new Error('Capture a camera frame before saving the relative measurement.');
     const img=$('camera_image');
     if(!img.naturalWidth||!img.naturalHeight)throw new Error('Capture the destination camera image first.');
     const payload={source_camera_id:source,
@@ -1541,6 +1541,7 @@
       reference_axis:$('cv_relative_reference_axis').value,target_axis:$('cv_relative_target_axis').value,
       frame_size:[img.naturalWidth,img.naturalHeight],image_space:state.imageSpace,
       camera_revision:state.capturedProfileRevision,capture_camera_id:state.capturedCameraId,
+      target_calibration_id:state.view==='rectified'?state.capturedCalibrationId:null,
       physical_plane:$('cv_relative_plane').value,expected_revision:state.relativeRecord?.revision||0};
     const record=await api('/associations/'+destination+'/'+encodeURIComponent(state.cellId)+'/relative',
       {method:'PUT',body:payload});
@@ -1814,9 +1815,8 @@
       if(state.uiTool==='relative_source'&&state.view!=='rectified'){
         toast('The known source length must be selected on the rectified calibrated image.',true);return;
       }
-      if(state.view==='rectified'&&['relative_reference','relative_target'].includes(state.uiTool)){
-        toast('Select destination pixel lengths on a Raw or Undistorted image.',true);return;
-      }
+      // In Rectified mode the image is already a planar metric representation.
+      // Keep using its image pixels for a consistent target-frame scale ratio.
       state.pickClick={p,x:event.clientX,y:event.clientY};
       img.setPointerCapture(event.pointerId);return;
     }
