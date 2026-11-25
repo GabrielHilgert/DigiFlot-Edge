@@ -7,6 +7,7 @@ The datum can lie outside the camera field of view.
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 
 CELL_MODES = ("aruco_bottom", "cell_top", "cell_bottom")
 SENSOR_MODES = ("cell_default",) + CELL_MODES + ("historical_offset",)
@@ -50,15 +51,43 @@ def aruco_bottom_y_cm(layout):
 
 
 
+FIXED_REFERENCE_IDS = ("outlet_level", "cell_top", "cell_bottom", "aruco_reference")
+
+
 def default_reference_points():
-    """Uncalibrated Outlet level is preferred; the ArUco datum is always available."""
+    """Required datums exist even when their measured position is not yet known."""
     return {"schema_version": 2, "revision": 0, "default_reference_id": "outlet_level",
             "points": [
                 {"id": "outlet_level", "name": "Outlet level", "type": "custom",
                  "position_cm": None, "direction": "up", "source": "unset"},
                 {"id": "aruco_reference", "name": "ArUco reference", "type": "aruco",
                  "position_cm": None, "direction": "up", "source": "automatic"},
+                {"id": "cell_top", "name": "Cell top", "type": "top",
+                 "position_cm": None, "direction": "down", "source": "unset"},
+                {"id": "cell_bottom", "name": "Cell bottom", "type": "bottom",
+                 "position_cm": None, "direction": "up", "source": "unset"},
             ]}
+
+
+def complete_reference_points(value):
+    """Read-only migration for old cells without changing physical reference revisions."""
+    defaults = default_reference_points()
+    if not isinstance(value, dict) or not isinstance(value.get("points"), list):
+        return defaults
+    result = deepcopy(value)
+    points = result["points"]
+    ids = {p.get("id") for p in points if isinstance(p, dict)}
+    for required in defaults["points"]:
+        if required["id"] in ids:
+            continue
+        candidate = deepcopy(required)
+        legacy = next((p for p in points if isinstance(p, dict)
+                       and p.get("type") == required["type"] and p.get("position_cm") is not None), None)
+        if legacy and required["id"] in ("cell_top", "cell_bottom"):
+            candidate["position_cm"] = deepcopy(legacy["position_cm"])
+            candidate["source"] = legacy.get("source", "measured")
+        points.append(candidate)
+    return result
 
 
 def normalize_reference_points(value):
@@ -99,6 +128,13 @@ def normalize_reference_points(value):
                            "derived_from": raw.get("derived_from") if source == "derived" else None,
                            "offset_y_cm": _optional_cm(raw.get("offset_y_cm"), "Derived Y offset")
                            if source == "derived" else None})
+    for required in default_reference_points()["points"]:
+        point = next((p for p in normalized if p["id"] == required["id"]), None)
+        if point is None:
+            raise ValueError(f"Mandatory reference '{required['name']}' cannot be deleted")
+        if (point["name"] != required["name"] or point["type"] != required["type"] or
+                point["direction"] != required["direction"]):
+            raise ValueError(f"Mandatory reference '{required['name']}' has a fixed name and type")
     default_id = str(value.get("default_reference_id") or "")
     if default_id not in seen:
         raise ValueError("Default reference must be one of the saved named points")
@@ -106,7 +142,7 @@ def normalize_reference_points(value):
 
 
 def resolve_named_reference(config, association):
-    library = association.get("reference_points") or default_reference_points()
+    library = complete_reference_points(association.get("reference_points"))
     ident = str(config.get("reference_id") or library.get("default_reference_id") or "")
     points = {item["id"]: item for item in library.get("points", [])}
     selected = points.get(ident)
@@ -152,6 +188,12 @@ def resolve_vertical_reference(config, association):
         source = "aruco_markers"
     else:
         top, bottom = cell_ref["cell_top_y_cm"], cell_ref["cell_bottom_y_cm"]
+        library = complete_reference_points(association.get("reference_points"))
+        for ref_id, key in (("cell_top", "top"), ("cell_bottom", "bottom")):
+            point = next(p for p in library["points"] if p["id"] == ref_id)
+            if point.get("source") not in ("unset", "automatic") and point.get("position_cm") is not None:
+                if key == "top": top = float(point["position_cm"][1])
+                else: bottom = float(point["position_cm"][1])
         if custom_y is not None and mode != "cell_default":
             value = custom_y
         else:
