@@ -435,3 +435,52 @@ a { color: inherit; text-decoration: none; }
   .cell-vision-page .cv-ref-item{flex-wrap:wrap}
   .cell-vision-page .cv-ref-item small{max-width:100%;margin-left:auto}
 }
+
+
+/* Camera-centric metrology with a persistent marking guide. */
+.cell-vision-page .cv-marking-guide{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:58px;
+  margin:2px 0 11px;padding:11px 15px;border:1px solid var(--border);border-radius:10px;background:var(--surface-soft)}
+.cell-vision-page .cv-marking-guide>div:first-child{display:flex;flex-direction:column;gap:3px;min-width:0}
+.cell-vision-page .cv-marking-guide strong{font-size:.87rem;font-weight:770}
+.cell-vision-page .cv-marking-guide span{font-size:.79rem;line-height:1.45;color:var(--text-soft)}
+.cell-vision-page .cv-marking-guide.cv-marking-active{border-color:color-mix(in srgb,var(--accent) 56%,var(--border));
+  box-shadow:inset 3px 0 0 var(--accent)}
+.cell-vision-page .cv-marking-guide.cv-marking-active strong{color:var(--text)}
+.cell-vision-page .cv-marking-meta{display:flex;align-items:center;gap:10px;flex-shrink:0}
+.cell-vision-page .cv-marking-meta>span{min-width:76px;text-align:right;font-size:.81rem;font-weight:760;
+  font-variant-numeric:tabular-nums;color:var(--text)}
+.cell-vision-page #cv_marking_cancel{min-height:32px;padding:6px 10px;font-size:.76rem}
+.cell-vision-page #cv_marking_cancel[hidden]{display:none}
+.cell-vision-page #cv_metrology_mount{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:12px}
+.cell-vision-page #cv_metrology_mount>.cv-subaccordion{margin:0;align-self:start;min-width:0}
+.cell-vision-page #cv_metrology_mount>.cv-outline-section{grid-column:span 2}
+.cell-vision-page #cv_metrology_mount .cv-measure-panel{padding:10px 14px 14px;background:transparent;border:0;box-shadow:none}
+.cell-vision-page #cv_metrology_mount .cv-measure-panel>.cv-card-head{margin-bottom:7px}
+.cell-vision-page #cv_metrology_mount .cv-measure-panel>.cv-card-head h2{font-size:1.01rem}
+.cell-vision-page #cv_metrology_mount .cv-subaccordion>summary{padding:11px 14px}
+.cell-vision-page #cv_metrology_mount .cv-subaccordion>section{padding:11px 13px;margin:0!important;
+  border:0;background:transparent}
+.cell-vision-page #cv_metrology_mount #cv_relative_panel{display:grid;gap:10px}
+.cell-vision-page #cv_metrology_mount .cv-calibration-step{padding:10px 12px;gap:9px}
+.cell-vision-page #cv_metrology_mount .cv-outline-editor{max-width:100%;padding:13px 15px}
+.cell-vision-page #cv_metrology_mount .cv-outline-editor>.cv-two{grid-template-columns:repeat(2,minmax(0,1fr))}
+.cell-vision-page #cv_metrology_mount .cv-outline-section{margin:0}
+.cell-vision-page .cv-shape-progress{padding:9px 11px;border:1px dashed var(--border-strong);
+  border-radius:8px;font-size:.79rem;color:var(--text-soft);font-variant-numeric:tabular-nums}
+.cell-vision-page #cv_shape_edge_label[hidden],.cell-vision-page #cv_shape_axis_label[hidden],
+.cell-vision-page #cv_shape_finish[hidden]{display:none}
+.cell-vision-page #cv_shape_overlay{overflow:visible}
+.cell-vision-page .cv-shape-actions>.button{flex:1 1 124px}
+.cell-vision-page #cv_metrology_mount .cv-shape-actions{margin-top:0}
+.cell-vision-page #cv_metrology_mount .cv-calibration-step label{font-size:.8rem}
+.cell-vision-page .cv-workspace-status{margin-bottom:9px}
+@media(max-width:980px){
+  .cell-vision-page #cv_metrology_mount{grid-template-columns:minmax(0,1fr)}
+  .cell-vision-page #cv_metrology_mount>.cv-outline-section{grid-column:1}
+}
+@media(max-width:620px){
+  .cell-vision-page .cv-marking-guide{align-items:flex-start;flex-direction:column}
+  .cell-vision-page .cv-marking-meta{width:100%;justify-content:space-between}
+  .cell-vision-page #cv_metrology_mount{padding:8px}
+  .cell-vision-page #cv_metrology_mount .cv-outline-editor>.cv-two{grid-template-columns:minmax(0,1fr)}
+}
