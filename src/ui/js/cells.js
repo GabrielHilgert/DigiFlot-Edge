@@ -263,13 +263,27 @@
   function captureWorkspacePoint(p){
     const mode=state.uiTool;
     if(mode==='shape'){
-      if(state.shapePoints.length>=2)state.shapePoints=[];
-      const nearest=nearestReferenceOnImage(p);state.shapePoints.push(nearest?.point||p);
-      if(state.shapePoints.length===2){
+      const method=$('cv_shape_method').value,limit=shapeInputCount(method);
+      if(state.shapeDone){toast('Contour already closed. Undo a point, clear, or save.');return;}
+      if(state.shapePoints.length>=32){toast('A polygon can contain at most 32 vertices.',true);return;}
+      const nearest=nearestReferenceOnImage(p),picked=nearest?.point||p;
+      if(method==='vertices'&&state.shapePoints.length>=3){
+        const first=state.shapePoints[0],r=$('camera_image').getBoundingClientRect();
+        if(Math.hypot((picked[0]-first[0])*r.width,(picked[1]-first[1])*r.height)<18){
+          state.shapeDone=true;updateShapeReadout();return;
+        }
+      }
+      if(state.shapePoints.length>=limit){
+        toast('All required corners are already marked. Undo or Clear before picking more.',true);return;
+      }
+      if(!state.shapePoints.length)state.shapeCapture={cameraId:state.capturedCameraId,
+        revision:state.capturedProfileRevision,calibrationId:state.capturedCalibrationId,
+        imageSpace:state.imageSpace};
+      state.shapePoints.push(picked);
+      if(method==='diagonal'&&state.shapePoints.length===2)
         state.shapePoints=constrainShapePoints(state.shapePoints,$('cv_shape_type').value);
-        updateShapeReadout();
-      }else text('cv_shape_readout','First corner selected · click the opposite corner.');
-      drawWorkspaceShapes();return;
+      if(method!=='vertices'&&state.shapePoints.length===limit)state.shapeDone=true;
+      updateShapeReadout();return;
     }
     if(mode==='measure'){
       const nearest=nearestReferenceOnImage(p);
@@ -283,7 +297,7 @@
       if(ids.includes(nearest.id)){text('cv_measure_status','Select two different physical references.');return;}
       ids.push(nearest.id);state.measurePointIds=ids;
       $('cv_measure_from').value=ids[0]||'';$('cv_measure_to').value=ids[1]||'';
-      updateMeasurementPreview();return;
+      updateMeasurementPreview();updateMarkingGuide();return;
     }
     if(mode==='relative_source'){
       if(state.view!=='rectified'||!state.plane){
@@ -313,7 +327,7 @@
         'Selected '+key+' length on destination camera. '+state.relativePairs.reference.length+
         '/2 reference points, '+state.relativePairs.target.length+'/2 target points.');
     }
-    drawWorkspaceMeasurements();relativeReadout();
+    drawWorkspaceMeasurements();relativeReadout();updateMarkingGuide();
   }
 
   function setCellForm(cell) {
@@ -326,7 +340,7 @@
     state.activePoint=null;state.namedDirty=false;renderNamedPoints();
     state.dimensionMeasurements=cell?.dimension_measurements||{revision:0,pairs:{}};
     state.visualShapes=cell?.geometric_shapes||{revision:0,items:[]};
-    state.shapePoints=[];state.activeShapeId=null;
+    state.shapePoints=[];state.activeShapeId=null;state.shapeDone=false;state.shapeCapture=null;
     renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();renderShapeList();
     $('cell_name').value = cell?.name || '';
     $('cell_volume').value = cell?.working_volume_l ?? '';
