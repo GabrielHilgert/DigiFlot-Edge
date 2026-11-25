@@ -507,38 +507,17 @@
   function drawNamedPoints(){
     const layer=$('reference_overlays'),img=$('camera_image');layer.replaceChildren();
     if(!img.naturalWidth||!state.named)return;
-    const outer=$('image_surface').getBoundingClientRect(),rect=img.getBoundingClientRect();
+    const rect=img.getBoundingClientRect(),outer=$('image_surface').getBoundingClientRect();
     Object.assign(layer.style,{left:rect.left-outer.left+'px',top:rect.top-outer.top+'px',
       width:rect.width+'px',height:rect.height+'px'});
-    const calibrated=state.view==='rectified'&&state.plane;
-    const observationSet=state.cell?.reference_observations?.[String(state.cameraId)]?.observations||{};
-    const bounds=state.plane;
     for(const point of referenceDisplayModel().visible){
-      let x,y;
-      if(calibrated){
-        const auto=point.type==='aruco'&&point.source==='automatic';
-        const pos=auto?[bounds.min_xy_cm[0],Math.max(Number(state.cell?.marker_layout?.span_cm||14),
-          Number(state.cell?.marker_layout?.marker_size_cm||2))]:point.position_cm;
-        if(!pos)continue;
-        [x,y]=[(pos[0]-bounds.min_xy_cm[0])/(bounds.max_xy_cm[0]-bounds.min_xy_cm[0]),
-          (pos[1]-bounds.min_xy_cm[1])/(bounds.max_xy_cm[1]-bounds.min_xy_cm[1])];
-      }else{
-        const observation=observationSet[point.id];
-        if(!observation||observation.image_space!==state.imageSpace||
-           observation.camera_revision!==state.profile?.revision)continue;
-        [x,y]=observation.position_norm;
-      }
-      if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||x>1||y<0||y>1)continue;
-      const element=document.createElement('div');
-      element.className=calibrated?'cv-named-overlay':'cv-observed-overlay';
-      if(point.id===state.activePoint||point.id===state.named.default_reference_id)
-        element.classList.add('selected');
-      element.style.top=100*y+'%';
-      if(calibrated){
-        const pin=document.createElement('span');pin.style.left=100*x+'%';element.append(pin);
-      }else element.style.left=100*x+'%';
-      element.title=point.name+(calibrated?' · ArUco physical cm':' · camera pixel observation');
-      layer.append(element);
+      const xy=referencePointInView(point.id);
+      if(!xy||!xy.every(Number.isFinite)||xy.some(v=>v<0||v>1))continue;
+      const dot=document.createElement('span');dot.className='cv-physical-pin';
+      if(point.id===state.activePoint||state.measurePointIds.includes(point.id))dot.classList.add('selected');
+      dot.style.left=100*xy[0]+'%';dot.style.top=100*xy[1]+'%';
+      dot.title=point.name+' · '+(state.view==='rectified'?'physical cm':'camera observation');
+      layer.append(dot);
     }
   }
 
@@ -1155,45 +1134,24 @@
     toast('Relative scale saved separately from the ArUco calibration.');
   }
   async function saveVisualMeasurement(){
-    if(state.view!=='rectified'||!state.plane||!state.association)
-      throw new Error('Save direct physical measurements from the rectified calibrated plane. Use relative calibration for another camera.');
-    if(state.capturedCalibrationId!==state.association.calibration_id ||
-        state.capturedProfileRevision!==state.profile?.revision)
-      throw new Error('Calibration changed since this image was captured. Refresh the rectified frame first.');
-    if(state.measurePoints.length!==2)throw new Error('Pick two endpoints on the camera image first.');
-    if(state.namedDirty)throw new Error('Save pending physical references before saving the measurement.');
-    const field=$('cv_measure_target').value;
-    if(!window.confirm('Saving these physical points updates the cell reference revision. An existing HIFIE benchmark may need review. Continue?'))return;
-    const positions=state.measurePoints.map(planePoint);
-    if(field==='height_mm'&&positions[0][1]>=positions[1][1])
-      throw new Error('For height, select Cell Top first and Cell Bottom second.');
-    if(positions.some(p=>!p||!p.every(Number.isFinite)))throw new Error('Unable to map points to the calibrated plane.');
-    const record=JSON.parse(JSON.stringify(state.named)),reserved={
-      height_mm:['cell_top','cell_bottom'],
-      width_mm:['measured_width_a','measured_width_b'],
-      depth_mm:['measured_depth_a','measured_depth_b'],
-      collection_height_mm:['measured_collection_a','measured_collection_b']};
-    const ids=reserved[field];
-    for(let i=0;i<2;i++){
-      let point=record.points.find(p=>p.id===ids[i]);
-      if(!point){point={id:ids[i],name:field.replace('_mm','').replaceAll('_',' ')+' '+(i?'B':'A'),
-        type:'custom',direction:'up',source:'unset',position_cm:null};record.points.push(point);}
-      point.position_cm=positions[i];point.source='image_selection';
-    }
-    const saved=await api('/cells/'+encodeURIComponent(state.cellId)+'/reference-points',
-      {method:'PUT',body:record});
-    state.named=saved;state.namedDirty=false;
-    if(field!=='height_mm'){
-      const mapping={...(state.dimensionMeasurements?.pairs||{}),
-        [field]:{from_id:ids[0],to_id:ids[1]}};
-      await api('/cells/'+encodeURIComponent(state.cellId)+'/dimensions',{
-        method:'PUT',body:{pairs:mapping,expected_revision:state.dimensionMeasurements?.revision||0}});
-    }
+    if(!state.cellId)throw new Error('Select and save a cell first.');
+    if(state.namedDirty)throw new Error('Save edited physical references before assigning a dimension.');
+    const field=$('cv_measure_target').value,from=$('cv_measure_from').value,
+      to=$('cv_measure_to').value,axis=$('cv_measure_axis').value;
+    if(!from||!to||from===to)throw new Error('Choose two different existing physical references.');
+    const a=physicalReferencePosition(from),b=physicalReferencePosition(to);
+    if(!a||!b)throw new Error('Place the selected named references on a calibrated plane first.');
+    if(projectedMetricValue(a,b,axis)<.01)
+      throw new Error('The selected references have zero distance along this axis.');
+    const pairs={...(state.dimensionMeasurements?.pairs||{}),[field]:{from_id:from,to_id:to,axis}};
+    state.dimensionMeasurements=await api('/cells/'+encodeURIComponent(state.cellId)+'/dimensions',{
+      method:'PUT',body:{pairs,expected_revision:state.dimensionMeasurements?.revision||0}});
     state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
     state.dimensionMeasurements=state.cell.dimension_measurements;
-    renderNamedPoints();renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();
-    text('cv_measure_status','Physical dimension saved · '+field+' · source: calibrated image points.');
-    toast('Measured physical points saved. Existing ArUco homography was not changed.');
+    renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();
+    text('cv_measure_status','Saved '+dimensionLabels[field]+': '+
+      projectedMetricValue(a,b,axis).toFixed(2)+' mm · '+axis+' · '+from+' → '+to);
+    toast('Dimension now uses existing physical references. No new points or ArUco revision were created.');
     setWorkspaceTool('select');
   }
   function refreshCellActions(){
