@@ -9,7 +9,7 @@
     measurePointIds:[],relativeSourcePoints:[],relativeSourceCm:[],relativeSourceCalibrationId:null,
     relativeSourceCameraRevision:null,relativeDestinationCameraId:null,relativeSourceCameraId:null,
     relativeSourceLengthMm:null,relativeSourceMode:null,pointDraft:null,pendingPointUse:null,
-    visualShapes:{revision:0,items:[]},shapePoints:[],activeShapeId:null,
+    visualShapes:{revision:0,items:[]},shapePoints:[],activeShapeId:null,opticsCorrected:false,
     cameraRoles:{side:null,top:null},relativeRecord:null,zoom:1,panX:0,panY:0,showArchived:false};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
@@ -32,6 +32,7 @@
   const showImage = (data, view='raw') => {
     if (!data?.jpeg_base64) return;
     state.view = view;state.imageSpace=data.image_space||'raw';
+    state.opticsCorrected=Boolean(data.optics_corrected)||view==='rectified';
     state.capturedCameraId=state.cameraId;
     state.capturedProfileRevision=state.profile?.revision??null;
     state.capturedCalibrationId=data.calibration_id||null;
@@ -327,6 +328,7 @@
         '<small>Experimental V(h) · varies by height</small></div>');
     }
     $('cell_resolved_dimensions').innerHTML=rows.join('');
+    renderShapeList();
   }
 
   // Preserve old reference IDs in storage: a previously calibrated sensor may still use them.
@@ -579,7 +581,8 @@
     const area=kind==='circle'?Math.PI*(lengthCm/2)**2:
       kind==='square'?lengthCm**2:lengthCm**2*(axis==='horizontal'?py/px:px/py);
     text('cv_shape_readout','Estimated cross-section: '+area.toFixed(2)+' cm² · linked '+known.value_mm.toFixed(1)+
-      ' mm ('+known.source+') · '+kind+'. Perspective and imperfect alignment may affect accuracy.');
+      ' mm ('+known.source+') · '+kind+'. '+(state.opticsCorrected?'Optics corrected':'Optics uncorrected')+
+      '; perspective and imperfect alignment may affect accuracy.');
   }
   function renderShapeList(){
     const list=$('cv_shape_list');if(!list)return;
@@ -623,7 +626,8 @@
       ident=state.activeShapeId||'shape_'+Math.random().toString(36).slice(2,12);
     const item={id:ident,name,kind,plane:'XY',camera_id:String(state.cameraId),
       camera_revision:state.profile.revision,frame_size:[img.naturalWidth,img.naturalHeight],
-      image_space:state.imageSpace,bounds_norm:constrainShapePoints(state.shapePoints,kind),
+      image_space:state.imageSpace,optics_corrected:state.opticsCorrected,
+      bounds_norm:constrainShapePoints(state.shapePoints,kind),
       anchor_field:$('cv_shape_anchor').value,anchor_axis:$('cv_shape_axis').value};
     const idx=items.findIndex(other=>other.id===ident);
     if(idx>=0)items[idx]=item;else items.push(item);
