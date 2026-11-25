@@ -28,7 +28,7 @@ const flowState={cellId:"cell_1",cell:{resolved_dimensions:{dimensions:{
   width_mm:{value_mm:160,source:"nominal"}}}},relativeSourceCm:[],relativeSourcePoints:[],
   relativeSourceMode:null,relativePairs:{reference:[],target:[]}};
 const flowContext={state:flowState,$:id=>elements[id],switchRelativeCamera:async()=>{throw Error("No saved ArUco plane");},
-  setWorkspaceTool:()=>{},text:()=>{},toast:()=>{}};
+  openBestCamera:async()=> "raw",setWorkspaceTool:()=>{},text:()=>{},toast:()=>{}};
 const flow=extract("  async function pickRelativeSource(){","\n  async function pickRelativeDestination(which){");
 vm.runInNewContext(flow+"\npickRelativeSource()",flowContext).then(()=>{
   assert.equal(flowState.relativeSourceLengthMm,160);
