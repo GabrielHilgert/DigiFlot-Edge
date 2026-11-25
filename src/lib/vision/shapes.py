@@ -51,6 +51,7 @@ def normalize_shapes(payload):
         items.append({"id": ident, "name": name, "kind": kind, "plane": "XY",
             "camera_id": camera, "camera_revision": rev, "bounds_norm": box,
             "frame_size": size, "image_space": item["image_space"],
+            "optics_corrected": bool(item.get("optics_corrected", item["image_space"] == "rectified")),
             "anchor_field": item["anchor_field"], "anchor_axis": item["anchor_axis"]})
     return items
 
@@ -74,4 +75,4 @@ def estimate_area(item, dimensions, camera_revision):
         area = known_cm**2*(h/w if item["anchor_axis"]=="horizontal" else w/h)
     return {"valid": True, "area_cm2": area, "anchor_mm": dim["value_mm"],
         "anchor_source": dim["source"], "method": "visual_shape_ratio",
-        "quality": "estimated", "optically_corrected": item["image_space"] != "raw"}
+        "quality": "estimated", "optically_corrected": bool(item.get("optics_corrected", False))}
