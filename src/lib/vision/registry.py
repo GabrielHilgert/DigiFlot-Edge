@@ -345,6 +345,8 @@ class VisionRegistry:
             if known is None or known.get("source") == "relative_estimate":
                 raise ValueError("Choose a measured or nominal source dimension; relative estimates cannot calibrate another camera")
             profile = self.camera_profile(camera_id)
+            if values.get("physical_plane", "XY") not in ("XY", "XZ", "YZ"):
+                raise ValueError("Select the physical observation plane")
             calculated = relative_scale(values, known["value_mm"], profile)
             previous = self.relative_calibration(camera_id, cell_id) or {}
             expected = values.get("expected_revision")
@@ -359,6 +361,7 @@ class VisionRegistry:
                     "dimension_revision": cell["dimension_measurements"]["revision"],
                     "reference_field": field,
                     "target_field": values["target_field"],
+                    "physical_plane": values.get("physical_plane", "XY"),
                     "reference_source": known["source"],
                     **calculated, "revision": int(previous.get("revision", 0)) + 1,
                     "updated_at": _timestamp()}
