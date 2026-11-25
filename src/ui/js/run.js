@@ -853,6 +853,7 @@ function selectMeasurementVariable(variableId) {
     ui.measurement_manual_unit.value = expected;
     const hifie = variable.latest?.hifie_measurement;
     if(hifie){
+        syncHifieMeasurementControls();
         ui.measurement_hifie_channel.value = hifie.channel || "froth_surface_cm";
         ui.measurement_hifie_output.value = hifie.output || "height_cm";
         ui.measurement_hifie_reference.value = hifie.reference_id || "current";
@@ -885,7 +886,7 @@ function syncHifieMeasurementControls() {
     if(thickness)select.value="current";
     select.disabled=thickness||volume;
     ui.measurement_hifie_note.textContent=volume ?
-        "Geometric estimate · bottom datum · calibrated area will be supported in Cells." :
+        "Geometric bulk volume below the selected interface; not necessarily net water volume in a slurry." :
         thickness ? "Thickness is independent of the selected reference." :
         !bottom ? "Height only · calibrate the cell bottom in Cells for a future volume conversion." :
         !area ? "Height only · enter cell geometry or calibrate effective area to estimate volume." :
