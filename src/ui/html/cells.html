@@ -4,9 +4,9 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125resolved1">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125volume1">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cell_inventory.css') }}?v=20261123a">
-  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125resolved1"></script>
+  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125volume1"></script>
 </head>
 <body>
 {% include "_navbar.html" %}
@@ -46,6 +46,18 @@
         <div class="cv-two"><label>Nominal depth (mm, rectangular) <input id="cell_depth" type="number" min="0" step="any"></label>
         <label>Nominal collection height (mm) <input id="cell_collection_height" type="number" min="0" step="any" placeholder="Optional"></label></div>
         <p class="cv-description">Nominal values remain stored even when a more reliable measurement becomes available.</p>
+      </div>
+      <div class="cv-dimension-card cv-volume-card"><div class="cv-group-heading"><strong>Volume vs height calibration</strong><span>Experimental V(h) · cell-level</span></div>
+        <p class="cv-description">Enter known fill volumes and heights measured upward from a selected physical reference. The system converts them to height above Cell bottom and anchors V(0) = 0. A known Cell bottom position is required.</p>
+        <label>Height reference <select id="cell_volume_datum"><option value="cell_bottom">Cell bottom</option></select></label>
+        <div class="cv-volume-headings"><span>Height from reference (cm)</span><span>Known volume (L)</span></div>
+        <div id="cell_volume_points" class="cv-volume-points"></div>
+        <div class="cv-inline-row cv-dimension-actions">
+          <button type="button" class="button button-secondary" id="add_volume_point" data-icon="plus">Add known fill</button>
+          <button type="button" class="button button-primary" id="save_volume_curve" data-icon="save">Save V(h) calibration</button>
+        </div>
+        <div id="cell_volume_status" class="cv-description" role="status">No calibrated volume curve</div>
+        <div id="cell_volume_plot" class="cv-volume-plot" aria-label="Calibrated volume versus height"></div>
       </div></div>
       <div class="cv-field-group"><div class="cv-group-heading"><strong>ArUco reference</strong><span>DICT_4X4_50</span></div><p class="cv-description">L-ruler layout: marker 0 is the origin, marker 1 is vertical and marker 2 is horizontal. Dimensions follow the local marker axes.</p>
       <div class="cv-three"><label>Marker 0 ID <input id="marker_0" type="number" min="0" step="1" value="0"></label><label>Marker 1 ID <input id="marker_1" type="number" min="0" step="1" value="1"></label><label>Marker 2 ID <input id="marker_2" type="number" min="0" step="1" value="2"></label></div>
