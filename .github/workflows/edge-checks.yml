@@ -58,6 +58,7 @@ jobs:
           node tests/test_cells_workspace_ui.js
           node tests/test_cells_metric_ui.js
           node tests/test_cells_point_shapes_ui.js
+          node tests/test_cells_metrology_ui.js
       - name: Verify documentation links
         run: node tests/test_documentation_links.js
       - name: Compile Python sources
