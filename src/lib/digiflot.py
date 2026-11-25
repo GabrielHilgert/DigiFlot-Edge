@@ -21,6 +21,7 @@ from lib.camera import Camera
 from lib.scale import Scale
 from lib.serial_identity import serial_inventory, resolve_runtime_ports
 from lib.pulp_preparation import planned_inputs, derived_metrics
+from lib.vision.derived_measurements import geometric_area_cm2, reference_choices, derive_hifie_value
 from lib.storage_estimator import StorageEstimator
 from lib.scraping_gpio import ScrapingGPIO, ALLOWED_GPIO_PINS, validate_gpio_pin
 try:
@@ -919,6 +920,8 @@ class DigiFlot:
 
     def _measurement_sensor_snapshot_unlocked(self, sensor_id):
         sensor_id = str(sensor_id)
+        if sensor_id == "froth_interface" and self.vision is not None:
+            return self.vision.virtual_sensor_snapshot()
         scale = self.scales.get(sensor_id)
         if scale is not None:
             return scale.snapshot()
@@ -935,11 +938,27 @@ class DigiFlot:
             return self.plugin_catalog.snapshot(device)
         raise KeyError(f"Sensor not found: {sensor_id}")
 
+    def _hifie_measurement_options_unlocked(self):
+        default = {"references": [{"id": "current", "name": "HIFIE configured reference"}],
+                   "geometric_area_cm2": None, "cell_id": None}
+        cell_id = (self.cell_profile or {}).get("physical_cell_id")
+        if not cell_id or self.vision is None:
+            return default
+        try:
+            registry = self.vision.registry
+            cell = registry.get_cell(cell_id)
+            association = registry.association(self.virtual_camera_id, cell_id) if self.virtual_camera_id is not None else None
+            return {"references": reference_choices(registry, cell_id, association),
+                    "geometric_area_cm2": geometric_area_cm2(cell), "cell_id": cell_id}
+        except (ValueError, KeyError, TypeError):
+            return default
+
     def measurements_payload(self):
         with self.lock:
             return {
                 **self._measurement_summary_unlocked(),
                 "observations": deepcopy(self.measurements),
+                "hifie_options": self._hifie_measurement_options_unlocked(),
             }
 
     def update_cell_profile(self, *, cell_name=None, physical_cell_id=None):
@@ -985,6 +1004,9 @@ class DigiFlot:
         value_type="number",
         role="measurement",
         category=None,
+        hifie_channel=None,
+        hifie_reference_id="current",
+        hifie_output="height_cm",
     ):
         with self.lock:
             if self.run_directory is None or self.experiment is None:
@@ -1021,6 +1043,7 @@ class DigiFlot:
             sensor_timestamp_ns = None
             sensor_timestamp_ms = None
             raw_value = None
+            hifie_metadata = None
 
             if source_type == "manual":
                 if value is None or str(value).strip() == "":
@@ -1036,7 +1059,18 @@ class DigiFlot:
                     captured_unit = self._measurement_unit(unit)
             else:
                 snapshot = self._measurement_sensor_snapshot_unlocked(source_id)
-                captured_value = snapshot.get("value")
+                if snapshot.get("type") == "virtual_froth_interface" and hifie_channel:
+                    options = self._hifie_measurement_options_unlocked()
+                    cell_id = (self.cell_profile or {}).get("physical_cell_id")
+                    if not cell_id or options.get("cell_id") != cell_id:
+                        raise ValueError("Select a calibrated physical cell for HIFIE measurements.")
+                    derived = derive_hifie_value(
+                        snapshot, self.vision.registry.get_cell(cell_id), options,
+                        channel=hifie_channel, reference_id=hifie_reference_id, output=hifie_output)
+                    captured_value = derived["value"]
+                    hifie_metadata = derived["metadata"]
+                else:
+                    captured_value = snapshot.get("value")
                 if captured_value is None:
                     raise RuntimeError(
                         f"Sensor '{snapshot.get('name', source_id)}' has no value to capture."
@@ -1047,7 +1081,7 @@ class DigiFlot:
                     raise RuntimeError(
                         f"Sensor '{snapshot.get('name', source_id)}' does not provide a numeric value."
                     )
-                captured_unit = self._measurement_unit(snapshot.get("unit"))
+                captured_unit = self._measurement_unit(derived["unit"] if hifie_metadata else snapshot.get("unit"))
                 sensor_name = snapshot.get("name")
                 sensor_type = snapshot.get("type")
                 sensor_status = snapshot.get("status")
@@ -1103,6 +1137,7 @@ class DigiFlot:
                 "sensor_timestamp_ns": sensor_timestamp_ns,
                 "sensor_timestamp_ms": sensor_timestamp_ms,
                 "sensor_raw": raw_value,
+                "hifie_measurement": hifie_metadata,
                 "captured_at": _utc_now(),
                 "captured_timestamp_ns": time.time_ns(),
                 "captured_monotonic_ns": time.monotonic_ns(),

@@ -7,7 +7,7 @@ let audioContext = null;
 const sensorPlotHistory = new Map();
 const hiddenSensorPlots = new Set();
 const lastSensorPlotTimestamp = new Map();
-let measurementData = { revision: 0, count: 0, variables: [], observations: [] };
+let measurementData = { revision: 0, count: 0, variables: [], observations: [], hifie_options: null };
 let measurementFetchInFlight = false;
 let measurementSourceSignature = null;
 let requiredInputsSignature = null;
@@ -47,6 +47,7 @@ function cacheUi() {
         "measurement_launcher", "toggle_measurement_panel",
         "measurement_form", "measurement_variable_name", "measurement_variable_names",
         "measurement_source", "measurement_value_type", "measurement_sensor_value", "measurement_sensor_value_text",
+        "measurement_hifie_fields", "measurement_hifie_channel", "measurement_hifie_output", "measurement_hifie_reference", "measurement_hifie_note",
         "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value", "measurement_manual_text",
         "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint", "required_inputs_panel",
         "measurement_count", "measurement_summary_body", "measurement_history_body",
@@ -850,6 +851,12 @@ function selectMeasurementVariable(variableId) {
     ui.measurement_value_type.value = "number";
     ui.measurement_source.value = recent?.value || (matching ? String(matching.id) : "manual");
     ui.measurement_manual_unit.value = expected;
+    const hifie = variable.latest?.hifie_measurement;
+    if(hifie){
+        ui.measurement_hifie_channel.value = hifie.channel || "froth_surface_cm";
+        ui.measurement_hifie_output.value = hifie.output || "height_cm";
+        ui.measurement_hifie_reference.value = hifie.reference_id || "current";
+    }
     updateMeasurementSourcePreview();
     ui.measurement_variable_name.focus();
 }
@@ -858,10 +865,64 @@ function currentMeasurementSource() {
     return sensorSnapshots(latestState || {}).find((item) => String(item.id) === String(ui.measurement_source.value));
 }
 
+function syncHifieMeasurementControls() {
+    const references=measurementData.hifie_options?.references || [{id:"current",name:"HIFIE configured reference"}];
+    const select=ui.measurement_hifie_reference,signature=JSON.stringify(references);
+    if(select.dataset.signature!==signature){
+        const previous=select.value;
+        select.innerHTML=references.map(ref=>'<option value="'+escapeHtml(ref.id)+'">'+escapeHtml(ref.name)+'</option>').join("");
+        select.value=references.some(ref=>ref.id===previous)?previous:"current";
+        select.dataset.signature=signature;
+    }
+    const thickness=ui.measurement_hifie_channel.value==="froth_thickness_cm";
+    const bottom=references.some(ref=>ref.id==="cell_bottom");
+    const area=Number(measurementData.hifie_options?.geometric_area_cm2);
+    const volumePossible=!thickness&&bottom&&Number.isFinite(area)&&area>0;
+    ui.measurement_hifie_output.querySelector('[value="volume_l"]').disabled=!volumePossible;
+    if(!volumePossible&&ui.measurement_hifie_output.value==="volume_l")ui.measurement_hifie_output.value="height_cm";
+    const volume=ui.measurement_hifie_output.value==="volume_l";
+    if(volume)select.value="cell_bottom";
+    if(thickness)select.value="current";
+    select.disabled=thickness||volume;
+    ui.measurement_hifie_note.textContent=volume ?
+        "Geometric estimate · bottom datum · calibrated area will be supported in Cells." :
+        thickness ? "Thickness is independent of the selected reference." :
+        !bottom ? "Height only · calibrate the cell bottom in Cells for a future volume conversion." :
+        !area ? "Height only · enter cell geometry or calibrate effective area to estimate volume." :
+        "Height is relative to the selected physical reference.";
+}
+
+function hifieMeasurementPreview(sensor) {
+    const channel=ui.measurement_hifie_channel.value,raw=sensor?.channels?.[channel];
+    if(raw==null||!Number.isFinite(Number(raw)))return null;
+    const reference=ui.measurement_hifie_reference.value;
+    const refs=measurementData.hifie_options?.references || [];
+    const selected=refs.find(item=>item.id===reference);
+    let value=Number(raw),unit="cm";
+    if(channel!=="froth_thickness_cm" && (reference!=="current"||ui.measurement_hifie_output.value==="volume_l")){
+        const base=sensor?.reference;
+        if(base?.y_cm==null || !["up","down"].includes(base.direction))return null;
+        const absolute=Number(base.y_cm)+(base.direction==="down"?value:-value);
+        const target=selected;
+        if(target?.y_cm==null)return null;
+        value=target.direction==="down"?absolute-Number(target.y_cm):Number(target.y_cm)-absolute;
+    }
+    if(ui.measurement_hifie_output.value==="volume_l"){
+        const area=Number(measurementData.hifie_options?.geometric_area_cm2);
+        if(!Number.isFinite(area)||area<=0||value<0)return null;
+        value=value*area/1000;unit="L";
+    }
+    return {value,unit};
+}
+
 function updateMeasurementSourcePreview() {
     const textMode = ui.measurement_value_type?.value === "text";
     if (textMode && ui.measurement_source.value !== "manual") ui.measurement_source.value = "manual";
     const manual = ui.measurement_source.value === "manual";
+    const sensor = manual ? null : currentMeasurementSource();
+    const isHifie=sensor?.type==="virtual_froth_interface"&&!textMode;
+    ui.measurement_hifie_fields.hidden=!isHifie;
+    if(isHifie)syncHifieMeasurementControls();
     ui.measurement_source.disabled = textMode;
     ui.measurement_manual_fields.hidden = !manual;
     ui.measurement_sensor_value.hidden = manual;
@@ -874,8 +935,10 @@ function updateMeasurementSourcePreview() {
             : "Manual unit is optional. Experiment state and stage are stored automatically.";
         return;
     }
-    const sensor = currentMeasurementSource();
-    ui.measurement_sensor_value_text.textContent = sensorDisplayValue(sensor);
+    ui.measurement_sensor_value_text.textContent = isHifie
+        ? (()=>{const reading=hifieMeasurementPreview(sensor);return reading
+            ? reading.value.toLocaleString(undefined,{maximumFractionDigits:4})+" "+reading.unit : "—";})()
+        : sensorDisplayValue(sensor);
     ui.measurement_sensor_age.textContent = sensorAgeText(sensor);
     const timestamp = Number(sensor?.timestamp_ms);
     const stale = !Number.isFinite(timestamp) || Date.now() - timestamp > 5000;
@@ -922,8 +985,10 @@ async function loadMeasurements() {
             count: payload.count || 0,
             variables: payload.variables || [],
             observations: payload.observations || [],
+            hifie_options: payload.hifie_options || null,
         };
         renderMeasurementTables();
+        updateMeasurementSourcePreview();
     } catch (error) {
         console.error(error);
     } finally {
@@ -1599,6 +1664,8 @@ function bindActions() {
 
     ui.measurement_source.addEventListener("change", updateMeasurementSourcePreview);
     ui.measurement_value_type.addEventListener("change", updateMeasurementSourcePreview);
+    for(const input of [ui.measurement_hifie_channel,ui.measurement_hifie_output,ui.measurement_hifie_reference])
+        input.addEventListener("change",updateMeasurementSourcePreview);
 
     ui.required_inputs_panel.addEventListener("change", (event) => {
         const sourceSelect = event.target.closest("[data-required-source]");
@@ -1694,6 +1761,11 @@ function bindActions() {
             role: valueType==="text"?"note":initialCondition?"execution_input":"measurement",
             category: valueType==="text"?"note":initialCondition?"initial_condition":"measurement",
         };
+        if(sourceId==="froth_interface"){
+            payload.hifie_channel=ui.measurement_hifie_channel.value;
+            payload.hifie_reference_id=ui.measurement_hifie_reference.value;
+            payload.hifie_output=ui.measurement_hifie_output.value;
+        }
         if(initialCondition && sourceId==="manual" && !ui.measurement_manual_unit.value.trim())
             ui.measurement_manual_unit.value=variableId==="feed_mass"?"g":"L";
         if (sourceId === "manual") {
