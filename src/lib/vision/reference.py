@@ -96,8 +96,8 @@ def complete_reference_points(value):
         if canonical.get("position_cm") is not None:
             continue
         legacy = next((p for p in points if p is not canonical and
-                       p.get("type") == kind and
                        str(p.get("name", "")).strip().lower() == expected_name and
+                       p.get("direction") == canonical.get("direction") and
                        p.get("position_cm") is not None), None)
         if legacy:
             canonical["position_cm"] = deepcopy(legacy["position_cm"])
