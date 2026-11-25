@@ -447,11 +447,14 @@
     toast('Cell photo removed; default icon will be shown.');
   }
   function showDimensionsGuide(){
-    const g=state.cell?.geometry||{},modal=$('cell_dimensions_modal');
-    const fields=[['H · Height',g.height_mm],['L · Width',g.width_mm],
-      ['W · Depth',g.depth_mm],['h_collection',g.collection_height_mm]];
-    $('cell_dimensions_values').innerHTML=fields.map(([key,v])=>
-      `<div><dt>${esc(key)}</dt><dd>${v==null?'—':esc(v)+' mm'}</dd></div>`).join('');
+    const g=state.cell?.geometry||{},resolved=state.cell?.resolved_dimensions?.dimensions||{};
+    const fields=[['H · Height','height_mm'],['L · Width / diameter','width_mm'],
+      ['W · Depth','depth_mm'],['h_collection','collection_height_mm']];
+    $('cell_dimensions_values').innerHTML=fields.map(([name,key])=>{
+      const best=resolved[key],nominal=g[key],source=best?.source||'unavailable';
+      return '<div><dt>'+esc(name)+'</dt><dd>'+(best?esc(best.value_mm.toFixed(2))+' mm':'—')+
+        '<small> · '+esc(source)+(nominal==null?'':' · nominal '+esc(nominal)+' mm')+'</small></dd></div>';
+    }).join('');
     modal.showModal();
   }
 
