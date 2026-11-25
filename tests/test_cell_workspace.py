@@ -68,6 +68,27 @@ class WorkspaceTests(unittest.TestCase):
         self.assertFalse(updated["relative_measurements"][0]["valid"])
         self.assertEqual(updated["resolved_dimensions"]["dimensions"]["depth_mm"]["source"], "nominal")
 
+    def test_reference_observation_is_separate_from_aruco_physical_coordinates(self):
+        initial=self.registry.get_cell(self.cell["id"])
+        revision=initial["reference_points_revision"]
+        saved=self.registry.save_reference_observation(self.cell["id"], 2, {
+            "reference_id":"cell_bottom", "position_norm":[.3,.8], "frame_size":[800,600],
+            "image_space":"undistorted", "expected_revision":0})
+        self.assertEqual(saved["revision"], 1)
+        cell=self.registry.get_cell(self.cell["id"])
+        self.assertEqual(cell["reference_points_revision"], revision)
+        self.assertEqual(cell["reference_observations"]["2"]["observations"]["cell_bottom"]["position_norm"], [.3,.8])
+        self.assertIsNone(self.registry.association(2,self.cell["id"]))
+        self.assertEqual(self.registry.association(1,self.cell["id"])["calibration_id"],
+                         self.association["calibration_id"])
+        self.registry.archive_cell(self.cell["id"])
+        with self.assertRaises(RuntimeError):
+            self.registry.delete_empty_cell(self.cell["id"])
+        with self.assertRaisesRegex(RuntimeError,"another tab"):
+            self.registry.save_reference_observation(self.cell["id"], 2, {
+                "reference_id":"cell_top", "position_norm":[.3,.2],
+                "frame_size":[800,600], "expected_revision":0})
+
     def test_invalid_relative_input_is_rejected(self):
         values = {"reference_field": "width_mm", "target_field": "depth_mm",
                   "frame_size": [800, 600], "image_space": "raw",
