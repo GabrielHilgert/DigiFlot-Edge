@@ -4,9 +4,9 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace1">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace2">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cell_inventory.css') }}?v=20261123a">
-  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125workspace1"></script>
+  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125workspace2"></script>
 </head>
 <body>
 {% include "_navbar.html" %}
@@ -59,6 +59,7 @@
       <div id="cv_refs_mount"></div></section>
     <section class="card cv-workspace-panel cv-calibration-panel"><div class="cv-card-head"><div><p class="eyebrow">05 / Optical geometry</p><h2>Camera calibration</h2></div></div>
       <div class="cv-saved-summary" id="cv_saved_summary">Checking previously saved calibration…</div>
+      <button type="button" class="button button-secondary" id="cv_reuse_saved_aruco" data-icon="rotate-ccw" hidden>Revalidate saved ArUco</button>
       <div id="cv_camera_calib_mount"></div>
       <section class="cv-relative-calibration" id="cv_relative_panel">
         <div class="cv-group-heading"><strong>Relative camera calibration</strong><span>Does not replace ArUco</span></div>
