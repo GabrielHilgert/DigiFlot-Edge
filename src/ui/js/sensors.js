@@ -2306,7 +2306,10 @@ async function initialise() {
             state.standaloneHifie=await requestJson("/api/vision/virtual-sensors/froth-interface/standalone").catch(()=>null);
             const suggestion=state.standaloneHifie?.suggested;
             // Do not open the camera here: select only the validated association.
-            if(suggestion?.ready && !state.standaloneHifie?.selected){
+            const active=state.standaloneHifie?.selected;
+            const changed=active && (String(active.cell_id)!==String(suggestion?.cell_id) ||
+                String(active.camera_id)!==String(suggestion?.camera_id));
+            if(suggestion?.ready && (!active || changed)){
                 try {
                     state.standaloneHifie=await requestJson("/api/vision/virtual-sensors/froth-interface/standalone",{
                         method:"PUT",headers:{"Content-Type":"application/json"},
