@@ -598,6 +598,65 @@
     return [a,[Math.max(0,Math.min(1,a[0]+sx*side/img.naturalWidth)),
       Math.max(0,Math.min(1,a[1]+sy*side/img.naturalHeight))]];
   }
+  function shapeInputCount(method){
+    return method==='three_corners'?3:method==='four_faces'?4:
+      method==='vertices'?Infinity:2;
+  }
+  function shapeMethodOptions(){
+    const kind=$('cv_shape_type').value,menu=$('cv_shape_method'),prior=menu.value;
+    const methods=kind==='polygon'?[['vertices','Polygon vertices · 3 or more, then close']]:
+      kind==='circle'?[['diameter','2 opposite points on the diameter']]:
+      [['diagonal','2 opposite corners · axis-aligned'],
+       ['three_corners','3 consecutive corners · rotated rectangle'],
+       ['four_faces','4 side midpoints · around the perimeter']];
+    menu.innerHTML=methods.map(([id,label])=>'<option value="'+id+'">'+label+'</option>').join('');
+    menu.value=methods.some(m=>m[0]===prior)?prior:methods[0][0];
+    const edgeMode=!['diagonal','diameter'].includes(menu.value);
+    $('cv_shape_edge_label').hidden=!edgeMode;
+    $('cv_shape_axis_label').hidden=edgeMode;
+    $('cv_shape_finish').hidden=menu.value!=='vertices';
+    renderShapeEdgeOptions();updateShapeProgress();
+  }
+  function shapeVertices(points,kind,method){
+    if(method==='vertices')return points.map(p=>[...p]);
+    if(method==='three_corners'&&points.length===3){
+      const [a,b,c]=points;return [a,b,c,[a[0]+c[0]-b[0],a[1]+c[1]-b[1]]];
+    }
+    if(method==='four_faces'&&points.length===4){
+      const center=[points.reduce((s,p)=>s+p[0],0)/4,points.reduce((s,p)=>s+p[1],0)/4];
+      return points.map((p,i)=>[p[0]+points[(i+1)%4][0]-center[0],
+        p[1]+points[(i+1)%4][1]-center[1]]);
+    }
+    if(points.length!==2)return [];
+    const [a,b]=points;
+    return [[a[0],a[1]],[b[0],a[1]],[b[0],b[1]],[a[0],b[1]]];
+  }
+  function shapeReady(){
+    const method=$('cv_shape_method').value,n=state.shapePoints.length;
+    return method==='vertices'?state.shapeDone&&n>=3:n===shapeInputCount(method);
+  }
+  function renderShapeEdgeOptions(){
+    const select=$('cv_shape_edge'),previous=select.value;
+    const method=$('cv_shape_method').value;
+    const vertices=shapeVertices(state.shapePoints,$('cv_shape_type').value,method);
+    const count=Math.max(1,method==='vertices'?state.shapePoints.length:vertices.length);
+    select.innerHTML=Array.from({length:count},(_,i)=>
+      '<option value="'+i+'">Edge '+(i+1)+' · '+(i+1)+' → '+((i+1)%count+1)+'</option>').join('');
+    select.value=[...select.options].some(o=>o.value===previous)?previous:'0';
+  }
+  function updateShapeProgress(){
+    const method=$('cv_shape_method').value,n=state.shapePoints.length,
+      count=shapeInputCount(method),complete=shapeReady();
+    text('cv_shape_progress',complete?'Contour ready · choose the matching metric edge and save.':
+      method==='vertices'?(n<3?'Mark '+(3-n)+' more vertices to enable closing.':
+        'Mark more vertices or click Close polygon.'):
+      'Selected '+n+'/'+count+' points · '+(n<count?'click point '+(n+1):'complete'));
+    $('cv_shape_finish').hidden=method!=='vertices';
+    $('cv_shape_finish').disabled=method!=='vertices'||n<3||state.shapeDone;
+    $('cv_shape_undo').disabled=!n&&!state.shapeDone;
+    $('cv_shape_save').disabled=!complete;
+    renderShapeEdgeOptions();updateMarkingGuide();
+  }
   function drawWorkspaceShapes(){
     let layer=$('cv_shape_overlay');
     if(!layer){layer=document.createElement('div');layer.id='cv_shape_overlay';
@@ -605,39 +664,95 @@
     layer.replaceChildren();
     const img=$('camera_image'),r=img.getBoundingClientRect(),outer=$('image_surface').getBoundingClientRect();
     if(!img.naturalWidth||!r.width)return;
-    const shapes=[...(state.visualShapes.items||[]).filter(item=>
-      String(item.camera_id)===String(state.cameraId)&&item.image_space===state.imageSpace&&
-      item.camera_revision===state.profile?.revision).map(item=>({
-        points:item.bounds_norm,kind:item.kind,name:item.name,saved:true}))];
-    if(state.shapePoints.length===2)shapes.push({
-      points:state.shapePoints,kind:$('cv_shape_type').value,name:$('cv_shape_name').value||'Draft outline',saved:false});
-    for(const shape of shapes){
-      const [a,b]=shape.points,element=document.createElement('div');
-      element.className='cv-visual-shape'+(shape.saved?' cv-shape-saved':'');
-      if(shape.kind==='circle')element.classList.add('cv-visual-circle');
-      const xy=[[r.left-outer.left+a[0]*r.width,r.top-outer.top+a[1]*r.height],
-        [r.left-outer.left+b[0]*r.width,r.top-outer.top+b[1]*r.height]];
-      Object.assign(element.style,{left:Math.min(xy[0][0],xy[1][0])+'px',
-        top:Math.min(xy[0][1],xy[1][1])+'px',
-        width:Math.abs(xy[1][0]-xy[0][0])+'px',
-        height:Math.abs(xy[1][1]-xy[0][1])+'px'});
-      element.title=shape.name+' · '+shape.kind;layer.append(element);
+    const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');
+    Object.assign(svg.style,{position:'absolute',inset:'0',width:'100%',height:'100%'});
+    svg.setAttribute('viewBox','0 0 '+Math.max(1,outer.width)+' '+Math.max(1,outer.height));
+    const create=(tag,attrs,parent=svg)=>{
+      const el=document.createElementNS(ns,tag);
+      for(const [key,val] of Object.entries(attrs))el.setAttribute(key,String(val));
+      parent.append(el);return el;
+    };
+    const screen=p=>[r.left-outer.left+p[0]*r.width,r.top-outer.top+p[1]*r.height];
+    const draw=(shape,active=false)=>{
+      const method=shape.method||((shape.kind==='polygon')?'vertices':
+        shape.kind==='circle'?'diameter':'diagonal');
+      const inputs=shape.points_norm||shape.bounds_norm||[];
+      const finished=active?shapeReady():true;
+      const vertices=finished?shapeVertices(inputs,shape.kind,method):[];
+      const color=active?'#e7bd72':'#69bbd7';
+      const strokeAttrs={fill:'none',stroke:color,'stroke-width':active?2.5:1.75};
+      if(shape.kind==='circle'&&inputs.length===2){
+        const [a,b]=inputs.map(screen);
+        create('ellipse',{cx:(a[0]+b[0])/2,cy:(a[1]+b[1])/2,
+          rx:Math.abs(a[0]-b[0])/2,ry:Math.abs(a[1]-b[1])/2,
+          fill:color,'fill-opacity':'.09',stroke:color,'stroke-width':'2',
+          'stroke-dasharray':active?'none':'6 4'});
+      }else if(vertices.length>=3){
+        create('polygon',{points:vertices.map(screen).map(p=>p.join(',')).join(' '),
+          fill:color,'fill-opacity':'.09',stroke:color,'stroke-width':active?2.5:1.75,
+          'stroke-dasharray':active?'none':'6 4'});
+      }else if(inputs.length>=2){
+        create('polyline',{points:inputs.map(screen).map(p=>p.join(',')).join(' '),...strokeAttrs});
+      }
+      if(active&&vertices.length>=3&&shape.kind!=='circle'&&method!=='diagonal'){
+        const edge=Number($('cv_shape_edge').value)||0;
+        if(edge<vertices.length){
+          const a=screen(vertices[edge]),b=screen(vertices[(edge+1)%vertices.length]);
+          create('line',{x1:a[0],y1:a[1],x2:b[0],y2:b[1],
+            stroke:'#66e4bf','stroke-width':4,'stroke-linecap':'round'});
+        }
+      }
+      if(active){
+        inputs.forEach((point,i)=>{
+          const [x,y]=screen(point);
+          create('circle',{cx:x,cy:y,r:7,fill:'#e8b665',stroke:'#182c39','stroke-width':2});
+          const label=create('text',{x:x+10,y:y-9,fill:'#ffdeab','font-size':14,
+            'font-weight':800,'paint-order':'stroke',stroke:'#16242f','stroke-width':3});
+          label.textContent=String(i+1);
+        });
+      }
+    };
+    for(const shape of (state.visualShapes.items||[])){
+      if(String(shape.camera_id)===String(state.cameraId)&&
+          shape.image_space===state.imageSpace&&shape.camera_revision===state.profile?.revision)
+        draw(shape);
     }
+    if(state.shapePoints.length)draw({name:$('cv_shape_name').value||'Draft',
+      kind:$('cv_shape_type').value,method:$('cv_shape_method').value,points_norm:state.shapePoints},true);
+    layer.append(svg);
   }
   function updateShapeReadout(){
-    const pair=state.shapePoints,known=state.cell?.resolved_dimensions?.dimensions?.[$('cv_shape_anchor').value],
-      kind=$('cv_shape_type').value,axis=$('cv_shape_axis').value,img=$('camera_image');
-    if(pair.length!==2){text('cv_shape_readout','Draw two opposite corners. No new named physical points are needed.');return;}
-    if(!known){text('cv_shape_readout','Outline drawn, but the selected physical dimension is unknown.');return;}
-    const px=Math.abs(pair[1][0]-pair[0][0])*img.naturalWidth;
-    const py=Math.abs(pair[1][1]-pair[0][1])*img.naturalHeight;
-    if(Math.min(px,py)<5){text('cv_shape_readout','Outline is too small to estimate an area.');return;}
-    const lengthCm=known.value_mm/10;
-    const area=kind==='circle'?Math.PI*(lengthCm/2)**2:
-      kind==='square'?lengthCm**2:lengthCm**2*(axis==='horizontal'?py/px:px/py);
-    text('cv_shape_readout','Estimated cross-section: '+area.toFixed(2)+' cm² · linked '+known.value_mm.toFixed(1)+
-      ' mm ('+known.source+') · '+kind+'. '+(state.opticsCorrected?'Optics corrected':'Optics uncorrected')+
-      '; perspective and imperfect alignment may affect accuracy.');
+    updateShapeProgress();
+    if(!shapeReady()){
+      text('cv_shape_readout','Finish the contour to estimate its transverse area. The selected edge will be linked to a known physical dimension.');
+      drawWorkspaceShapes();return;
+    }
+    const known=state.cell?.resolved_dimensions?.dimensions?.[$('cv_shape_anchor').value],
+      kind=$('cv_shape_type').value,method=$('cv_shape_method').value,
+      vertices=shapeVertices(state.shapePoints,kind,method),
+      img=$('camera_image'),size=[img.naturalWidth,img.naturalHeight];
+    if(!known){text('cv_shape_readout','Contour complete, but the selected physical dimension is unknown.');return;}
+    const points=vertices.map(p=>[p[0]*size[0],p[1]*size[1]]);
+    const areaPixels=Math.abs(points.reduce((sum,p,i)=>sum+p[0]*points[(i+1)%points.length][1]-
+      points[(i+1)%points.length][0]*p[1],0))/2;
+    const width=Math.abs(state.shapePoints.at(-1)[0]-state.shapePoints[0][0])*size[0],
+      height=Math.abs(state.shapePoints.at(-1)[1]-state.shapePoints[0][1])*size[1];
+    let span=Number($('cv_shape_axis').value==='horizontal'?width:height);
+    if(method!=='diagonal'&&method!=='diameter'){
+      const edge=Number($('cv_shape_edge').value)||0;
+      const a=points[edge],b=points[(edge+1)%points.length];
+      span=Math.hypot(a[0]-b[0],a[1]-b[1]);
+    }
+    if(span<3){text('cv_shape_readout','The selected metric edge is too short. Choose another edge.');return;}
+    const cm=known.value_mm/10;
+    const area=kind==='circle'?Math.PI*(cm/2)**2:
+      kind==='square'&&method==='diagonal'?cm**2:areaPixels*(cm/span)**2;
+    text('cv_shape_readout','Estimated transverse area: '+area.toFixed(2)+' cm² · '+
+      known.value_mm.toFixed(1)+' mm ('+known.source+') linked to '+(method==='diagonal'?
+      $('cv_shape_axis').value:'edge '+(Number($('cv_shape_edge').value)+1))+
+      '. '+(state.opticsCorrected?'Optics corrected':'Optics uncorrected')+
+      '; remaining perspective and nonplanarity are not corrected.');
+    drawWorkspaceShapes();
   }
   function renderShapeList(){
     const list=$('cv_shape_list');if(!list)return;
