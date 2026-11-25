@@ -8,6 +8,7 @@
     capturedCameraId:null,capturedProfileRevision:null,capturedCalibrationId:null,
     measurePointIds:[],relativeSourcePoints:[],relativeSourceCm:[],relativeSourceCalibrationId:null,
     relativeSourceCameraRevision:null,relativeDestinationCameraId:null,relativeSourceCameraId:null,
+    relativeSourceLengthMm:null,relativeSourceMode:null,
     cameraRoles:{side:null,top:null},relativeRecord:null,zoom:1,panX:0,panY:0,showArchived:false};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
@@ -775,7 +776,8 @@
 
   async function loadCell(id) {
     if(String(id||'')!==String(state.cellId||'')){
-      state.relativeSourcePoints=[];state.relativeSourceCm=[];state.relativeSourceCameraId=null;
+      state.relativeSourcePoints=[];state.relativeSourceCm=[];state.relativeSourceLengthMm=null;
+    state.relativeSourceMode=null;state.relativeSourceCameraId=null;
       state.relativeDestinationCameraId=null;state.relativeSourceCalibrationId=null;
       state.relativePairs={reference:[],target:[]};state.measurePointIds=[];
     }
@@ -1108,11 +1110,12 @@
     state.cameraRoles={side:first?.id??null,top:second?.id??null};
     const sourceSelect=$('cv_relative_source'),destinationSelect=$('cv_relative_destination');
     const oldSource=sourceSelect.value,oldDest=destinationSelect.value;
-    sourceSelect.innerHTML='<option value="">Select calibrated camera</option>'+source.filter(item=>
-      item.association&&item.association.cell_revision===state.cell?.revision&&
-      item.association.camera_revision===item.association.camera_profile?.revision)
-      .map(item=>'<option value="'+esc(item.id)+'">'+esc(state.cameras.find(c=>
-        String(c.id)===String(item.id))?.name||item.id)+' · confirmed ArUco</option>').join('');
+    sourceSelect.innerHTML='<option value="">Select camera with known length</option>'+source.map(item=>{
+      const valid=Boolean(item.association&&item.association.cell_revision===state.cell?.revision&&
+        item.association.camera_revision===item.association.camera_profile?.revision);
+      return '<option value="'+esc(item.id)+'">'+esc(state.cameras.find(c=>
+        String(c.id)===String(item.id))?.name||item.id)+(valid?' · saved metric view':' · cell dimension fallback')+'</option>';
+    }).join('');
     if([...sourceSelect.options].some(o=>o.value===oldSource))sourceSelect.value=oldSource;
     else if(first?.association&&[...sourceSelect.options].some(o=>o.value===String(first.id)))
       sourceSelect.value=String(first.id);
@@ -1162,20 +1165,35 @@
   }
   async function pickRelativeSource(){
     const source=$('cv_relative_source').value,destination=$('cv_relative_destination').value;
-    if(!source)throw new Error('Select the calibrated source camera.');
+    if(!source)throw new Error('Select the reference camera or a known cell dimension.');
     if(!destination||source===destination)throw new Error('Select a different destination camera.');
     if($('cv_relative_reference').value===$('cv_relative_target').value)
       throw new Error('Select different known and target dimensions.');
     state.relativeSourceCameraId=source;state.relativeDestinationCameraId=destination;
     state.relativeSourcePoints=[];state.relativeSourceCm=[];
+    state.relativeSourceLengthMm=null;state.relativeSourceMode=null;
     state.relativePairs={reference:[],target:[]};
-    await switchRelativeCamera(source,true);
-    setWorkspaceTool('relative_source');
-    text('cv_relative_source_status','Click two endpoints of the known physical length on the calibrated source view. Existing point markers are reused when nearby.');
+    try {
+      await switchRelativeCamera(source,true);
+      state.relativeSourceMode='calibrated_pair';
+      setWorkspaceTool('relative_source');
+      text('cv_relative_source_status','Select two endpoints on the source rectified plane. ArUco markers do not need to be visible now.');
+    }catch(error){
+      const known=state.cell?.resolved_dimensions?.dimensions?.[$('cv_relative_reference').value];
+      if(!known||known.source==='relative_estimate'||!Number.isFinite(known.value_mm)||known.value_mm<=0){
+        throw new Error('No current source ArUco plane and no independent known dimension. '+error.message);
+      }
+      state.relativeSourceLengthMm=known.value_mm;state.relativeSourceMode='resolved_dimension';
+      setWorkspaceTool('select');
+      text('cv_relative_source_status','Using saved cell '+$('cv_relative_reference').selectedOptions[0].textContent+
+        ': '+known.value_mm.toFixed(2)+' mm ('+known.source+'). Source image is unavailable; no ArUco re-detection needed.');
+      text('cv_relative_readout','Physical length loaded from the cell. Select the same length and the target length on the other camera.');
+      toast('Using known cell dimension because the source rectified view is unavailable: '+error.message);
+    }
   }
   async function pickRelativeDestination(which){
-    if(state.relativeSourceCm.length!==2)
-      throw new Error('First pick the known physical length on the calibrated source camera.');
+    if(state.relativeSourceCm.length!==2&&!(state.relativeSourceLengthMm>0))
+      throw new Error('First select or load the known physical length.');
     const destination=$('cv_relative_destination').value;
     if(!destination||destination===String(state.relativeSourceCameraId))
       throw new Error('Choose a different destination camera.');
@@ -1197,8 +1215,9 @@
   }
   function relativeReadout(){
     const points=state.relativeSourceCm;
-    if(points.length!==2)return;
-    const sourceMM=projectedMetricValue(...points,$('cv_relative_source_axis').value);
+    if(points.length!==2&&!(state.relativeSourceLengthMm>0))return;
+    const sourceMM=points.length===2?
+      projectedMetricValue(...points,$('cv_relative_source_axis').value):state.relativeSourceLengthMm;
     if(sourceMM<=0)return;
     const pair=state.relativePairs;
     if(pair.reference.length!==2||pair.target.length!==2){
@@ -1233,14 +1252,15 @@
     if(!source||!destination||String(state.cameraId)!==String(destination)||
         source!==$('cv_relative_source').value||destination!==$('cv_relative_destination').value)
       throw new Error('Camera selection changed. Complete the source and destination measurements on the selected cameras.');
-    if(state.relativeSourceCm.length!==2||
+    if((state.relativeSourceCm.length!==2&&!(state.relativeSourceLengthMm>0))||
         state.relativePairs.reference.length!==2||state.relativePairs.target.length!==2)
-      throw new Error('The calibrated length and BOTH destination lengths need two endpoints each.');
+      throw new Error('The known physical length and BOTH destination lengths need two endpoints each.');
     if(state.view==='rectified'||!['raw','undistorted'].includes(state.imageSpace))
       throw new Error('Use the destination camera raw or undistorted image for its pixel-scale measurements.');
     const img=$('camera_image');
     if(!img.naturalWidth||!img.naturalHeight)throw new Error('Capture the destination camera image first.');
-    const payload={source_camera_id:source,source_points_cm:state.relativeSourceCm,
+    const payload={source_camera_id:source,
+      source_points_cm:state.relativeSourceMode==='calibrated_pair'?state.relativeSourceCm:null,
       source_calibration_id:state.relativeSourceCalibrationId,
       source_camera_revision:state.relativeSourceCameraRevision,
       source_axis:$('cv_relative_source_axis').value,
@@ -1433,14 +1453,16 @@
   $('cv_relative_pick_reference').addEventListener('click',action(()=>pickRelativeDestination('relative_reference')));
   $('cv_relative_pick_target').addEventListener('click',action(()=>pickRelativeDestination('relative_target')));
   $('cv_relative_source').addEventListener('change',()=>{
-    state.relativeSourcePoints=[];state.relativeSourceCm=[];state.relativeSourceCameraId=null;
+    state.relativeSourcePoints=[];state.relativeSourceCm=[];state.relativeSourceLengthMm=null;
+    state.relativeSourceMode=null;state.relativeSourceCameraId=null;
     state.relativePairs={reference:[],target:[]};void refreshCameraRoles();drawWorkspaceMeasurements();
   });
   $('cv_relative_reference').addEventListener('change',()=>{
     const axis=measurementAxisDefault[$('cv_relative_reference').value]||'direct';
     $('cv_relative_source_axis').value=axis;$('cv_relative_reference_axis').value=axis;
-    state.relativeSourcePoints=[];state.relativeSourceCm=[];
-    state.relativePairs={reference:[],target:[]};relativeReadout();drawWorkspaceMeasurements();
+    state.relativeSourcePoints=[];state.relativeSourceCm=[];state.relativeSourceLengthMm=null;
+    state.relativeSourceMode=null;state.relativePairs={reference:[],target:[]};
+    relativeReadout();drawWorkspaceMeasurements();
   });
   $('cv_relative_target').addEventListener('change',()=>{
     $('cv_relative_target_axis').value=measurementAxisDefault[$('cv_relative_target').value]||'direct';
