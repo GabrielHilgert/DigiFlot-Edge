@@ -51,6 +51,7 @@ jobs:
           node tests/test_sensor_multiplex_hifie.js
           node tests/test_hifie_derived_measurements.js
           node tests/test_hifie_standalone_ui.js
+          node tests/test_hifie_cleanup_release.js
       - name: Verify documentation links
         run: node tests/test_documentation_links.js
       - name: Compile Python sources
