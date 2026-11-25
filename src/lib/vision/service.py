@@ -773,8 +773,9 @@ class VisionService:
         now = time.monotonic()
         with self._lock:
             if (self._standalone_owner_id not in (None, str(owner_id)) and
-                    now < self._standalone_until):
-                raise RuntimeError("Standalone HIFIE is already selected in another browser tab.")
+                    self.digiflot.preview_owner_id == self._standalone_owner_id and
+                    now < self.digiflot.preview_owner_until):
+                raise RuntimeError("Standalone HIFIE camera preview belongs to another browser tab.")
             previous = self._standalone_target
         if previous != target:
             self.release_virtual_reference(owner_id)
