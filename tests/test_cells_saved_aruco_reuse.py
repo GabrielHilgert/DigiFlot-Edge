@@ -13,6 +13,7 @@ class FakeDigiFlot:
         self.lock = threading.RLock()
         self.virtual_camera_id = None
         self.cell_profile = None
+        self.cameras = {}
 
 
 class ReuseSavedArUcoTests(unittest.TestCase):
