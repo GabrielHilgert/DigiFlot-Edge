@@ -1292,6 +1292,8 @@ function calibrationMarkup(snapshot) {
         </div>`;
     }
     if (snapshot.type === "virtual_froth_interface") {
+        if(!state.calibrationMode && !state.maintenanceMode)
+            return '<div class="calibration-block"><strong>HIFIE</strong><span>Configure in Idle or during sensor calibration.</span></div>';
         if(!state.calibrationMode) {
             const info=state.standaloneHifie||{cells:[],cameras:[],selected:null};
             const chosen=info.selected||{};
