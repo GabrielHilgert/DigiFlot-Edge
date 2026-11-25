@@ -101,8 +101,8 @@ def froth_detection_roi_preview(request: Request):
 
 
 @router.get("/cells")
-def list_cells(request: Request):
-    return service(request).registry.list_cells()
+def list_cells(request: Request, include_archived: bool = False):
+    return service(request).registry.list_cells(include_archived=include_archived)
 
 
 @router.post("/cells")
@@ -110,6 +110,23 @@ def save_cell(request: Request, payload: dict):
     if request.app.state.digiflot.execution_locked:
         raise HTTPException(status_code=409, detail="Cell definitions cannot change during an experiment")
     return _invoke(service(request).save_cell, payload)
+
+
+@router.put("/cells/{cell_id}/name")
+def rename_cell(cell_id: str, request: Request, payload: dict):
+    return _invoke(service(request).rename_cell, cell_id, payload.get("name"))
+
+
+@router.put("/cells/{cell_id}/archive")
+def archive_cell(cell_id: str, request: Request, payload: dict):
+    if not isinstance(payload.get("archived"), bool):
+        raise HTTPException(status_code=422, detail="Provide archived as a boolean.")
+    return _invoke(service(request).archive_cell, cell_id, payload["archived"])
+
+
+@router.delete("/cells/{cell_id}")
+def delete_empty_cell(cell_id: str, request: Request):
+    return _invoke(service(request).delete_empty_cell, cell_id)
 
 
 @router.get("/cells/{cell_id}")
