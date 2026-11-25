@@ -76,7 +76,7 @@
     const img=$('camera_image');
     img.style.transform='translate('+state.panX+'px,'+state.panY+'px) scale('+state.zoom+')';
     img.style.transformOrigin='center center';
-    text('cv_zoom_fit',state.zoom===1?'Fit':Math.round(state.zoom*100)+'%');
+    $('cv_zoom_fit').title=state.zoom===1?'Fit image':('Current zoom: '+Math.round(state.zoom*100)+'% · reset zoom');
     renderSelection();drawWorkspaceMeasurements();
   }
   function changeZoom(next){
@@ -1124,6 +1124,23 @@
   $('new_cell').addEventListener('click',action(async()=>{ $('cell_select').value='';await loadCell(null);toast('Enter a new physical cell.'); }));
   $('cell_select').addEventListener('change',action(async()=>loadCell($('cell_select').value)));
   $('save_cell').addEventListener('click',action(saveCell));
+  $('cv_save_measure').addEventListener('click',action(saveVisualMeasurement));
+  $('cv_rename_open').addEventListener('click',()=>{
+    if(!state.cellId)return;$('cv_rename_input').value=state.cell?.name||'';
+    $('cv_rename_dialog').showModal();$('cv_rename_input').focus();
+  });
+  $('cv_rename_close').addEventListener('click',()=>$('cv_rename_dialog').close());
+  $('cv_rename_save').addEventListener('click',action(renameSelectedCell));
+  $('cv_archive_open').addEventListener('click',()=>{
+    if(!state.cellId)return;text('cv_delete_name',state.cell?.name||'');
+    $('cv_delete_dialog').showModal();
+  });
+  $('cv_delete_close').addEventListener('click',()=>$('cv_delete_dialog').close());
+  $('cv_archive_cell').addEventListener('click',action(archiveSelectedCell));
+  $('cv_delete_empty').addEventListener('click',action(deleteArchivedDraft));
+  $('cv_show_archived').addEventListener('change',action(async()=>{
+    state.showArchived=$('cv_show_archived').checked;await refreshCells();
+  }));
   $('save_dimension_pairs').addEventListener('click',action(saveCellDimensionPairs));
   $('add_volume_point').addEventListener('click',()=>{$('cell_volume_points').insertAdjacentHTML('beforeend',volumePointRow());});
   $('save_volume_curve').addEventListener('click',action(saveVolumeCurve));
@@ -1140,7 +1157,42 @@
   $('reference_reuse').addEventListener('click',action(reuseNamedPoints));
   $('named_reference_list').addEventListener('click',e=>{if(e.target.dataset.refAction)action(()=>handleNamedPoint(e))();});
   $('named_reference_list').addEventListener('change',e=>action(()=>handleNamedPoint(e))());
-  $('camera_select').addEventListener('change',action(async()=>loadCamera($('camera_select').value)));
+  $('camera_select').addEventListener('change',action(async()=>{
+    await loadCamera($('camera_select').value);
+    showWorkspaceStatus();
+  }));
+  $('cv_side_camera').addEventListener('click',action(()=>selectCameraRole('side')));
+  $('cv_top_camera').addEventListener('click',action(()=>selectCameraRole('top')));
+  $('cv_raw_view').addEventListener('click',action(refreshSnapshot));
+  $('cv_undistorted_view').addEventListener('click',action(refreshUndistortedSnapshot));
+  $('cv_rectified_view').addEventListener('click',action(rectifiedSnapshot));
+  $('cv_zoom_fit').addEventListener('click',()=>changeZoom(1));
+  $('cv_zoom_in').addEventListener('click',()=>changeZoom(state.zoom*1.25));
+  $('cv_zoom_out').addEventListener('click',()=>changeZoom(state.zoom/1.25));
+  $('cv_pan_mode').addEventListener('click',()=>setWorkspaceTool(state.uiTool==='pan'?'select':'pan'));
+  $('image_surface').addEventListener('wheel',event=>{
+    if(!$('camera_image').naturalWidth)return;
+    event.preventDefault();changeZoom(state.zoom*(event.deltaY<0?1.12:1/1.12));
+  },{passive:false});
+  $('cv_pick_measure').addEventListener('click',()=>{
+    state.measurePoints=[];setWorkspaceTool('measure');
+    text('cv_measure_status','Click the first point on the image.');
+    drawWorkspaceMeasurements();
+  });
+  $('cv_clear_measure').addEventListener('click',()=>{
+    state.measurePoints=[];setWorkspaceTool('select');
+    text('cv_measure_status','Measurement cleared.');drawWorkspaceMeasurements();
+  });
+  for(const [id,mode] of [['cv_relative_pick_reference','relative_reference'],['cv_relative_pick_target','relative_target']]){
+    $(id).addEventListener('click',action(async()=>{
+      if(state.view==='rectified')await refreshUndistortedSnapshot();
+      const key=mode==='relative_reference'?'reference':'target';
+      state.relativePairs[key]=[];setWorkspaceTool(mode);drawWorkspaceMeasurements();
+    }));
+  }
+  $('cv_save_relative').addEventListener('click',action(saveRelativeCalibration));
+  for(const id of ['cv_relative_reference','cv_relative_target'])
+    $(id).addEventListener('change',relativeReadout);
   $('optics_mode').addEventListener('change',()=>{$('lens_preset').disabled=$('optics_mode').value!=='preset';});
   $('import_intrinsics').addEventListener('change',action(importIntrinsics));
   $('reset_roi').addEventListener('click',()=>{state.roi=[0,0,1,1];text('roi_caption','Camera ROI: full sensor. Save camera to persist.');renderSelection();});
@@ -1155,21 +1207,63 @@
   $('save_analysis_roi').addEventListener('click',action(saveAnalysisRoi));
   $('clear_analysis_roi').addEventListener('click',action(clearAnalysisRoi));
   const img=$('camera_image');
-  img.addEventListener('load',renderSelection);
+  img.addEventListener('load',()=>{
+    renderSelection();drawWorkspaceMeasurements();
+    const pair=state.relativePairs;
+    if(pair.reference.length===2&&pair.target.length===2)relativeReadout();
+  });
   window.addEventListener('resize',renderSelection);
   img.addEventListener('pointerdown',event=>{
     if(!img.naturalWidth || !img.getAttribute('src'))return;
     if(state.view==='rectified' && (!state.plane || !state.association))return;
     const p=pointOnImage(event);if(!p)return;
     event.preventDefault();
+    if(state.uiTool==='pan'){
+      state.panDrag={x:event.clientX,y:event.clientY,panX:state.panX,panY:state.panY};
+      img.setPointerCapture(event.pointerId);return;
+    }
+    if(['measure','relative_reference','relative_target'].includes(state.uiTool)){
+      if(state.view==='rectified'&&state.uiTool.startsWith('relative_')){
+        toast('Switch to Raw or Undistorted before relative measurement.',true);return;
+      }
+      state.pickClick={p,x:event.clientX,y:event.clientY};
+      img.setPointerCapture(event.pointerId);return;
+    }
     if(state.view==='rectified'&&state.activePoint){
       state.pointClick=p;img.setPointerCapture(event.pointerId);return;
     }
     state.drag={start:p,end:p};
     img.setPointerCapture(event.pointerId);
   });
-  img.addEventListener('pointermove',drawDrag);
-  img.addEventListener('pointerup',finishDrag);
-  img.addEventListener('pointercancel',()=>{state.drag=null;state.pointClick=null;$('roi_drag').hidden=true;});
+  img.addEventListener('pointermove',event=>{
+    if(state.panDrag){
+      state.panX=state.panDrag.panX+event.clientX-state.panDrag.x;
+      state.panY=state.panDrag.panY+event.clientY-state.panDrag.y;
+      applyCanvasViewport();return;
+    }
+    const p=pointOnImage(event);
+    if(p){
+      const metric=state.view==='rectified'&&state.plane?planePoint(p):null;
+      text('cv_cursor_status',metric?'Plane: '+metric.map(v=>v.toFixed(2)).join(', ')+' cm':
+        'Pixel: '+Math.round(p[0]*img.naturalWidth)+', '+Math.round(p[1]*img.naturalHeight));
+    }
+    if(!state.pickClick)drawDrag(event);
+  });
+  img.addEventListener('pointerup',event=>{
+    if(state.panDrag){state.panDrag=null;return;}
+    if(state.pickClick){
+      const click=state.pickClick;state.pickClick=null;
+      if(Math.hypot(click.x-event.clientX,click.y-event.clientY)<16){
+        captureWorkspacePoint(pointOnImage(event)||click.p);
+        if(state.relativePairs.reference.length===2&&state.relativePairs.target.length===2)
+          relativeReadout();
+      }
+      return;
+    }
+    finishDrag(event);
+  });
+  img.addEventListener('pointercancel',()=>{
+    state.drag=null;state.pointClick=null;state.pickClick=null;state.panDrag=null;$('roi_drag').hidden=true;
+  });
   initialize().catch(err=>toast(err.message,true));
 })();
