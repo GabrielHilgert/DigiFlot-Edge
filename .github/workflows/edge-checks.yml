@@ -54,6 +54,7 @@ jobs:
           node tests/test_hifie_cleanup_release.js
           node tests/test_hifie_standalone_defaults.js
           node tests/test_cell_geometry_ui.js
+          node tests/test_cell_reference_aliases.js
       - name: Verify documentation links
         run: node tests/test_documentation_links.js
       - name: Compile Python sources
