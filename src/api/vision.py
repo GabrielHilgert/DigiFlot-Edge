@@ -207,8 +207,19 @@ def update_camera_profile(camera_id: int, request: Request, payload: dict):
 
 
 @router.get("/cameras/{camera_id}/snapshot")
-def camera_snapshot(camera_id: int, request: Request, cell_id: str | None = None, show_grid: bool = True):
-    return _invoke(service(request).snapshot, camera_id, cell_id, show_grid)
+def camera_snapshot(camera_id: int, request: Request, cell_id: str | None = None,
+                    show_grid: bool = True, undistorted: bool = False):
+    return _invoke(service(request).snapshot, camera_id, cell_id, show_grid, undistorted)
+
+
+@router.get("/associations/{camera_id}/{cell_id}/relative")
+def relative_camera_calibration(camera_id: int, cell_id: str, request: Request):
+    return _invoke(service(request).registry.relative_calibration, camera_id, cell_id)
+
+
+@router.put("/associations/{camera_id}/{cell_id}/relative")
+def save_relative_camera_calibration(camera_id: int, cell_id: str, request: Request, payload: dict):
+    return _invoke(service(request).save_relative_camera_calibration, camera_id, cell_id, payload)
 
 
 @router.get("/associations/{camera_id}/{cell_id}")
