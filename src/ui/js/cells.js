@@ -1595,7 +1595,8 @@
       [...(metric?['rectified']:[]),...(optics?['undistorted']:[]),...(!requireMetric?['raw']:[])];
     if((requireMetric||exactSpace==='rectified')&&!metric)throw new Error('No current metric plane for this camera. Use a known cell dimension or revalidate its saved ArUco.');
     const current=state.view==='rectified'?'rectified':state.imageSpace==='undistorted'?'undistorted':'raw';
-    if(!force&&!switching&&choices[0]===current&&$('camera_image').naturalWidth){
+    if(!force&&!switching&&choices[0]===current&&$('camera_image').naturalWidth&&
+        (current!=='undistorted'||state.opticsCorrected||exactSpace==='undistorted')){
       if(focus)$('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
       updateMarkingGuide();return current;
     }
@@ -1603,8 +1604,11 @@
     for(const choice of choices){
       try{
         if(choice==='rectified')await rectifiedSnapshot();
-        else if(choice==='undistorted')await refreshUndistortedSnapshot();
-        else await refreshRawSnapshot();
+        else if(choice==='undistorted'){
+          await refreshUndistortedSnapshot();
+          if(!state.opticsCorrected&&!exactSpace)
+            throw new Error('No usable optical correction is saved; falling back to Raw');
+        }else await refreshRawSnapshot();
         if(focus)$('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
         updateMarkingGuide();return choice;
       }catch(error){errors.push(choice+': '+error.message);}
