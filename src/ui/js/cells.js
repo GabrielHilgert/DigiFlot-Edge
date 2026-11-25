@@ -9,7 +9,8 @@
     measurePointIds:[],relativeSourcePoints:[],relativeSourceCm:[],relativeSourceCalibrationId:null,
     relativeSourceCameraRevision:null,relativeDestinationCameraId:null,relativeSourceCameraId:null,
     relativeSourceLengthMm:null,relativeSourceMode:null,pointDraft:null,pendingPointUse:null,
-    visualShapes:{revision:0,items:[]},shapePoints:[],activeShapeId:null,opticsCorrected:false,
+    visualShapes:{revision:0,items:[]},shapePoints:[],activeShapeId:null,
+    shapeDone:false,shapeCapture:null,opticsCorrected:false,markingBusy:false,
     cameraRoles:{side:null,top:null},relativeRecord:null,zoom:1,panX:0,panY:0,showArchived:false};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
@@ -36,8 +37,9 @@
     state.capturedCameraId=state.cameraId;
     state.capturedProfileRevision=state.profile?.revision??null;
     state.capturedCalibrationId=data.calibration_id||null;
-    state.measurePoints=[];state.relativePairs={reference:[],target:[]};
-    state.shapePoints=[];state.activeShapeId=null;
+    // Do not discard in-progress picks when switching camera views. The controller
+    // invalidates image-bound points explicitly when changing coordinate systems.
+    state.measurePoints=[];
     state.zoom=1;state.panX=0;state.panY=0;
     state.frame = data.frame || null;
     state.plane = data.plane || null;
@@ -49,7 +51,7 @@
       : 'Raw camera: drag to adjust the sensor ROI. Open Rectified plane to select the physical analysis ROI.';
     $('camera_image').src = `data:image/jpeg;base64,${data.jpeg_base64}`;
     showWorkspaceStatus();
-    applyCanvasViewport();
+    applyCanvasViewport();updateMarkingGuide();
   };
 
   function arrangeCellsWorkspace() {
@@ -89,10 +91,15 @@
       details.append(summary,content);return details;
     };
     calibrationPanel.append(accordion('Optical profile & vision worker','sliders',$('cv_camera_calib_mount')));
-    calibrationPanel.append(accordion('Relative camera calibration','crosshair',$('cv_relative_panel')));
     calibrationPanel.append(accordion('ArUco / planar calibration & analysis ROI','scan',$('cv_aruco_mount')));
     const mappings=$('cv_measure_mount').querySelector('.cv-existing-pair-editor');
     $('cv_measure_mount').append(accordion('Advanced named-reference mappings','settings',mappings));
+    const metrology=$('cv_metrology_mount'),measurePanel=$('cv_workspace_panels').querySelector('.cv-measure-panel');
+    measurePanel.classList.remove('card','cv-workspace-panel');
+    metrology.append(accordion('Reference-based physical dimensions','crosshair',measurePanel));
+    metrology.append(accordion('Relative scale between cameras','scan',$('cv_relative_panel')));
+    metrology.append($('cv_outlines_details'));
+    $('cv_outlines_details').open=false;
     grid.remove();calibration.remove();
     window.DigiFlotIcons?.decorate(document);
   }
