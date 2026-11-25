@@ -23,7 +23,7 @@ const obj=vm.runInNewContext(projection+"\n({h:projectedMetricValue([2,3],[8,11]
 assert.equal(obj.h,60);assert.equal(obj.v,80);assert.equal(obj.d,100);
 const refs={cv_measure_from:{value:""},cv_measure_to:{value:""}},state={uiTool:"measure",measurePointIds:[]};
 const context={state,$:id=>refs[id],nearestReferenceOnImage:p=>({id:p[0]===.1?"cell_top":"cell_bottom",point:p}),
-  updateMeasurementPreview:()=>{},text:()=>{},drawWorkspaceMeasurements:()=>{},relativeReadout:()=>{}};
+  updateMeasurementPreview:()=>{},updateMarkingGuide:()=>{},text:()=>{},drawWorkspaceMeasurements:()=>{},relativeReadout:()=>{}};
 vm.runInNewContext(extract("  function captureWorkspacePoint(","\n  function setCellForm(")+
   "\ncaptureWorkspacePoint([.1,.2]);captureWorkspacePoint([.8,.7]);",context);
 assert.deepEqual(state.measurePointIds,["cell_top","cell_bottom"]);
