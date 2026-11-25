@@ -294,6 +294,9 @@ class VisionRegistry:
             if expected is not None and int(expected) != int(old["revision"]):
                 raise RuntimeError("Physical reference observations changed in another tab")
             profile = self.camera_profile(camera_id)
+            if (str(payload.get("capture_camera_id")) != camera_id or
+                    payload.get("camera_revision") != profile["revision"]):
+                raise RuntimeError("The camera or optics changed after capturing this image; recapture the reference")
             observations = deepcopy(old.get("observations") or {})
             observations[ref_id] = {"reference_id": ref_id, "position_norm": pos,
                 "frame_size": size, "image_space": image_space,
@@ -345,6 +348,9 @@ class VisionRegistry:
             if known is None or known.get("source") == "relative_estimate":
                 raise ValueError("Choose a measured or nominal source dimension; relative estimates cannot calibrate another camera")
             profile = self.camera_profile(camera_id)
+            if (str(values.get("capture_camera_id")) != camera_id or
+                    values.get("camera_revision") != profile["revision"]):
+                raise RuntimeError("The target camera/optics changed since this image; capture a fresh frame")
             if values.get("physical_plane", "XY") not in ("XY", "XZ", "YZ"):
                 raise ValueError("Select the physical observation plane")
             calculated = relative_scale(values, known["value_mm"], profile)
