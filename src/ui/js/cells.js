@@ -159,7 +159,8 @@
       !curve.points?.length?'No experimental V(h) calibration. Geometric fallback is used if available.' :
       !valid?'Reference points changed or became unavailable. Review and save the calibration again.' :
       'Current V(h) calibration · revision '+curve.revision+' · '+(curve.points.length-1)+
-      ' known fills · interpolation by segments; extrapolation linear above last point.';
+      ' known fills · interpolation by segments; linear extrapolation above last point'+
+      (curve.bottom_source==='nominal_derived'?' · Cell bottom inferred from nominal height.':'.');
     text('cell_volume_status',label);
     const target=$('cell_volume_plot');
     if(!valid){target.replaceChildren();return;}
