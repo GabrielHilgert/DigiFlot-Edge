@@ -51,6 +51,35 @@ class ShapeTests(unittest.TestCase):
         self.assertAlmostEqual(circle["area_cm2"],math.pi*64)
         self.assertAlmostEqual(rectangle["area_cm2"],256*320/240)
 
+    def test_three_consecutive_corners_build_rotated_quadrilateral(self):
+        item={**self.item(), "method":"three_corners",
+              "points_norm":[[.2,.2],[.6,.25],[.5,.65]],"anchor_edge":0}
+        item.pop("bounds_norm")
+        saved=normalize_shapes({"items":[item]})
+        from lib.vision.shapes import outline_vertices
+        vertices=outline_vertices(saved[0])
+        self.assertAlmostEqual(vertices[3][0],.1)
+        self.assertAlmostEqual(vertices[3][1],.6)
+        result=estimate_area(saved[0],{"width_mm":{"value_mm":160,"source":"measured"}},0)
+        self.assertGreater(result["area_cm2"],100)
+        self.assertLess(result["area_cm2"],300)
+
+    def test_four_side_midpoints_and_polygon_edge_area(self):
+        from lib.vision.shapes import outline_vertices
+        item={**self.item(),"method":"four_faces",
+              "points_norm":[[.6,.3],[.7,.6],[.4,.7],[.3,.4]],"anchor_edge":0}
+        item.pop("bounds_norm")
+        normalized=normalize_shapes({"items":[item]})[0]
+        self.assertEqual(len(outline_vertices(normalized)),4)
+        self.assertGreater(estimate_area(normalized,{"width_mm":{"value_mm":160,"source":"measured"}},0)["area_cm2"],0)
+        poly={**item,"kind":"polygon","method":"vertices","name":"Complex section",
+              "points_norm":[[.2,.2],[.7,.2],[.6,.7],[.2,.6]],"anchor_edge":0}
+        result=normalize_shapes({"items":[poly]})[0]
+        self.assertAlmostEqual(estimate_area(result,{"width_mm":{"value_mm":160,"source":"measured"}},0)["area_cm2"],230.4, delta=30)
+        invalid={**poly,"points_norm":[[.2,.2],[.7,.7],[.7,.2],[.2,.7]]}
+        with self.assertRaisesRegex(ValueError,"self-intersecting"):
+            normalize_shapes({"items":[invalid]})
+
     def test_validation_preserves_other_saved_calibrations(self):
         saved=self.registry.save_geometric_shapes(self.cell["id"],{"items":[self.item()]})
         self.registry.archive_cell(self.cell["id"])
