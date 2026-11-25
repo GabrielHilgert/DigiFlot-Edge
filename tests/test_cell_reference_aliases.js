@@ -20,11 +20,18 @@ assert.equal(display.aliases.get("legacy_bottom"),"cell_bottom");
 assert.equal(display.canonicalId("legacy_top"),"cell_top");
 assert.equal(display.canonicalId("left"),"left");
 assert.equal(base.length,6,"never modify saved reference identities");
+const oldCustom=base.map(x=>({...x,position_cm:x.position_cm&&[...x.position_cm]}));
+oldCustom[3].type="custom";
+assert.equal(run(oldCustom).aliases.get("legacy_top"),"cell_top",
+    "old custom-typed name still aliases the same physical datum");
+oldCustom[3].direction="up";
+assert.equal(run(oldCustom).canonicalId("legacy_top"),"legacy_top",
+    "a differing orientation must remain individually selectable");
 const different=base.map(x=>({...x,position_cm:x.position_cm&&[...x.position_cm]}));
 different[3].position_cm[1]=5;
 const conflict=run(different);
 assert.equal(conflict.canonicalId("legacy_top"),"legacy_top");
-assert.ok(conflict.label(different[3]).includes("legacy · distinct position"));
+assert.ok(conflict.label(different[3]).includes("legacy · check position/direction"));
 assert.equal(conflict.visible.length,5,"keep conflicting physical positions available");
 new vm.Script(ui);
 console.log("Reference alias selector migration checks passed.");
