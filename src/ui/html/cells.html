@@ -4,9 +4,9 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>DigiFlot Edge | Cells</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace4">
+  <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace5">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cell_inventory.css') }}?v=20261123a">
-  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125workspace4"></script>
+  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125workspace5"></script>
 </head>
 <body>
 {% include "_navbar.html" %}
@@ -113,7 +113,27 @@
         <button type="button" id="cv_save_relative" class="button button-primary" data-icon="save">Save relative calibration</button>
       </section>
       <div id="cv_aruco_mount"></div></section>
-    <section class="card cv-workspace-panel cv-geometry-panel"><div class="cv-card-head"><div><p class="eyebrow">06 / Derived model</p><h2>Cell geometry</h2></div></div><div id="cv_geometry_mount"></div></section>
+    <section class="card cv-workspace-panel cv-geometry-panel"><div class="cv-card-head"><div><p class="eyebrow">06 / Derived model</p><h2>Cell geometry</h2></div></div><div id="cv_geometry_mount"></div>
+      <details class="cv-subaccordion cv-outline-section" id="cv_outlines_details">
+        <summary><span data-icon="square">Visual cross-section outlines</span></summary>
+        <div class="cv-outline-editor">
+          <p class="cv-description">Draw two opposite corners on the top camera. Shape vertices stay inside the outline, not in Named Physical References.</p>
+          <div class="cv-two"><label>Shape<select id="cv_shape_type">
+            <option value="rectangle">Rectangle</option><option value="square">Square</option><option value="circle">Circle</option></select></label>
+            <label>Name<input id="cv_shape_name" maxlength="80" placeholder="Inner cell section"></label></div>
+          <div class="cv-two"><label>Link existing dimension<select id="cv_shape_anchor">
+            <option value="width_mm">Width / diameter</option><option value="depth_mm">Depth</option></select></label>
+            <label>Linked side<select id="cv_shape_axis"><option value="horizontal">Horizontal side / diameter</option>
+              <option value="vertical">Vertical side / diameter</option></select></label></div>
+          <div class="cv-inline-row cv-shape-actions">
+            <button type="button" class="button button-secondary" id="cv_shape_draw" data-icon="square">Draw outline</button>
+            <button type="button" class="button button-primary" id="cv_shape_save" data-icon="save">Save outline</button>
+            <button type="button" class="button button-secondary" id="cv_shape_cancel" data-icon="eraser">Clear</button></div>
+          <div id="cv_shape_readout" class="cv-description" role="status">No shape selected. Requires a known dimension and a top-view image.</div>
+          <details class="cv-quick-group"><summary>Saved outlines</summary><div id="cv_shape_list"></div></details>
+        </div>
+      </details>
+      </section>
     <section class="card cv-workspace-panel cv-volume-panel"><div class="cv-card-head"><div><p class="eyebrow">07 / Known fill volumes</p><h2>Volume calibration</h2></div></div><div id="cv_volume_mount"></div></section>
   </div>
   <div class="cell-vision-grid" id="cv_original_layout">
