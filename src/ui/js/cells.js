@@ -104,20 +104,23 @@
     const aliases=new Map();
     const samePosition=(a,b)=>a==null&&b==null||Array.isArray(a)&&Array.isArray(b)&&
       a.length===2&&b.length===2&&a.every((v,i)=>Math.abs(Number(v)-Number(b[i]))<1e-6);
+    const targetFor=point=>{
+      const name=String(point.name||'').trim().toLowerCase();
+      return name==='cell top'?'cell_top':name==='cell bottom'?'cell_bottom':null;
+    };
     for(const point of points){
-      const target=canonical[point.type],canonicalPoint=fixed.get(target);
+      const target=targetFor(point),canonicalPoint=fixed.get(target);
       if(!target||point.id===target||!canonicalPoint)continue;
-      if(String(point.name||'').trim().toLowerCase()===reserved[point.type] &&
+      if(point.direction===canonicalPoint.direction &&
          samePosition(point.position_cm,canonicalPoint.position_cm)){
         aliases.set(point.id,target);
       }
     }
     const visible=points.filter(point=>!aliases.has(point.id));
     const label=point=>{
-      const expected=reserved[point.type];
-      return expected&&point.id!==canonical[point.type]&&
-        String(point.name||'').trim().toLowerCase()===expected ?
-          point.name+' (legacy · distinct position)' : point.name;
+      const target=targetFor(point);
+      return target&&point.id!==target ?
+        point.name+' (legacy · check position/direction)' : point.name;
     };
     return {visible,aliases,label,canonicalId:id=>aliases.get(id)||id};
   }
