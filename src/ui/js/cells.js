@@ -5,6 +5,7 @@
     cameraId: null, cellId: null, association: null, pending: null, frame: null,
     roi: [0, 0, 1, 1], analysisRoi: null, roiDirty: false, view: 'raw', plane: null, drag: null, named:null, activePoint:null, pointClick:null, namedDirty:false, dimensionMeasurements:null,
     imageSpace:'raw',uiTool:'select',pickClick:null,panDrag:null,measurePoints:[],relativePairs:{reference:[],target:[]},
+    capturedCameraId:null,capturedProfileRevision:null,capturedCalibrationId:null,
     cameraRoles:{side:null,top:null},relativeRecord:null,zoom:1,panX:0,panY:0,showArchived:false};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
@@ -27,6 +28,9 @@
   const showImage = (data, view='raw') => {
     if (!data?.jpeg_base64) return;
     state.view = view;state.imageSpace=data.image_space||'raw';
+    state.capturedCameraId=state.cameraId;
+    state.capturedProfileRevision=state.profile?.revision??null;
+    state.capturedCalibrationId=data.calibration_id||null;
     state.measurePoints=[];state.relativePairs={reference:[],target:[]};
     state.zoom=1;state.panX=0;state.panY=0;
     state.frame = data.frame || null;
@@ -920,7 +924,8 @@
           void api('/cells/'+encodeURIComponent(currentId)+'/reference-observations/'+cameraId,{
             method:'PUT',body:{reference_id:referenceId,position_norm:p,
               frame_size:[$('camera_image').naturalWidth,$('camera_image').naturalHeight],
-              image_space:state.imageSpace,expected_revision:previous?.revision||0}
+              image_space:state.imageSpace,camera_revision:state.capturedProfileRevision,
+              capture_camera_id:state.capturedCameraId,expected_revision:previous?.revision||0}
           }).then(async()=>{
             if(state.cellId!==currentId)return;
             state.cell=await api('/cells/'+encodeURIComponent(currentId));
@@ -1042,6 +1047,7 @@
     const payload={source_camera_id:source,reference_field:$('cv_relative_reference').value,
       target_field:$('cv_relative_target').value,reference_pair:pairs.reference,target_pair:pairs.target,
       frame_size:[img.naturalWidth,img.naturalHeight],image_space:state.imageSpace,
+      camera_revision:state.capturedProfileRevision,capture_camera_id:state.capturedCameraId,
       physical_plane:$('cv_relative_plane').value,expected_revision:state.relativeRecord?.revision||0};
     const record=await api('/associations/'+state.cameraId+'/'+encodeURIComponent(state.cellId)+'/relative',
       {method:'PUT',body:payload});
@@ -1055,11 +1061,16 @@
   async function saveVisualMeasurement(){
     if(state.view!=='rectified'||!state.plane||!state.association)
       throw new Error('Save direct physical measurements from the rectified calibrated plane. Use relative calibration for another camera.');
+    if(state.capturedCalibrationId!==state.association.calibration_id ||
+        state.capturedProfileRevision!==state.profile?.revision)
+      throw new Error('Calibration changed since this image was captured. Refresh the rectified frame first.');
     if(state.measurePoints.length!==2)throw new Error('Pick two endpoints on the camera image first.');
     if(state.namedDirty)throw new Error('Save pending physical references before saving the measurement.');
     const field=$('cv_measure_target').value;
     if(!window.confirm('Saving these physical points updates the cell reference revision. An existing HIFIE benchmark may need review. Continue?'))return;
     const positions=state.measurePoints.map(planePoint);
+    if(field==='height_mm'&&positions[0][1]>=positions[1][1])
+      throw new Error('For height, select Cell Top first and Cell Bottom second.');
     if(positions.some(p=>!p||!p.every(Number.isFinite)))throw new Error('Unable to map points to the calibrated plane.');
     const record=JSON.parse(JSON.stringify(state.named)),reserved={
       height_mm:['cell_top','cell_bottom'],
