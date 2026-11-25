@@ -6,20 +6,11 @@ HIFIE_CHANNELS = ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thicknes
 
 
 def geometric_area_cm2(cell):
-    g = (cell or {}).get("geometry") or {}
-    def cm(key):
-        try:
-            v = float(g[key]) / 10.0
-            return v if math.isfinite(v) and v > 0 else None
-        except (KeyError, TypeError, ValueError):
-            return None
-    width, depth = cm("width_mm"), cm("depth_mm")
-    if g.get("shape") == "cylindrical" and width:
-        return math.pi * width**2 / 4
-    if g.get("shape") == "rectangular" and width and depth:
-        return width * depth
-    return None
-
+    resolved = (cell or {}).get("resolved_dimensions") or {}
+    if "geometric_area_cm2" in resolved:
+        return resolved["geometric_area_cm2"]
+    from lib.vision.cell_metrics import resolve_cell_dimensions
+    return resolve_cell_dimensions(cell)["geometric_area_cm2"]
 
 def reference_choices(registry, cell_id, association):
     refs = [{"id": "current", "name": "HIFIE configured reference"}]
@@ -84,7 +75,10 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
             raise ValueError("Cell has no calibrated or geometric effective area; record height instead.")
         if bottom_height is None or bottom_height < -0.01:
             raise ValueError("Interface is below cell bottom; check physical references.")
-        height_mm = (cell.get("geometry") or {}).get("height_mm")
+        height_mm = (((cell.get("resolved_dimensions") or {}).get("dimensions") or {})
+                     .get("height_mm") or {}).get("value_mm")
+        if height_mm is None:
+            height_mm = (cell.get("geometry") or {}).get("height_mm")
         if height_mm not in (None, "") and bottom_height > float(height_mm) / 10.0 + 0.01:
             raise ValueError("Interface is above the cell's physical height.")
         value = max(0.0, bottom_height) * area / 1000.0
@@ -93,5 +87,7 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
     metadata = {"channel": channel, "output": output, "reference_id": used_reference.get("id", reference_id),
                 "reference": used_reference, "sensor_reference": previous, "absolute_y_cm": absolute_y,
                 "height_from_bottom_cm": bottom_height, "area_cm2": area, "volume_model": model,
+                "area_source": (cell.get("resolved_dimensions") or {}).get("geometric_area_source"),
+                "dimension_revision": (cell.get("resolved_dimensions") or {}).get("dimension_revision"),
                 "cell_id": cell.get("id"), "cell_revision": cell.get("revision")}
     return {"value": value, "unit": "L" if output == "volume_l" else "cm", "metadata": metadata}
