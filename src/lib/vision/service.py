@@ -1483,6 +1483,16 @@ class VisionService:
                     self.digiflot._invalidate_virtual_calibration_unlocked("Camera optical profile updated")
         return result
 
+    def save_relative_camera_calibration(self, camera_id, cell_id, values):
+        """Relative estimates never overwrite the existing ArUco association."""
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Relative camera calibration requires Idle state.")
+        self.digiflot.get_camera(int(camera_id))
+        self.digiflot.get_camera(int(values.get("source_camera_id")))
+        result = self.registry.save_relative_calibration(camera_id, cell_id, values)
+        self._notify_cell_inventory_changed()
+        return result
+
     def save_analysis_roi(self, camera_id, cell_id, values):
         if self.digiflot.execution_locked or self.digiflot.recording:
             raise RuntimeError("Analysis ROI cannot change during an experiment")
@@ -1506,14 +1516,25 @@ class VisionService:
         camera = self.digiflot.get_camera(int(camera_id))
         return camera.capture_analysis_frame()
 
-    def snapshot(self, camera_id, cell_id=None, show_grid=True):
+    def snapshot(self, camera_id, cell_id=None, show_grid=True, undistorted=False):
         if not show_grid and (self.digiflot.execution_locked or self.digiflot.recording):
             raise RuntimeError("Cell photo capture is unavailable during an active experiment")
         image, meta = self._capture(camera_id)
+        if undistorted:
+            from .aruco import optical_parameters
+            profile = self.camera_profile(camera_id)
+            K, D, model = optical_parameters(profile, meta["size"])
+            if K is not None:
+                if model == "fisheye":
+                    image = cv2.fisheye.undistortImage(image, K, D.reshape(-1, 1), Knew=K)
+                else:
+                    image = cv2.undistort(image, K, D)
+            return {"jpeg_base64": _jpeg_base64(image), "size": meta["size"], "frame": meta,
+                    "calibration_id": None, "image_space": "undistorted", "optics_corrected": K is not None}
         if not show_grid:
             # Never draw ArUco geometry or camera ROI on photographs.
             return {"jpeg_base64": _jpeg_base64(image), "size": meta["size"], "frame": meta,
-                    "calibration_id": None}
+                    "calibration_id": None, "image_space": "raw"}
         profile = self.camera_profile(camera_id)
         assoc = self.registry.association(camera_id, cell_id) if cell_id else None
         cal = (assoc or {}).get("calibration") if show_grid else None
