@@ -63,7 +63,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIsNone(self.registry.association(2, self.cell["id"]))
         self.registry.rename_cell(self.cell["id"], "Still valid after rename")
         self.assertTrue(self.registry.get_cell(self.cell["id"])["relative_measurements"][0]["valid"])
-        self.registry.save_camera_profile(2, {"roi_norm": [0, 0, 1, 1]})
+        self.registry.save_camera_profile(2, {"roi_norm": [.1, .1, .9, .9]})
         updated = self.registry.get_cell(self.cell["id"])
         self.assertFalse(updated["relative_measurements"][0]["valid"])
         self.assertEqual(updated["resolved_dimensions"]["dimensions"]["depth_mm"]["source"], "nominal")
