@@ -8,7 +8,7 @@
     capturedCameraId:null,capturedProfileRevision:null,capturedCalibrationId:null,
     measurePointIds:[],relativeSourcePoints:[],relativeSourceCm:[],relativeSourceCalibrationId:null,
     relativeSourceCameraRevision:null,relativeDestinationCameraId:null,relativeSourceCameraId:null,
-    relativeSourceLengthMm:null,relativeSourceMode:null,
+    relativeSourceLengthMm:null,relativeSourceMode:null,pointDraft:null,pendingPointUse:null,
     cameraRoles:{side:null,top:null},relativeRecord:null,zoom:1,panX:0,panY:0,showArchived:false};
   const text = (id, value) => { $(id).textContent = value == null ? '—' : String(value); };
   const numeric = id => { const raw = $(id).value.trim(); return raw === '' ? null : Number(raw); };
@@ -505,6 +505,96 @@
     toast('Cell volume-height calibration saved. Future HIFIE volume estimates will prefer this curve.');
   }
 
+  function openPointEditor(point=null,click=null,continueMode=null){
+    if(!state.cellId||!state.named)throw new Error('Select and save the physical cell first.');
+    if(state.namedDirty)throw new Error('Save previous reference edits before opening the point editor.');
+    const fixed=Boolean(point&&['aruco_reference','cell_top','cell_bottom','outlet_level'].includes(point.id));
+    if(point?.id==='aruco_reference')throw new Error('ArUco origin is automatic and cannot be manually positioned.');
+    state.pointDraft={id:point?.id||null,click,continueMode};
+    $('cv_point_modal_title').textContent=point?'Edit · '+point.name:'Add physical reference';
+    $('cv_point_name').value=point?.name||'';
+    $('cv_point_type').value=point?.type||'custom';
+    $('cv_point_direction').value=point?.direction||'up';
+    for(const id of ['cv_point_name','cv_point_type','cv_point_direction'])$(id).disabled=fixed;
+    $('cv_point_location').textContent=click?
+      (state.view==='rectified'&&state.plane?'Physical point in rectified plane: '+
+        planePoint(click).map(v=>v.toFixed(2)).join(', ')+' cm':
+      'Image observation: '+click.map(v=>(v*100).toFixed(1)+'%').join(', ')+'% of the current camera'):
+      point?.position_cm?'Saved metric coordinates: '+point.position_cm.join(', ')+' cm':
+      'This point has no physical coordinates in the selected image.';
+    $('cv_point_context').textContent=point?
+      'Update the point without changing its ID. Reposition is a separate action.':
+      'Create one named physical reference. Image pixel coordinates will be stored as a camera observation when no metric plane is available.';
+    $('cv_point_reposition').hidden=!point;
+    $('cv_point_save').textContent=point?'Save changes':'Add point';
+    window.DigiFlotIcons?.decorate($('cv_point_save').parentElement);
+    $('cv_point_modal').showModal();$('cv_point_name').focus();
+  }
+  async function savePointEditor(){
+    const draft=state.pointDraft;
+    if(!draft||!state.cellId)throw new Error('No point editor is active.');
+    const name=$('cv_point_name').value.trim(),kind=$('cv_point_type').value,
+      direction=$('cv_point_direction').value;
+    if(!name||name.length>80)throw new Error('Give the point a name (1–80 characters).');
+    const record=JSON.parse(JSON.stringify(state.named));
+    let point=record.points.find(p=>p.id===draft.id);
+    if(!point){
+      if(record.points.some(p=>p.name.toLowerCase()===name.toLowerCase()))
+        throw new Error('A physical reference with that name already exists.');
+      const id='ref_'+Math.random().toString(36).slice(2,12);
+      point={id,name,type:kind,direction,source:'unset',position_cm:null};
+      record.points.push(point);
+    }else if(!['aruco_reference','cell_top','cell_bottom','outlet_level'].includes(point.id)){
+      point.name=name;point.type=kind;point.direction=direction;
+    }
+    const position=draft.click;
+    if(position&&state.view==='rectified'&&state.plane){
+      point.position_cm=planePoint(position);point.source='image_selection';
+    }
+    // A name or physical position can change the reference revision. Pixel observations
+    // are separate and do not invalidate the metric ArUco calibration.
+    const current=await api('/cells/'+encodeURIComponent(state.cellId)+'/reference-points',
+      {method:'PUT',body:record});
+    state.named=current;state.namedDirty=false;state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+    if(position&&state.view!=='rectified'){
+      const old=state.cell.reference_observations?.[String(state.cameraId)];
+      const observation=await api('/cells/'+encodeURIComponent(state.cellId)+'/reference-observations/'+state.cameraId,{
+        method:'PUT',body:{reference_id:point.id,position_norm:position,
+          frame_size:[$('camera_image').naturalWidth,$('camera_image').naturalHeight],
+          image_space:state.imageSpace,camera_revision:state.capturedProfileRevision,
+          capture_camera_id:state.capturedCameraId,expected_revision:old?.revision||0}});
+      state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+    }
+    $('cv_point_modal').close();state.pointDraft=null;
+    renderNamedPoints();renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();
+    if(draft.continueMode==='measure'){
+      state.measurePointIds=[...(state.measurePointIds||[]).filter(Boolean),point.id].slice(-2);
+      $('cv_measure_from').value=state.measurePointIds[0]||'';
+      $('cv_measure_to').value=state.measurePointIds[1]||'';
+      updateMeasurementPreview();setWorkspaceTool('measure');
+    }else setWorkspaceTool('select');
+    toast('Physical point saved. Existing reference IDs, ArUco and HIFIE calibration files were preserved.');
+  }
+  function renderQuickReferences(){
+    const list=$('cv_quick_refs'),view=referenceDisplayModel(),permanent=new Set(['cell_top','cell_bottom','outlet_level','aruco_reference']);
+    const render=points=>points.map(point=>{
+      const position=referencePointInView(point.id);
+      const metric=point.position_cm;
+      const status=metric?metric.map(v=>Number(v).toFixed(1)).join(', ')+' cm':
+        position?'Camera observation':'Not positioned';
+      return '<div class="cv-ref-item"><span class="cv-ref-dot'+(position?' cv-ref-present':'')+'"></span>'+
+        '<span class="cv-ref-title">'+esc(point.name)+'</span><small>'+esc(status)+'</small>'+
+        '<button type="button" class="button button-secondary" data-quick-edit="'+esc(point.id)+
+        '" data-icon="settings" title="Edit physical reference">Edit</button></div>';
+    }).join('');
+    const fixed=view.visible.filter(p=>permanent.has(p.id));
+    const custom=view.visible.filter(p=>!permanent.has(p.id));
+    list.innerHTML='<div class="cv-quick-group"><strong>Cell datums</strong>'+render(fixed)+'</div>'+
+      (custom.length?'<details class="cv-quick-group"><summary>Custom references ('+custom.length+')</summary>'+
+        render(custom)+'</details>':'');
+    text('cv_point_count',view.visible.length+' physical points');
+    window.DigiFlotIcons?.decorate(list);
+  }
   function renderNamedPoints() {
     const record=state.named||{points:[]},list=$('named_reference_list'),view=referenceDisplayModel(record.points);
     list.innerHTML=view.visible.map(p=>{
@@ -543,7 +633,7 @@
       'Default: '+(view.visible.find(p=>p.id===view.canonicalId(record.default_reference_id))?.name||'—')+
       (state.namedDirty?' · Unsaved changes':''));
     $('reference_save').disabled=!state.cellId;
-    drawNamedPoints();
+    drawNamedPoints();renderQuickReferences();
   }
 
   function drawNamedPoints(){
@@ -1409,6 +1499,29 @@
   });
   $('save_cell_reference').addEventListener('click',action(saveCellReference));
   $('reference_add').addEventListener('click',action(addNamedPoint));
+  $('cv_add_point_tool').addEventListener('click',()=>{
+    setWorkspaceTool(state.uiTool==='add_point'?'select':'add_point');
+    toast('Click a reference to edit it, or an empty image position to add a named point.');
+  });
+  $('cv_add_point').addEventListener('click',()=>{
+    setWorkspaceTool('add_point');
+    $('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
+    toast('Click the camera image. Existing markers open their editor; empty positions create one new point.');
+  });
+  $('cv_quick_refs').addEventListener('click',e=>{
+    const button=e.target.closest('[data-quick-edit]');if(!button)return;
+    const point=state.named?.points?.find(p=>p.id===button.dataset.quickEdit);
+    if(point)action(()=>openPointEditor(point))();
+  });
+  $('cv_point_close').addEventListener('click',()=>$('cv_point_modal').close());
+  $('cv_point_save').addEventListener('click',action(savePointEditor));
+  $('cv_point_reposition').addEventListener('click',()=>{
+    const draft=state.pointDraft;if(!draft?.id)return;
+    state.activePoint=draft.id;$('cv_point_modal').close();
+    setWorkspaceTool('select');renderNamedPoints();
+    $('cv_image_mount').scrollIntoView({behavior:'smooth',block:'center'});
+    toast('Click the new location on the image to reposition this physical reference.');
+  });
   $('reference_save').addEventListener('click',action(saveNamedPoints));
   $('reference_reuse').addEventListener('click',action(reuseNamedPoints));
   $('named_reference_list').addEventListener('click',e=>{if(e.target.dataset.refAction)action(()=>handleNamedPoint(e))();});
