@@ -211,3 +211,17 @@ a { color: inherit; text-decoration: none; }
 .cell-vision-page .cv-hint{color:var(--text-soft);font-size:.74rem}
 .cell-vision-page .cv-nominal-card .cv-two+.cv-two{margin-top:12px}
 @media(max-width:600px){.cell-vision-page .cv-dimension-grid{grid-template-columns:minmax(0,1fr)}}
+
+
+/* Known-fill volume calibration uses physical references, independent of geometry input fields. */
+.cell-vision-page .cv-volume-card>label{margin-top:12px}
+.cell-vision-page .cv-volume-headings{display:grid;grid-template-columns:1fr 1fr 38px;gap:8px;margin:14px 0 6px;font-size:.73rem;color:var(--text-soft)}
+.cell-vision-page .cv-volume-points{display:grid;gap:7px}
+.cell-vision-page .cv-volume-point{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 38px;gap:8px}
+.cell-vision-page .cv-volume-point>.button{min-width:0;padding:7px}
+.cell-vision-page .cv-volume-plot{margin-top:12px;max-width:100%;min-height:0}
+.cell-vision-page .cv-volume-plot svg{display:block;max-width:440px;width:100%;height:auto;color:var(--text-soft)}
+.cell-vision-page .cv-volume-plot svg text{font:11px ui-sans-serif,system-ui,sans-serif;fill:currentColor}
+.cell-vision-page .cv-volume-axis{stroke:currentColor;stroke-width:1;opacity:.5;fill:none}
+.cell-vision-page .cv-volume-line{stroke:var(--accent);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;fill:none}
+.cell-vision-page .cv-volume-points-markers{fill:var(--accent);stroke:var(--surface);stroke-width:1}
