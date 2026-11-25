@@ -96,9 +96,36 @@
     $('cell_resolved_dimensions').innerHTML=rows.join('');
   }
 
+  // Preserve old reference IDs in storage: a previously calibrated sensor may still use them.
+  // Hide only exact duplicate display aliases, never two positions that disagree.
+  function referenceDisplayModel(points=state.named?.points||[]){
+    const canonical={top:'cell_top',bottom:'cell_bottom'},reserved={top:'cell top',bottom:'cell bottom'};
+    const fixed=new Map(points.filter(p=>p&&['cell_top','cell_bottom'].includes(p.id)).map(p=>[p.id,p]));
+    const aliases=new Map();
+    const samePosition=(a,b)=>a==null&&b==null||Array.isArray(a)&&Array.isArray(b)&&
+      a.length===2&&b.length===2&&a.every((v,i)=>Math.abs(Number(v)-Number(b[i]))<1e-6);
+    for(const point of points){
+      const target=canonical[point.type],canonicalPoint=fixed.get(target);
+      if(!target||point.id===target||!canonicalPoint)continue;
+      if(String(point.name||'').trim().toLowerCase()===reserved[point.type] &&
+         samePosition(point.position_cm,canonicalPoint.position_cm)){
+        aliases.set(point.id,target);
+      }
+    }
+    const visible=points.filter(point=>!aliases.has(point.id));
+    const label=point=>{
+      const expected=reserved[point.type];
+      return expected&&point.id!==canonical[point.type]&&
+        String(point.name||'').trim().toLowerCase()===expected ?
+          point.name+' (legacy · distinct position)' : point.name;
+    };
+    return {visible,aliases,label,canonicalId:id=>aliases.get(id)||id};
+  }
+
   function renderCellDimensionPairs(){
-    const host=$('cell_dimension_pairs'),points=state.named?.points||[];
-    const opts=[{id:'',name:'Not mapped'},...points].map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join('');
+    const host=$('cell_dimension_pairs'),view=referenceDisplayModel();
+    const opts=[{id:'',name:'Not mapped'},...view.visible].map(p=>
+      '<option value="'+esc(p.id)+'">'+esc(view.label(p))+'</option>').join('');
     const pairs=state.dimensionMeasurements?.pairs||{};
     host.innerHTML=['width_mm','depth_mm','collection_height_mm'].map(field=>{
       const pair=pairs[field]||{};
@@ -109,7 +136,7 @@
     for(const row of host.querySelectorAll('[data-dimension-field]')){
       const pair=pairs[row.dataset.dimensionField]||{};
       for(const select of row.querySelectorAll('select'))
-        select.value=pair[select.dataset.dimensionEnd]||'';
+        select.value=view.canonicalId(pair[select.dataset.dimensionEnd]||'');
     }
     $('save_dimension_pairs').disabled=!state.cellId;
     text('dimension_revision',state.cellId?
@@ -146,11 +173,11 @@
   }
 
   function renderVolumeEditor(){
-    const curve=state.cell?.volume_calibration||{},points=state.named?.points||[];
-    const datum=$('cell_volume_datum'),previous=curve.datum_reference_id||'cell_bottom';
-    datum.innerHTML=points.map(point=>'<option value="'+esc(point.id)+'">'+esc(point.name)+
+    const curve=state.cell?.volume_calibration||{},view=referenceDisplayModel();
+    const datum=$('cell_volume_datum'),previous=view.canonicalId(curve.datum_reference_id||'cell_bottom');
+    datum.innerHTML=view.visible.map(point=>'<option value="'+esc(point.id)+'">'+esc(view.label(point))+
       (point.position_cm==null&&point.source!=='automatic'?' · unplaced':'')+'</option>').join('');
-    if(points.some(point=>point.id===previous))datum.value=previous;
+    if(view.visible.some(point=>point.id===previous))datum.value=previous;
     $('cell_volume_points').innerHTML=(curve.raw_points?.length?curve.raw_points:[{}]).map(volumePointRow).join('');
     $('add_volume_point').disabled=!state.cellId;
     $('save_volume_curve').disabled=!state.cellId;
@@ -195,12 +222,12 @@
   }
 
   function renderNamedPoints() {
-    const record=state.named||{points:[]},list=$('named_reference_list');
-    list.innerHTML=record.points.map(p=>{
+    const record=state.named||{points:[]},list=$('named_reference_list'),view=referenceDisplayModel(record.points);
+    list.innerHTML=view.visible.map(p=>{
       const locked=['aruco_reference','outlet_level','cell_top','cell_bottom'].includes(p.id);
       const pos=p.source==='automatic'?'Automatic from markers':p.position_cm?p.position_cm.map(n=>Number(n).toFixed(2)).join(', ')+' cm':'Not calibrated';
       return '<div class="cv-named-point'+(state.activePoint===p.id?' active':'')+'" data-ref-id="'+esc(p.id)+'">'+
-        '<label><input type="radio" name="ref_default" value="'+esc(p.id)+'" '+(record.default_reference_id===p.id?'checked':'')+' title="Default reference"></label>'+
+        '<label><input type="radio" name="ref_default" value="'+esc(p.id)+'" '+(view.canonicalId(record.default_reference_id)===p.id?'checked':'')+' title="Default reference"></label>'+
         '<div class="cv-named-main"><input data-ref-field="name" value="'+esc(p.name)+'" '+(locked?'disabled':'')+' maxlength="80" aria-label="Name">'+
         '<small>'+esc(pos)+'</small><div class="cv-named-controls"><select data-ref-field="type" '+(locked?'disabled':'')+'>'+
         ['custom','top','bottom','aruco'].map(x=>'<option value="'+x+'" '+(x===p.type?'selected':'')+'>'+x+'</option>').join('')+
@@ -224,7 +251,7 @@
     window.DigiFlotIcons?.decorate(list);
     text('reference_status',!state.cellId?'Save the cell first':state.activePoint?
       'Click the point on the rectified plane. Saved coordinates remain independent of camera crop.':
-      'Default: '+(record.points.find(p=>p.id===record.default_reference_id)?.name||'—')+
+      'Default: '+(view.visible.find(p=>p.id===view.canonicalId(record.default_reference_id))?.name||'—')+
       (state.namedDirty?' · Unsaved changes':''));
     $('reference_save').disabled=!state.cellId;
     drawNamedPoints();
@@ -237,7 +264,7 @@
     Object.assign(layer.style,{left:(rect.left-outer.left)+'px',top:(rect.top-outer.top)+'px',
       width:rect.width+'px',height:rect.height+'px'});
     const [x0,y0]=state.plane.min_xy_cm,[x1,y1]=state.plane.max_xy_cm;
-    for(const point of state.named.points) {
+    for(const point of referenceDisplayModel().visible) {
       const auto=point.type==='aruco'&&point.source==='automatic';
       const pos=auto?[x0,Math.max(Number(state.cell?.marker_layout?.span_cm||14),
         Number(state.cell?.marker_layout?.marker_size_cm||2))]:point.position_cm;
@@ -273,6 +300,8 @@
     if(!state.named)throw new Error('Select a cell first');
     const name=$('reference_new_name').value.trim(),type=$('reference_new_type').value;
     if(!name)throw new Error('Enter a reference name');
+    if(['cell top','cell bottom','outlet level','aruco reference'].includes(name.toLowerCase()))
+      throw new Error('This name is reserved for a fixed physical reference. Edit its coordinates instead.');
     const id='ref_'+Math.random().toString(36).slice(2,12);
     state.named.points.push({id,name,type,direction:type==='top'?'down':'up',
       position_cm:null,source:'unset'});
