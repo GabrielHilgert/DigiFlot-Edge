@@ -55,6 +55,7 @@ jobs:
           node tests/test_hifie_standalone_defaults.js
           node tests/test_cell_geometry_ui.js
           node tests/test_cell_reference_aliases.js
+          node tests/test_cells_workspace_ui.js
       - name: Verify documentation links
         run: node tests/test_documentation_links.js
       - name: Compile Python sources
@@ -89,6 +90,8 @@ jobs:
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_cell_geometry_provenance.py' -v
       - name: Experimental cell volume calibration tests
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_cell_volume_calibration.py' -v
+      - name: Cells workspace lifecycle and relative calibration
+        run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_cell_workspace.py' -v
       - name: Scraping timing and GPIO worker tests
         run: PYTHONPATH=src python -m unittest discover -s tests -p 'test_scraping_timing.py' -v
       - name: Required measurements for manual-stage transitions
