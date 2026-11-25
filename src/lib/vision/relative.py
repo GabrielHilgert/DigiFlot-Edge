@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 import numpy as np
 from .aruco import optical_parameters, _undistort_points
+from .cell_metrics import MEASURE_AXES
 
 FIELDS = ("width_mm", "depth_mm", "height_mm", "collection_height_mm")
 
@@ -28,7 +29,7 @@ def normalize_pair(value, name):
     return result
 
 
-def normalized_distance(pair, frame_size, camera_profile, image_space):
+def normalized_distance(pair, frame_size, camera_profile, image_space, axis="direct"):
     width, height = [int(x) for x in frame_size]
     if min(width, height) <= 0 or max(width, height) > 16000:
         raise ValueError("Invalid source frame size")
@@ -38,7 +39,8 @@ def normalized_distance(pair, frame_size, camera_profile, image_space):
         coords = _undistort_points(coords, K, D, model)
     elif image_space != "undistorted":
         raise ValueError("Select raw or undistorted image coordinates")
-    distance = float(np.linalg.norm(coords[1]-coords[0]))
+    if axis not in MEASURE_AXES: raise ValueError("Invalid image measurement axis")
+    delta = np.abs(coords[1]-coords[0]); distance = float(delta[0] if axis == "horizontal" else delta[1] if axis == "vertical" else np.linalg.norm(delta))
     if not math.isfinite(distance) or distance < 3:
         raise ValueError("Select points separated by at least 3 image pixels")
     return distance
@@ -61,12 +63,15 @@ def relative_scale(payload, source_mm, target_camera_profile):
     image_space = payload.get("image_space", "raw")
     base = normalize_pair(payload.get("reference_pair"), "Reference")
     target = normalize_pair(payload.get("target_pair"), "Target")
-    base_px = normalized_distance(base, frame_size, target_camera_profile, image_space)
-    target_px = normalized_distance(target, frame_size, target_camera_profile, image_space)
+    base_axis = payload.get("reference_axis", "direct")
+    target_axis = payload.get("target_axis", "direct")
+    base_px = normalized_distance(base, frame_size, target_camera_profile, image_space, base_axis)
+    target_px = normalized_distance(target, frame_size, target_camera_profile, image_space, target_axis)
     if not 0.01 <= target_px / base_px <= 100:
         raise ValueError("The estimated length is outside the supported ratio")
     return {"reference_pair": base, "target_pair": target, "frame_size": list(frame_size),
             "image_space": image_space, "reference_mm": source_mm,
+            "reference_axis": base_axis, "target_axis": target_axis,
             "reference_px": base_px, "target_px": target_px,
             "mm_per_px": source_mm / base_px,
             "target_mm": source_mm * target_px / base_px,
