@@ -115,8 +115,11 @@ def stream(request: Request):
 
 @router.post("/calibration/cell/select")
 def select_physical_cell(request: Request, payload: dict):
-    return get_digiflot(request).select_physical_cell(payload.get("cell_id"), payload.get("camera_id"),
-                                                     payload.get("working_volume_l"))
+    try:
+        return get_digiflot(request).select_physical_cell(
+            payload.get("cell_id"), payload.get("camera_id"), payload.get("working_volume_l"))
+    except Exception as error:
+        raise api_error(error) from error
 
 
 @router.post("/calibration/cameras/{camera_id}/reopen")
