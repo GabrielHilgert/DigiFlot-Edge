@@ -1406,6 +1406,13 @@ class VisionService:
                     self.digiflot._invalidate_virtual_calibration_unlocked("Cell vertical reference updated")
         return result
 
+    def save_cell_volume_calibration(self, cell_id, values):
+        if self.digiflot.execution_locked or self.digiflot.recording:
+            raise RuntimeError("Volume calibration cannot change during acquisition")
+        result = self.registry.save_volume_calibration(cell_id, values)
+        self._notify_cell_inventory_changed()
+        return result
+
     def save_cell_dimension_measurements(self, cell_id, values):
         if self.digiflot.execution_locked or self.digiflot.recording:
             raise RuntimeError("Measured cell dimensions cannot change during acquisition")
