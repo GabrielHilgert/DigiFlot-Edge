@@ -108,6 +108,8 @@
   }
   function setWorkspaceTool(mode){
     state.uiTool=mode;
+    $('cv_add_point_tool').classList.toggle('cv-active-tool',mode==='add_point');
+    $('cv_add_point_tool').setAttribute('aria-pressed',String(mode==='add_point'));
     for(const id of ['cv_pick_measure','cv_relative_pick_source','cv_relative_pick_reference','cv_relative_pick_target','cv_pan_mode']){
       const button=$(id);button.classList.toggle('cv-active-tool',
         (id==='cv_pick_measure'&&mode==='measure')||(id==='cv_pan_mode'&&mode==='pan')||
@@ -116,7 +118,8 @@
         (id==='cv_relative_pick_target'&&mode==='relative_target'));
       button.setAttribute('aria-pressed',String(button.classList.contains('cv-active-tool')));
     }
-    $('image_help').textContent=mode==='pan'?'Drag to pan. Wheel to zoom. Fit returns to the original view.':
+    $('image_help').textContent=mode==='add_point'?'Click a saved marker to edit, or an empty spot to create a named point.':
+      mode==='pan'?'Drag to pan. Wheel to zoom. Fit returns to the original view.':
       mode==='measure'?'Click two EXISTING physical reference dots; no new references will be created.':
       mode==='relative_source'?'On the calibrated source plane, select two points spanning the known length.':
       mode.startsWith('relative_')?'Select two endpoints on the destination camera frame for this measurement.':
@@ -201,7 +204,8 @@
     if(mode==='measure'){
       const nearest=nearestReferenceOnImage(p);
       if(!nearest){
-        text('cv_measure_status','No saved reference near that click. Use the existing markers, or place a named physical reference first.');
+        openPointEditor(null,p,'measure');
+        text('cv_measure_status','No existing reference at this position. Name the new physical point, or cancel to keep the current mapping.');
         return;
       }
       let ids=state.measurePointIds||[];
@@ -1130,6 +1134,7 @@
         if(point&&state.view==='rectified'&&state.plane){
           point.position_cm=planePoint(p);point.source='image_selection';
           state.namedDirty=true;state.activePoint=null;renderNamedPoints();
+          void saveNamedPoints().catch(error=>toast(error.message,true));
         }else if(point&&state.cameraId!=null&&state.cellId){
           const currentId=state.cellId,cameraId=state.cameraId,referenceId=point.id;
           const previous=state.cell?.reference_observations?.[String(cameraId)];
@@ -1627,6 +1632,11 @@
     if(state.activePoint){
       state.pointClick=p;img.setPointerCapture(event.pointerId);return;
     }
+    if(state.uiTool==='add_point'||state.uiTool==='select'){
+      state.pickClick={p,x:event.clientX,y:event.clientY,kind:'reference'};
+      state.drag={start:p,end:p};
+      img.setPointerCapture(event.pointerId);return;
+    }
     state.drag={start:p,end:p};
     img.setPointerCapture(event.pointerId);
   });
@@ -1642,13 +1652,24 @@
       text('cv_cursor_status',metric?'Plane: '+metric.map(v=>v.toFixed(2)).join(', ')+' cm':
         'Pixel: '+Math.round(p[0]*img.naturalWidth)+', '+Math.round(p[1]*img.naturalHeight));
     }
-    if(!state.pickClick)drawDrag(event);
+    if(!state.pickClick||state.pickClick.kind==='reference')drawDrag(event);
   });
   img.addEventListener('pointerup',event=>{
     if(state.panDrag){state.panDrag=null;return;}
     if(state.pickClick){
       const click=state.pickClick;state.pickClick=null;
-      if(Math.hypot(click.x-event.clientX,click.y-event.clientY)<16){
+      const moved=Math.hypot(click.x-event.clientX,click.y-event.clientY)>=16;
+      if(click.kind==='reference'){
+        if(moved){finishDrag(event);return;}
+        state.drag=null;$('roi_drag').hidden=true;
+        const p=pointOnImage(event)||click.p,nearest=nearestReferenceOnImage(p);
+        if(nearest){
+          const point=state.named?.points?.find(ref=>ref.id===nearest.id);
+          if(point)action(()=>openPointEditor(point))();
+        }else action(()=>openPointEditor(null,p))();
+        return;
+      }
+      if(!moved){
         captureWorkspacePoint(pointOnImage(event)||click.p);
         if(state.relativePairs.reference.length===2&&state.relativePairs.target.length===2)
           relativeReadout();
