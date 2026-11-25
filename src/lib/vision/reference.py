@@ -87,6 +87,21 @@ def complete_reference_points(value):
             candidate["position_cm"] = deepcopy(legacy["position_cm"])
             candidate["source"] = legacy.get("source", "measured")
         points.append(candidate)
+    # Older saved cells may already contain both IDs, with only the legacy alias
+    # placed. Supply the canonical position on read without rewriting or dropping
+    # the original ID, which existing HIFIE profiles may still reference.
+    for ref_id, kind, expected_name in (("cell_top", "top", "cell top"),
+                                        ("cell_bottom", "bottom", "cell bottom")):
+        canonical = next(p for p in points if p.get("id") == ref_id)
+        if canonical.get("position_cm") is not None:
+            continue
+        legacy = next((p for p in points if p is not canonical and
+                       p.get("type") == kind and
+                       str(p.get("name", "")).strip().lower() == expected_name and
+                       p.get("position_cm") is not None), None)
+        if legacy:
+            canonical["position_cm"] = deepcopy(legacy["position_cm"])
+            canonical["source"] = legacy.get("source", "measured")
     return result
 
 
