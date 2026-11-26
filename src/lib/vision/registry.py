@@ -164,6 +164,19 @@ class VisionRegistry:
             cell["resolved_dimensions"]["visual_capacity_l"] = (
                 valid_outlines[-1]["area_cm2"]*height["value_mm"]/10000
                 if valid_outlines and height else None)
+            from .cell_metrics import available_cell_volume_models
+            models = available_cell_volume_models(cell)
+            preference = self.volume_model_preference(cell_id)
+            preferred = preference.get("model_id")
+            selected = next((model for model in models if model["id"] == preferred), None)
+            selected = selected or (models[0] if models else None)
+            capacity = next((model for model in models if model.get("capacity_l") is not None), None)
+            cell["volume_models"] = {"models": models, "recommended_id": models[0]["id"] if models else None,
+                "selected_id": selected["id"] if selected else None, "preferred_id": preferred,
+                "preference_stale": bool(preferred and preferred not in {m["id"] for m in models}),
+                "capacity_recommended_id": capacity["id"] if capacity else None}
+            cell["resolved_dimensions"]["estimated_capacity_l"] = capacity["capacity_l"] if capacity else None
+            cell["resolved_dimensions"]["estimated_capacity_source"] = capacity["id"] if capacity else None
             return cell
 
     def cell_vertical_reference(self, cell_id):
@@ -250,6 +263,32 @@ class VisionRegistry:
                 return current
             record = {"revision": current["revision"] + 1, "pairs": pairs, "updated_at": _timestamp()}
             _write(self.root / "dimension_measurements" / f"{_safe_id(cell_id)}.json", record)
+            return record
+
+    def volume_model_preference(self, cell_id):
+        """Operator preference, stored without invalidating optics or physical references."""
+        with self.lock:
+            self.get_cell_base(cell_id)
+            return {"model_id": None, "revision": 0,
+                    **_read(self.root / "volume_preferences" / f"{_safe_id(cell_id)}.json", {})}
+
+    def save_volume_model_preference(self, cell_id, payload):
+        with self.lock:
+            current = self.volume_model_preference(cell_id)
+            expected = (payload or {}).get("expected_revision")
+            if expected is not None and int(expected) != current["revision"]:
+                raise RuntimeError("Volume source preference changed in another tab; reload this cell")
+            requested = str((payload or {}).get("model_id") or "auto")
+            if requested != "auto":
+                valid = {item["id"] for item in self.get_cell(cell_id)["volume_models"]["models"]}
+                if requested not in valid:
+                    raise ValueError("Selected volume model is no longer available; reload the cell")
+            model_id = None if requested == "auto" else requested
+            if model_id == current["model_id"]:
+                return current
+            record = {"model_id": model_id, "revision": current["revision"] + 1,
+                      "updated_at": _timestamp()}
+            _write(self.root / "volume_preferences" / f"{_safe_id(cell_id)}.json", record)
             return record
 
     def volume_calibration(self, cell_id):
@@ -495,7 +534,7 @@ class VisionRegistry:
             if not self.cell_lifecycle(cell_id)["archived"]:
                 raise RuntimeError("Archive the cell before permanently deleting it.")
             dependent = ["reference_points", "cell_references", "dimension_measurements",
-                         "volume_calibrations", "cell_thumbnails", "geometric_shapes"]
+                         "volume_calibrations", "volume_preferences", "cell_thumbnails", "geometric_shapes"]
             if any((self.root / folder / f"{cell_id}.json").exists() for folder in dependent):
                 raise RuntimeError("Cell contains physical measurements or a photo; keep it archived.")
             if self.thumbnail_path(cell_id).exists():

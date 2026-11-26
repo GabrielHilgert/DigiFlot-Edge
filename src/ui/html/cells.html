@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cells.css') }}?v=20261125workspace6">
   <link rel="stylesheet" href="{{ url_for('static', path='css/cell_inventory.css') }}?v=20261123a">
-  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261125workspace5"></script>
+  <script defer src="{{ url_for('static', path='js/cells.js') }}?v=20261126volumemodels1"></script>
 </head>
 <body>
 {% include "_navbar.html" %}
@@ -190,6 +190,17 @@
         <div class="cv-two"><label>Nominal depth (mm, rectangular) <input id="cell_depth" type="number" min="0" step="any"></label>
         <label>Nominal collection height (mm) <input id="cell_collection_height" type="number" min="0" step="any" placeholder="Optional"></label></div>
         <p class="cv-description">Nominal values remain stored even when a more reliable measurement becomes available.</p>
+      </div>
+      <div class="cv-dimension-card cv-volume-model-card">
+        <div class="cv-group-heading"><strong>Estimated volume relationships</strong><span>Automatically ranked · operator-selectable</span></div>
+        <p class="cv-description">Compares current optical outlines, physical dimensions, nominal geometry and experimental fills. A geometric capacity estimate is not a measured working volume.</p>
+        <label>Preferred volume model<select id="cv_volume_model"><option value="auto">Auto · highest-quality valid source</option></select></label>
+        <div id="cv_volume_model_preview" class="cv-description" role="status">No volume model available.</div>
+        <div class="cv-inline-row cv-dimension-actions">
+          <button type="button" class="button button-primary" id="cv_volume_model_save">Save volume preference</button>
+          <button type="button" class="button button-secondary" id="cv_volume_apply_capacity">Copy estimated capacity to Working volume</button>
+        </div>
+        <small id="cv_volume_model_status" class="cv-description">Volume-model preferences do not change optical calibrations.</small>
       </div>
       <div class="cv-dimension-card cv-volume-card"><div class="cv-group-heading"><strong>Volume vs height calibration</strong><span>Experimental V(h) · cell-level</span></div>
         <p class="cv-description">Enter known fill volumes and heights measured upward from a selected physical reference. The system converts them to height above Cell bottom and anchors V(0) = 0. A known Cell bottom position is required.</p>

@@ -49,6 +49,7 @@ function cacheUi() {
         "measurement_form", "measurement_variable_name", "measurement_variable_names",
         "measurement_source", "measurement_value_type", "measurement_sensor_value", "measurement_sensor_value_text",
         "measurement_hifie_fields", "measurement_hifie_channel", "measurement_hifie_output", "measurement_hifie_reference", "measurement_hifie_note",
+        "measurement_hifie_model_field", "measurement_hifie_model",
         "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value", "measurement_manual_text",
         "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint", "required_inputs_panel",
         "measurement_count", "measurement_summary_body", "measurement_history_body",
@@ -282,17 +283,30 @@ function renderCellSelection(state) {
     updateSelectedCellVolume();
 }
 
-function updateSelectedCellVolume() {
+async function updateSelectedCellVolume() {
     const id=ui.select_physical_cell.value,cell=physicalCells.find(c=>String(c.id)===String(id));
     const target=document.getElementById("selected_cell_volume");
     if(!target)return;
     const input=document.getElementById("cell_volume_override");
     if(input && document.activeElement!==input)
         input.value=cell?.working_volume_l==null?"":String(cell.working_volume_l);
-    target.textContent=cell ? (cell.working_volume_l!=null ?
-        "Working cell volume: "+Number(cell.working_volume_l).toLocaleString()+" L (inherited; editable override in Ready)." :
-        "This cell has no stored working volume. Set it in Cells or provide it before Run.") :
-        "Select a cell to inherit its working volume and physical references.";
+    if(!cell){target.textContent="Select a cell to inherit physical references and a volume model.";return;}
+    if(cell.working_volume_l!=null){
+        target.textContent="Registered working volume: "+Number(cell.working_volume_l).toLocaleString()+" L (editable override in Ready).";
+        return;
+    }
+    target.textContent="Checking optical and geometrical capacity estimates…";
+    try{
+        const details=await requestJson("/api/vision/cells/"+encodeURIComponent(id));
+        if(ui.select_physical_cell.value!==id)return;
+        const info=details.volume_models||{},items=info.models||[];
+        const selected=items.find(m=>m.id===info.selected_id&&m.capacity_l!=null);
+        const estimate=selected||items.find(m=>m.capacity_l!=null);
+        target.textContent=estimate?
+            "Automatic capacity estimate: "+Number(estimate.capacity_l).toLocaleString(undefined,{maximumFractionDigits:3})+
+            " L · "+estimate.label+" (approximate, not measured working volume). You can override it in Ready.":
+            "No complete capacity estimate. Measure a valid cross-section and cell height in Cells, or provide working volume in Ready.";
+    }catch(error){if(ui.select_physical_cell.value===id)target.textContent="Cell capacity estimate unavailable: "+error.message;}
 }
 
 function renderCameraCalibration(state) {
@@ -872,6 +886,8 @@ function selectMeasurementVariable(variableId) {
         ui.measurement_hifie_channel.value = hifie.channel || "froth_surface_cm";
         ui.measurement_hifie_output.value = hifie.output || "height_cm";
         ui.measurement_hifie_reference.value = hifie.reference_id || "current";
+        if(hifie.volume_model_id && [...ui.measurement_hifie_model.options].some(option=>option.value===hifie.volume_model_id))
+            ui.measurement_hifie_model.value=hifie.volume_model_id;
     }
     updateMeasurementSourcePreview();
     ui.measurement_variable_name.focus();
@@ -882,7 +898,8 @@ function currentMeasurementSource() {
 }
 
 function syncHifieMeasurementControls() {
-    const references=measurementData.hifie_options?.references || [{id:"current",name:"HIFIE configured reference"}];
+    const settings=measurementData.hifie_options||{};
+    const references=settings.references||[{id:"current",name:"HIFIE configured reference"}];
     const select=ui.measurement_hifie_reference,signature=JSON.stringify(references);
     if(select.dataset.signature!==signature){
         const previous=select.value;
@@ -890,26 +907,36 @@ function syncHifieMeasurementControls() {
         select.value=references.some(ref=>ref.id===previous)?previous:"current";
         select.dataset.signature=signature;
     }
+    const modelSelect=ui.measurement_hifie_model,models=settings.volume_models||[];
+    const modelSignature=JSON.stringify(models.map(item=>[item.id,item.score,item.capacity_l,item.area_cm2]));
+    if(modelSelect.dataset.signature!==modelSignature){
+        const old=modelSelect.value,sameCell=modelSelect.dataset.cellId===String(settings.cell_id);
+        modelSelect.innerHTML=models.map(model=>'<option value="'+escapeHtml(model.id)+'">'+
+            escapeHtml(model.label)+' · '+(model.capacity_l==null?'V(h) / area':
+                Number(model.capacity_l).toLocaleString(undefined,{maximumFractionDigits:3})+' L capacity')+'</option>').join("");
+        const chosen=sameCell&&models.some(m=>m.id===old)?old:settings.selected_volume_model_id;
+        modelSelect.value=models.some(m=>m.id===chosen)?chosen:(models[0]?.id||"");
+        modelSelect.dataset.signature=modelSignature;modelSelect.dataset.cellId=String(settings.cell_id);
+    }
     const thickness=ui.measurement_hifie_channel.value==="froth_thickness_cm";
-    const bottom=references.some(ref=>ref.id==="cell_bottom");
-    const proposedArea=Number(measurementData.hifie_options?.volume_area_cm2);
-    const area=Number.isFinite(proposedArea)&&proposedArea>0?proposedArea:null;
-    const calibrated=Boolean(measurementData.hifie_options?.volume_curve?.points?.length>1);
-    const volumePossible=!thickness&&bottom&&(calibrated||(Number.isFinite(area)&&area>0));
+    const bottom=references.some(ref=>ref.id==="cell_bottom"&&Number.isFinite(Number(ref.y_cm)));
+    const volumePossible=!thickness&&bottom&&models.length>0;
     ui.measurement_hifie_output.querySelector('[value="volume_l"]').disabled=!volumePossible;
     if(!volumePossible&&ui.measurement_hifie_output.value==="volume_l")ui.measurement_hifie_output.value="height_cm";
     const volume=ui.measurement_hifie_output.value==="volume_l";
+    ui.measurement_hifie_model_field.hidden=!volume;
+    modelSelect.disabled=!volume;
     if(volume)select.value="cell_bottom";
     if(thickness)select.value="current";
     select.disabled=thickness||volume;
+    const selected=models.find(m=>m.id===modelSelect.value);
     ui.measurement_hifie_note.textContent=volume ?
-        (calibrated ? "Cell V(h) calibration · bulk volume below this interface (not net water volume)." :
-        (measurementData.hifie_options?.volume_area_source==="visual_outline_estimate" ?
-            "Visual cross-section estimate · bulk volume below this interface (not net water volume in a slurry)." :
-            "Geometric bulk volume below this interface (not net water volume in a slurry).")) :
+        ((selected?.kind==="experimental_curve"?"Measured V(h) curve":selected?.label||"Selected geometric source")+
+         " · bulk volume below interface, not net liquid volume in slurry. "+
+         (selected?.detail||"")) :
         thickness ? "Thickness is independent of the selected reference." :
         !bottom ? "Height only · calibrate the cell bottom in Cells for a future volume conversion." :
-        !area ? "Height only · add a valid geometric/visual cross-section or calibrate V(h) in Cells." :
+        !models.length ? "Height only · measure a section or calibrate V(h) in Cells." :
         "Height is relative to the selected physical reference.";
 }
 
@@ -939,14 +966,18 @@ function hifieMeasurementPreview(sensor) {
     }
     if(ui.measurement_hifie_output.value==="volume_l"){
         if(value<0)return null;
-        const points=measurementData.hifie_options?.volume_curve?.points;
+        const model=(measurementData.hifie_options?.volume_models||[])
+            .find(item=>item.id===ui.measurement_hifie_model.value);
+        if(!model)return null;
+        const points=model.kind==="experimental_curve" ?
+            measurementData.hifie_options?.volume_curve?.points : null;
         if(points?.length>1){
             let i=1;
             while(i<points.length-1 && value>points[i].height_cm)i++;
             const a=points[i-1],b=points[i],slope=(b.volume_l-a.volume_l)/(b.height_cm-a.height_cm);
             value=a.volume_l+slope*(value-a.height_cm);
         } else {
-            const area=Number(measurementData.hifie_options?.volume_area_cm2);
+            const area=Number(model.area_cm2);
             if(!Number.isFinite(area)||area<=0)return null;
             value=value*area/1000;
         }
@@ -1144,7 +1175,11 @@ function renderRequiredInputs(state, {force = false, savedField = null} = {}) {
                         <input id="required_${escapeHtml(item.id)}" data-required-value="${escapeHtml(item.id)}" type="number" step="any" value="${item.value == null ? "" : escapeHtml(item.value)}" placeholder="Required">
                         <button class="button button-primary" data-save-required="${escapeHtml(item.id)}" type="button">${item.value == null ? "Set" : "Update"}</button>
                     </div>
-                    <small>${item.measurement_id ? "Execution value · auditable measurement" : (item.source === "recipe" ? "From recipe; change only if the actual run differs." : "Not provided by recipe.")}</small>
+                    <small>${item.measurement_id ? "Execution value · auditable measurement" :
+                        (item.source==="estimated_cell_capacity" ?
+                            "Estimated geometric capacity from optical/cell dimensions; not a measured working volume. Override if needed." :
+                         item.source === "recipe" ? "From recipe; change only if the actual run differs." :
+                         "Not provided by recipe.")}</small>
                 </div>`;
             }).join("")}
         </div>
@@ -1719,7 +1754,8 @@ function bindActions() {
 
     ui.measurement_source.addEventListener("change", updateMeasurementSourcePreview);
     ui.measurement_value_type.addEventListener("change", updateMeasurementSourcePreview);
-    for(const input of [ui.measurement_hifie_channel,ui.measurement_hifie_output,ui.measurement_hifie_reference])
+    for(const input of [ui.measurement_hifie_channel,ui.measurement_hifie_output,ui.measurement_hifie_reference,
+        ui.measurement_hifie_model])
         input.addEventListener("change",updateMeasurementSourcePreview);
 
     ui.required_inputs_panel.addEventListener("change", (event) => {
@@ -1820,6 +1856,7 @@ function bindActions() {
             payload.hifie_channel=ui.measurement_hifie_channel.value;
             payload.hifie_reference_id=ui.measurement_hifie_reference.value;
             payload.hifie_output=ui.measurement_hifie_output.value;
+            if(payload.hifie_output==="volume_l")payload.hifie_volume_model_id=ui.measurement_hifie_model.value;
         }
         if(initialCondition && sourceId==="manual" && !ui.measurement_manual_unit.value.trim())
             ui.measurement_manual_unit.value=variableId==="feed_mass"?"g":"L";

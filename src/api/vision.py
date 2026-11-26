@@ -161,6 +161,11 @@ def delete_cell_thumbnail(cell_id: str, request: Request):
     return _invoke(service(request).delete_cell_thumbnail, cell_id)
 
 
+@router.put("/cells/{cell_id}/volume-model")
+def save_cell_volume_model(cell_id: str, request: Request, payload: dict):
+    return _invoke(service(request).save_cell_volume_model, cell_id, payload)
+
+
 @router.get("/cells/{cell_id}/volume-calibration")
 def cell_volume_calibration(cell_id: str, request: Request):
     return _invoke(service(request).registry.get_cell, cell_id)["volume_calibration"]
