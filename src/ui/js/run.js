@@ -7,9 +7,10 @@ let audioContext = null;
 const sensorPlotHistory = new Map();
 const hiddenSensorPlots = new Set();
 const lastSensorPlotTimestamp = new Map();
-let measurementData = { revision: 0, count: 0, variables: [], observations: [], hifie_options: null };
+let measurementData = { revision: 0, count: 0, variables: [], observations: [], hifie_options: null, stage_variables: null };
 let measurementFetchInFlight = false;
 let measurementSourceSignature = null;
+let measurementStageSignature = null;
 let requiredInputsSignature = null;
 let stageTimelineSignature = null;
 let readyViewSignature = null;
@@ -51,6 +52,7 @@ function cacheUi() {
         "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value", "measurement_manual_text",
         "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint", "required_inputs_panel",
         "measurement_count", "measurement_summary_body", "measurement_history_body",
+        "stage_variables_panel", "stage_variables_title", "stage_variables_body",
         "calibration_review_panel", "calibration_review_list", "run_stage_overview", "run_stage_timeline", "run_stage_position",
         "stage_technical_details", "stage_technical_grid",
         "run_workspace", "ready_acquisition_edit", "transition_acquisition_edit",
@@ -802,10 +804,22 @@ function measurementContext(record) {
 }
 
 function renderMeasurementTables() {
-    const variables = measurementData.variables || [];
+    const stage = measurementData.stage_variables || {};
+    const stageVars = stage.items || [];
+    const variables = (measurementData.variables || []).filter(item =>
+        !stageVars.some(v => v.id === item.id || v.name.toLowerCase() === String(item.name || "").toLowerCase()));
     const observations = measurementData.observations || [];
+    ui.stage_variables_panel.hidden = !stageVars.length;
+    ui.stage_variables_title.textContent = stage.stage?.name ?
+        "Stage Variables · " + stage.stage.name : "Stage Variables";
+    ui.stage_variables_body.innerHTML = stageVars.map(item =>
+        `<tr class="measurement-variable-row" data-stage-variable-id="${escapeHtml(item.id)}" tabindex="0"
+            role="button" aria-label="Capture ${escapeHtml(item.name)}">
+            <td><strong>${escapeHtml(item.name)}</strong>${item.required ? ' <small>Required</small>' : ''}</td>
+            <td>${escapeHtml(measurementValueText(item.latest))}</td>
+            <td>${escapeHtml(item.points)}</td></tr>`).join("");
     ui.measurement_count.textContent = `${measurementData.count || observations.length} point${(measurementData.count || observations.length) === 1 ? "" : "s"}`;
-    ui.measurement_variable_names.innerHTML = variables
+    ui.measurement_variable_names.innerHTML = [...stageVars, ...variables]
         .map((item) => `<option value="${escapeHtml(item.name)}"></option>`).join("");
 
     ui.measurement_summary_body.innerHTML = variables.length
@@ -834,7 +848,8 @@ function renderMeasurementTables() {
 }
 
 function selectMeasurementVariable(variableId) {
-    const variable = (measurementData.variables || []).find(item => String(item.id) === String(variableId));
+    const variable = [...(measurementData.stage_variables?.items || []), ...(measurementData.variables || [])]
+        .find(item => String(item.id) === String(variableId));
     if (!variable) return;
     ui.measurement_variable_name.value = variable.name || "";
     const input = (latestState?.execution_inputs?.items || []).find(item => item.id === variable.id);
@@ -877,7 +892,8 @@ function syncHifieMeasurementControls() {
     }
     const thickness=ui.measurement_hifie_channel.value==="froth_thickness_cm";
     const bottom=references.some(ref=>ref.id==="cell_bottom");
-    const area=Number(measurementData.hifie_options?.geometric_area_cm2);
+    const proposedArea=Number(measurementData.hifie_options?.volume_area_cm2);
+    const area=Number.isFinite(proposedArea)&&proposedArea>0?proposedArea:null;
     const calibrated=Boolean(measurementData.hifie_options?.volume_curve?.points?.length>1);
     const volumePossible=!thickness&&bottom&&(calibrated||(Number.isFinite(area)&&area>0));
     ui.measurement_hifie_output.querySelector('[value="volume_l"]').disabled=!volumePossible;
@@ -888,15 +904,21 @@ function syncHifieMeasurementControls() {
     select.disabled=thickness||volume;
     ui.measurement_hifie_note.textContent=volume ?
         (calibrated ? "Cell V(h) calibration · bulk volume below this interface (not net water volume)." :
-        "Geometric bulk volume below this interface (not net water volume in a slurry).") :
+        (measurementData.hifie_options?.volume_area_source==="visual_outline_estimate" ?
+            "Visual cross-section estimate · bulk volume below this interface (not net water volume in a slurry)." :
+            "Geometric bulk volume below this interface (not net water volume in a slurry).")) :
         thickness ? "Thickness is independent of the selected reference." :
         !bottom ? "Height only · calibrate the cell bottom in Cells for a future volume conversion." :
-        !area ? "Height only · enter cell geometry or calibrate effective area to estimate volume." :
+        !area ? "Height only · add a valid geometric/visual cross-section or calibrate V(h) in Cells." :
         "Height is relative to the selected physical reference.";
 }
 
 function hifieMeasurementPreview(sensor) {
-    const channel=ui.measurement_hifie_channel.value,raw=sensor?.channels?.[channel];
+    const channel=ui.measurement_hifie_channel.value,channels=sensor?.channels||{};
+    const endpoints=[channels.froth_surface_cm,channels.pulp_froth_interface_cm];
+    const raw=channel==="interface_mean_cm" ?
+        (endpoints.every(v=>v!=null&&Number.isFinite(Number(v))) ?
+            (Number(endpoints[0])+Number(endpoints[1]))/2 : null) : channels[channel];
     if(raw==null||!Number.isFinite(Number(raw)))return null;
     const reference=ui.measurement_hifie_reference.value;
     const refs=measurementData.hifie_options?.references || [];
@@ -909,6 +931,11 @@ function hifieMeasurementPreview(sensor) {
         const target=selected;
         if(target?.y_cm==null)return null;
         value=target.direction==="down"?absolute-Number(target.y_cm):Number(target.y_cm)-absolute;
+        if(reference==="cell_bottom"&&value<-.01){
+            ui.measurement_hifie_note.textContent="Detected interface lies below the configured Cell bottom. Verify its position in Cells and revalidate the camera–cell calibration.";
+            return null;
+        }
+        if(reference==="cell_bottom")value=Math.max(0,value);
     }
     if(ui.measurement_hifie_output.value==="volume_l"){
         if(value<0)return null;
@@ -919,7 +946,7 @@ function hifieMeasurementPreview(sensor) {
             const a=points[i-1],b=points[i],slope=(b.volume_l-a.volume_l)/(b.height_cm-a.height_cm);
             value=a.volume_l+slope*(value-a.height_cm);
         } else {
-            const area=Number(measurementData.hifie_options?.geometric_area_cm2);
+            const area=Number(measurementData.hifie_options?.volume_area_cm2);
             if(!Number.isFinite(area)||area<=0)return null;
             value=value*area/1000;
         }
@@ -999,6 +1026,7 @@ async function loadMeasurements() {
             variables: payload.variables || [],
             observations: payload.observations || [],
             hifie_options: payload.hifie_options || null,
+            stage_variables: payload.stage_variables || null,
         };
         renderMeasurementTables();
         updateMeasurementSourcePreview();
@@ -1144,6 +1172,9 @@ function renderRequiredInputs(state, {force = false, savedField = null} = {}) {
 }
 
 function renderMeasurements(state) {
+    const stageSignature=JSON.stringify([state.state,state.current_stage_index,state.stage_attempt,state.current_stage?.uid]);
+    const stageChanged=stageSignature!==measurementStageSignature;
+    measurementStageSignature=stageSignature;
     const description = ui.measurement_launcher.querySelector?.(".measurement-accordion-description");
     if (description) {
         const fallback = "Feed mass, water volume, sensor readings and notes";
@@ -1166,7 +1197,7 @@ function renderMeasurements(state) {
     if (!available || !measurementOpen) return;
     updateMeasurementSources(state);
     const remoteRevision = Number(state.measurements?.revision || 0);
-    if (remoteRevision !== Number(measurementData.revision || 0)) loadMeasurements();
+    if (stageChanged || remoteRevision !== Number(measurementData.revision || 0)) loadMeasurements();
 }
 
 if(typeof window.setInterval==="function")window.setInterval(pollRunMonitor,2500);
@@ -1662,11 +1693,22 @@ function bindActions() {
         selectMeasurementVariable(row.dataset.variableId);
     };
     ui.measurement_variable_name.addEventListener("change", () => {
-        const match=(measurementData.variables||[]).find(v =>
-            v.name.toLowerCase()===ui.measurement_variable_name.value.trim().toLowerCase());
+        const match=[...(measurementData.stage_variables?.items||[]), ...(measurementData.variables||[])]
+            .find(v=>v.name.toLowerCase()===ui.measurement_variable_name.value.trim().toLowerCase());
         if(match)selectMeasurementVariable(match.id);
     });
     ui.measurement_summary_body.addEventListener("click", chooseMeasurementVariable);
+    const chooseStageVariable = (event) => {
+        const row = event.target.closest("[data-stage-variable-id]");
+        if(row)selectMeasurementVariable(row.dataset.stageVariableId);
+    };
+    ui.stage_variables_body.addEventListener("click",chooseStageVariable);
+    ui.stage_variables_body.addEventListener("keydown",event=>{
+        if(event.key!=="Enter"&&event.key!==" ")return;
+        if(event.target.closest("[data-stage-variable-id]")){
+            event.preventDefault();chooseStageVariable(event);
+        }
+    });
     ui.measurement_summary_body.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         const row = event.target.closest("[data-variable-id]");
@@ -1802,6 +1844,7 @@ function bindActions() {
             measurementData.revision = result.measurements?.revision || measurementData.revision;
             measurementData.count = result.measurements?.count || measurementData.observations.length;
             measurementData.variables = result.measurements?.variables || measurementData.variables;
+            await loadMeasurements();
             if (latestState && result.execution_inputs) latestState.execution_inputs = result.execution_inputs;
             renderMeasurementTables();
             ui.measurement_manual_value.value = "";

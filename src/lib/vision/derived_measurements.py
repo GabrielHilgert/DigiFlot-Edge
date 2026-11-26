@@ -2,7 +2,7 @@
 import math
 from lib.vision.reference import resolve_vertical_reference
 
-HIFIE_CHANNELS = ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm")
+HIFIE_CHANNELS = ("froth_surface_cm", "pulp_froth_interface_cm", "interface_mean_cm", "froth_thickness_cm")
 
 
 def geometric_area_cm2(cell):
@@ -11,6 +11,21 @@ def geometric_area_cm2(cell):
         return resolved["geometric_area_cm2"]
     from lib.vision.cell_metrics import resolve_cell_dimensions
     return resolve_cell_dimensions(cell)["geometric_area_cm2"]
+
+def available_volume_area(cell):
+    """Choose a finite area: resolved geometry first, valid visual outline second."""
+    resolved = (cell or {}).get("resolved_dimensions") or {}
+    candidates = ((geometric_area_cm2(cell), resolved.get("geometric_area_source") or "geometric_area"),
+                  (resolved.get("visual_area_cm2"), resolved.get("visual_area_source") or "visual_outline_estimate"))
+    for candidate, source in candidates:
+        try:
+            area = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(area) and area > 0:
+            return area, source
+    return None, None
+
 
 def reference_choices(registry, cell_id, association):
     refs = [{"id": "current", "name": "HIFIE configured reference"}]
@@ -39,7 +54,12 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
         raise ValueError("Invalid HIFIE interface or output quantity.")
     if not sensor.get("reading_valid"):
         raise ValueError("HIFIE does not have a valid current interface sample.")
-    raw = (sensor.get("channels") or {}).get(channel)
+    channels = sensor.get("channels") or {}
+    if channel == "interface_mean_cm":
+        ends = (channels.get("froth_surface_cm"), channels.get("pulp_froth_interface_cm"))
+        raw = sum(float(v) for v in ends) / 2 if all(v is not None and math.isfinite(float(v)) for v in ends) else None
+    else:
+        raw = channels.get(channel)
     if raw is None:
         raise ValueError("Selected HIFIE interface has no measurement.")
     raw = float(raw)
@@ -65,7 +85,11 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
 
     bottom = refs.get("cell_bottom")
     bottom_height = bottom["y_cm"] - absolute_y if bottom and absolute_y is not None else None
-    area = geometric_area_cm2(cell)
+    if channel != "froth_thickness_cm" and reference_id == "cell_bottom" and output == "height_cm":
+        if value < -0.01:
+            raise ValueError("HIFIE interface is below the configured Cell bottom. Check the physical bottom reference and camera-cell calibration.")
+        value = max(0.0, value)  # Only neutralize floating-point noise.
+    area, area_source = available_volume_area(cell)
     used_reference = previous if reference_id == "current" else target
     model = None
     curve = cell.get("volume_calibration") or {}
@@ -74,7 +98,7 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
         if bottom is None:
             raise ValueError("Cell bottom is not calibrated. Define it in Cells.")
         if area is None and not curve.get("valid"):
-            raise ValueError("Cell has no current volume calibration or geometric area; record height instead.")
+            raise ValueError("Cell has no current volume calibration or valid geometric/visual area; record height instead.")
         if bottom_height is None or bottom_height < -0.01:
             raise ValueError("Interface is below cell bottom; check physical references.")
         height_mm = (((cell.get("resolved_dimensions") or {}).get("dimensions") or {})
@@ -91,13 +115,12 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
             model = "calibrated_volume_curve"
         else:
             value = max(0.0, bottom_height) * area / 1000.0
-            model = "geometric_area"
+            model = "visual_outline_area" if area_source == "visual_outline_estimate" else "geometric_area"
         used_reference = bottom
     metadata = {"channel": channel, "output": output, "reference_id": used_reference.get("id", reference_id),
                 "reference": used_reference, "sensor_reference": previous, "absolute_y_cm": absolute_y,
                 "height_from_bottom_cm": bottom_height, "area_cm2": area, "volume_model": model,
-                "area_source": ("volume_calibration" if curve_result else
-                                (cell.get("resolved_dimensions") or {}).get("geometric_area_source")),
+                "area_source": "volume_calibration" if curve_result else area_source,
                 "dimension_revision": (cell.get("resolved_dimensions") or {}).get("dimension_revision"),
                 "volume_calibration_revision": curve.get("revision") if curve_result else None,
                 "volume_extrapolated": curve_result["extrapolated"] if curve_result else False,

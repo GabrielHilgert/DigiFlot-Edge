@@ -21,7 +21,7 @@ from lib.camera import Camera
 from lib.scale import Scale
 from lib.serial_identity import serial_inventory, resolve_runtime_ports
 from lib.pulp_preparation import planned_inputs, derived_metrics
-from lib.vision.derived_measurements import geometric_area_cm2, reference_choices, derive_hifie_value
+from lib.vision.derived_measurements import geometric_area_cm2, available_volume_area, reference_choices, derive_hifie_value
 from lib.storage_estimator import StorageEstimator
 from lib.scraping_gpio import ScrapingGPIO, ALLOWED_GPIO_PINS, validate_gpio_pin
 try:
@@ -870,6 +870,35 @@ class DigiFlot:
             "variables": variables,
         }
 
+    def _stage_measurement_variables_unlocked(self):
+        """Show planned stage measurements before capture; never count other attempts."""
+        active = self.state in {self.RUNNING, self.PAUSED, self.RECOVERY_REQUIRED}
+        planned = self.state == self.READY
+        stage = self.current_stage if active else (
+            (self.experiment or {}).get("stages", [None])[0] if planned
+            and (self.experiment or {}).get("stages") else None)
+        if not isinstance(stage, dict):
+            return {"stage": None, "items": []}
+        index = self.current_stage_index if active else 0
+        attempt = self.stage_attempt if active else None
+        rows = (stage.get("metadata") or {}).get("variables") or {}
+        context = {"name": stage.get("name"), "index": index,
+                   "attempt": attempt, "uid": stage.get("uid")}
+        if not isinstance(rows, dict):
+            return {"stage": context, "items": []}
+        items = []
+        for key, raw in rows.items():
+            config = raw if isinstance(raw, dict) else {}
+            ident = self._measurement_variable_id(key)
+            name = str(config.get("label") or key)
+            recent = [item for item in self.measurements if item.get("stage_index") == index
+                      and item.get("stage_attempt") == attempt and attempt is not None
+                      and item.get("variable_id") in {ident, self._measurement_variable_id(name)}]
+            items.append({"id": ident, "name": name, "unit": config.get("unit"),
+                          "required": config.get("required_measurement") is True,
+                          "points": len(recent), "latest": deepcopy(recent[-1]) if recent else None})
+        return {"stage": context, "items": items}
+
     def _rebuild_measurement_variables_unlocked(self):
         self.measurement_variables = {}
         for record in self.measurements:
@@ -940,7 +969,8 @@ class DigiFlot:
 
     def _hifie_measurement_options_unlocked(self):
         default = {"references": [{"id": "current", "name": "HIFIE configured reference"}],
-                   "geometric_area_cm2": None, "volume_curve": None, "cell_id": None}
+                   "geometric_area_cm2": None, "volume_area_cm2": None, "volume_area_source": None,
+                   "volume_curve": None, "cell_id": None}
         cell_id = (self.cell_profile or {}).get("physical_cell_id")
         if not cell_id or self.vision is None:
             return default
@@ -949,8 +979,10 @@ class DigiFlot:
             cell = registry.get_cell(cell_id)
             association = registry.association(self.virtual_camera_id, cell_id) if self.virtual_camera_id is not None else None
             curve = cell.get("volume_calibration") or {}
+            area, area_source = available_volume_area(cell)
             return {"references": reference_choices(registry, cell_id, association),
                     "geometric_area_cm2": geometric_area_cm2(cell),
+                    "volume_area_cm2": area, "volume_area_source": area_source,
                     "volume_curve": ({"points": curve["points"], "revision": curve["revision"]}
                                      if curve.get("valid") else None),
                     "cell_id": cell_id}
@@ -963,6 +995,7 @@ class DigiFlot:
                 **self._measurement_summary_unlocked(),
                 "observations": deepcopy(self.measurements),
                 "hifie_options": self._hifie_measurement_options_unlocked(),
+                "stage_variables": self._stage_measurement_variables_unlocked(),
             }
 
     def update_cell_profile(self, *, cell_name=None, physical_cell_id=None):

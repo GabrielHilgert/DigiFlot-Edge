@@ -10,6 +10,7 @@ const state = {
     loadingKey: null,
     activeRun: null,
     collapsedGroups: new Set(),
+    collapseInitialized: false,
     systemHealth: null,
 };
 
@@ -341,6 +342,29 @@ async function requestImmediateSync() {
 /* Hierarchy / row model                                                      */
 /* -------------------------------------------------------------------------- */
 
+function catalogTimestamp(value) {
+    if(value == null || value === "")return 0;
+    if(typeof value === "number")return value < 1e11 ? value*1000 : value;
+    const parsed=Date.parse(String(value));
+    return Number.isFinite(parsed)?parsed:0;
+}
+
+function experimentRecency(row) {
+    const data=row.experiment||{},local=row.local||{};
+    const dates=[data.last_modified,data.last_execution_at,data.created_at,data.updated_at,
+        data.local_created,local.updated_at,local.created_at,local.local_created];
+    let best=Math.max(0,...dates.map(catalogTimestamp));
+    const storage=String(row.storageId||local.storage_id||"");
+    const match=storage.match(/^(\d{4})(\d{2})(\d{2})[-_](\d{2})(\d{2})(\d{2})/);
+    if(match)best=Math.max(best,Date.UTC(+match[1],+match[2]-1,+match[3],+match[4],+match[5],+match[6]));
+    return best;
+}
+
+function catalogRecentFirst(a,b) {
+    const diff=experimentRecency(b)-experimentRecency(a);
+    return diff||((Number(b.experiment?.id)||0)-(Number(a.experiment?.id)||0));
+}
+
 function rebuildRows() {
     const rows = [];
     const groups = [];
@@ -438,7 +462,21 @@ function rebuildRows() {
         campaignNode.experiments.push(row);
     }
 
-    for (const group of groups) delete group.campaignMap;
+    const groupRecent = node => Math.max(0,...node.campaigns.flatMap(campaign =>
+        campaign.experiments.map(experimentRecency)));
+    for (const group of groups) {
+        group.campaigns.sort((a,b)=>Math.max(0,...b.experiments.map(experimentRecency))-
+            Math.max(0,...a.experiments.map(experimentRecency)));
+        delete group.campaignMap;
+    }
+    groups.sort((a,b)=>groupRecent(b)-groupRecent(a));
+    if(!state.collapseInitialized && groups.length){
+        for(const user of groups){
+            state.collapsedGroups.add(user.key);
+            for(const campaign of user.campaigns)state.collapsedGroups.add(campaign.key);
+        }
+        state.collapseInitialized=true;
+    }
     state.rows = rows;
     state.groups = groups;
 }
@@ -577,7 +615,11 @@ function renderExperiments() {
 
         for (const campaignNode of userNode.campaigns) {
             const campaignMatches = userMatches || (query && groupText(userNode, campaignNode).includes(query));
-            const definitions = campaignNode.experiments.filter(row => !row.parentKey);
+            const definitions = campaignNode.experiments.filter(row => !row.parentKey)
+                .sort((a,b)=>{
+                    const newest=row=>Math.max(experimentRecency(row),...childRows(row.key).map(experimentRecency));
+                    return newest(b)-newest(a)||catalogRecentFirst(a,b);
+                });
             const visibleDefinitions = [];
 
             for (const definition of definitions) {
@@ -585,7 +627,7 @@ function renderExperiments() {
                 const definitionMatches = campaignMatches || !query || searchableRowText(definition).includes(query);
                 const childMatches = children.filter(child => searchableRowText(child).includes(query));
                 if (definitionMatches || childMatches.length) {
-                    visibleDefinitions.push({ definition, children: definitionMatches ? children : childMatches });
+                    visibleDefinitions.push({ definition, children: (definitionMatches ? children : childMatches).sort(catalogRecentFirst) });
                 }
             }
 

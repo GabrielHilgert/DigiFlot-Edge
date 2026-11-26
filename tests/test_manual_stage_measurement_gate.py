@@ -13,6 +13,8 @@ def method(name):
     return ns[name]
 
 class Run:
+    RECOVERY_REQUIRED="RecoveryRequired"
+    _stage_measurement_variables_unlocked=method("_stage_measurement_variables_unlocked")
     STAGE_TRANSITION="Transition";STAGE_ACTIVE="Active";RUNNING="Running";READY="Ready";PAUSED="Paused"
     _stage_measurement_gate_unlocked=method("_stage_measurement_gate_unlocked")
     start_next_stage=method("start_next_stage")
@@ -45,6 +47,19 @@ class Run:
     def _sync_execution_state_unlocked(self):pass
 
 class ManualMeasurementTests(unittest.TestCase):
+    def test_stage_variables_are_predefined_and_attempt_scoped(self):
+        run=Run()
+        run.stage_state="Active"
+        run.measurements=[{"variable_id":"viscosity","stage_index":0,"stage_attempt":0,"value":7.},
+                          {"variable_id":"density","stage_index":0,"stage_attempt":1,"value":5.,
+                           "unit":"g/L"}]
+        data=run._stage_measurement_variables_unlocked()
+        self.assertEqual([x["name"] for x in data["items"]],["Viscosity","Density"])
+        self.assertTrue(all(x["required"] for x in data["items"]))
+        self.assertEqual(data["items"][0]["points"],0)
+        self.assertEqual(data["items"][1]["points"],1)
+        self.assertEqual(data["items"][1]["unit"],"g/L")
+
     def test_missing_required_variables_prevent_manual_and_automatic_advance(self):
         run=Run();gate=run._stage_measurement_gate_unlocked()
         self.assertTrue(gate["blocked"])

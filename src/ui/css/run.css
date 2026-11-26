@@ -669,3 +669,7 @@ body[data-run-layout="compact"] #run_panel .run-actions .button { flex:1 1 auto;
 .stage-measurement-gate p{margin:0;color:var(--text-soft,#657788);font-size:.83rem}
 .stage-measurement-gate ul{margin:.2rem 0 .4rem;padding-left:1.3rem;font-size:.85rem}
 .stage-measurement-gate li+li{margin-top:.2rem}.stage-measurement-gate .button-group{display:flex;flex-wrap:wrap;gap:.5rem}
+
+/* Form grid styles must not override state-driven hidden fields. */
+#measurement_hifie_fields[hidden], #stage_variables_panel[hidden], #measurement_sensor_value[hidden],
+#measurement_manual_fields[hidden], #measurement_manual_value[hidden], #measurement_manual_text[hidden] { display:none !important; }
