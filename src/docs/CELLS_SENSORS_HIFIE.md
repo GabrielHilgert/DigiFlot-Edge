@@ -144,3 +144,9 @@ The full-width camera canvas is now the primary editing surface. Directly below 
 - Optical correction, remaining perspective and nonplanarity are explicit sources of geometric measurement uncertainty. Midpoints in the four-face method are assumed to approximate the actual centers of each side; this method does not infer a general projective quadrilateral from arbitrary side points.
 
 Regression coverage: src/tests is not used; tests/test_cells_geometric_shapes.py covers non-destructive storage, rotated and polygon geometry; tests/test_cells_metrology_ui.js checks the camera and progressive editor wiring.
+
+### Run measurements — HIFIE and stage variables (26 November 2026)
+
+- The measurement form shows HIFIE-specific controls **only** for HIFIE input. The mean interface (`interface_mean_cm`) is the arithmetic mean of the latest froth surface and pulp–froth interface in their common physical reference; no additional frame is acquired.
+- `Stage Variables` are sourced from the current stage's `metadata.variables` and shown before their first observation. Points/latest values are scoped to the current stage attempt; planned fields never count as completed measurements.
+- Measurements relative to `Cell bottom` must be above its configured Y-coordinate. A negative bottom height reports a reference/calibration inconsistency rather than silently flipping the sign.
