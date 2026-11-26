@@ -931,7 +931,10 @@ function hifieMeasurementPreview(sensor) {
         const target=selected;
         if(target?.y_cm==null)return null;
         value=target.direction==="down"?absolute-Number(target.y_cm):Number(target.y_cm)-absolute;
-        if(reference==="cell_bottom"&&value<-.01)return null;
+        if(reference==="cell_bottom"&&value<-.01){
+            ui.measurement_hifie_note.textContent="Detected interface lies below the configured Cell bottom. Verify its position in Cells and revalidate the camera–cell calibration.";
+            return null;
+        }
         if(reference==="cell_bottom")value=Math.max(0,value);
     }
     if(ui.measurement_hifie_output.value==="volume_l"){
