@@ -50,6 +50,22 @@ def reference_choices(registry, cell_id, association):
                          "y_cm": float(ref["y_cm"]), "reference_revision": ref.get("reference_revision")})
         except (ValueError, KeyError, TypeError):
             pass
+    # A missing top/bottom can be inferred from the *resolved optical height*,
+    # even if no nominal cell height was entered. Keep it explicitly estimated.
+    cell = registry.get_cell(cell_id)
+    height = (((cell.get("resolved_dimensions") or {}).get("dimensions") or {})
+              .get("height_mm") or {}).get("value_mm")
+    mapped = {item["id"]: item for item in refs}
+    if height is not None and math.isfinite(float(height)) and float(height) > 0:
+        height_cm = float(height) / 10
+        if "cell_bottom" not in mapped and "cell_top" in mapped:
+            refs.append({"id": "cell_bottom", "name": "Cell bottom · derived from height",
+                         "direction": "up", "y_cm": mapped["cell_top"]["y_cm"] + height_cm,
+                         "source": "derived_from_cell_height"})
+        elif "cell_top" not in mapped and "cell_bottom" in mapped:
+            refs.append({"id": "cell_top", "name": "Cell top · derived from height",
+                         "direction": "down", "y_cm": mapped["cell_bottom"]["y_cm"] - height_cm,
+                         "source": "derived_from_cell_height"})
     return refs
 
 
