@@ -870,6 +870,35 @@ class DigiFlot:
             "variables": variables,
         }
 
+    def _stage_measurement_variables_unlocked(self):
+        """Show planned stage measurements before capture; never count other attempts."""
+        active = self.state in {self.RUNNING, self.PAUSED, self.RECOVERY_REQUIRED}
+        planned = self.state == self.READY
+        stage = self.current_stage if active else (
+            (self.experiment or {}).get("stages", [None])[0] if planned
+            and (self.experiment or {}).get("stages") else None)
+        if not isinstance(stage, dict):
+            return {"stage": None, "items": []}
+        index = self.current_stage_index if active else 0
+        attempt = self.stage_attempt if active else None
+        rows = (stage.get("metadata") or {}).get("variables") or {}
+        context = {"name": stage.get("name"), "index": index,
+                   "attempt": attempt, "uid": stage.get("uid")}
+        if not isinstance(rows, dict):
+            return {"stage": context, "items": []}
+        items = []
+        for key, raw in rows.items():
+            config = raw if isinstance(raw, dict) else {}
+            ident = self._measurement_variable_id(key)
+            name = str(config.get("label") or key)
+            recent = [item for item in self.measurements if item.get("stage_index") == index
+                      and item.get("stage_attempt") == attempt and attempt is not None
+                      and item.get("variable_id") in {ident, self._measurement_variable_id(name)}]
+            items.append({"id": ident, "name": name, "unit": config.get("unit"),
+                          "required": config.get("required_measurement") is True,
+                          "points": len(recent), "latest": deepcopy(recent[-1]) if recent else None})
+        return {"stage": context, "items": items}
+
     def _rebuild_measurement_variables_unlocked(self):
         self.measurement_variables = {}
         for record in self.measurements:
@@ -966,6 +995,7 @@ class DigiFlot:
                 **self._measurement_summary_unlocked(),
                 "observations": deepcopy(self.measurements),
                 "hifie_options": self._hifie_measurement_options_unlocked(),
+                "stage_variables": self._stage_measurement_variables_unlocked(),
             }
 
     def update_cell_profile(self, *, cell_name=None, physical_cell_id=None):
