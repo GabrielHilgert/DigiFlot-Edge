@@ -80,6 +80,50 @@ class ShapeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"self-intersecting"):
             normalize_shapes({"items":[invalid]})
 
+    def test_ranked_volume_models_and_preference_survive_without_geometry_revision(self):
+        self.registry.save_geometric_shapes(self.cell["id"],{"items":[self.item()]})
+        cell=self.registry.get_cell(self.cell["id"])
+        options=cell["volume_models"]
+        ids=[model["id"] for model in options["models"]]
+        self.assertIn("geometry:resolved",ids)
+        self.assertIn("outline:shape_a",ids)
+        self.assertEqual(options["selected_id"],"outline:shape_a")
+        self.assertAlmostEqual(cell["resolved_dimensions"]["estimated_capacity_l"],3.84)
+        base_rev=cell["revision"];base_refs=cell["reference_points_revision"]
+        saved=self.registry.save_volume_model_preference(self.cell["id"],{"model_id":"geometry:resolved"})
+        self.assertEqual(saved["revision"],1)
+        chosen=self.registry.get_cell(self.cell["id"])
+        self.assertEqual(chosen["volume_models"]["selected_id"],"geometry:resolved")
+        self.assertEqual(chosen["revision"],base_rev)
+        self.assertEqual(chosen["reference_points_revision"],base_refs)
+        self.registry.save_volume_model_preference(self.cell["id"],{"model_id":"outline:shape_a"})
+        self.registry.save_camera_profile(2,{"roi_norm":[.1,.1,.9,.9]})
+        stale=self.registry.get_cell(self.cell["id"])
+        self.assertTrue(stale["volume_models"]["preference_stale"])
+        self.assertEqual(stale["volume_models"]["selected_id"],"geometry:resolved")
+        with self.assertRaisesRegex(ValueError,"no longer available"):
+            self.registry.save_volume_model_preference(self.cell["id"],{"model_id":"outline:shape_a"})
+
+    def test_multiple_independent_optical_and_nominal_volume_relationships(self):
+        from lib.vision.cell_metrics import available_cell_volume_models
+        cell={"geometry":{"shape":"rectangular","width_mm":160,"depth_mm":100,"height_mm":200},
+            "resolved_dimensions":{"dimensions":{
+                "width_mm":{"value_mm":150,"source":"measured","references":["x1","x2"]},
+                "depth_mm":{"value_mm":100,"source":"nominal"},
+                "height_mm":{"value_mm":190,"source":"measured","references":["bottom","top"]}},
+                "geometric_area_cm2":150,"geometric_area_source":"mixed_geometry"},
+            "visual_area_estimates":[{**self.item(),"valid":True,"area_cm2":180.,
+                "optically_corrected":True,"anchor_source":"measured"}]}
+        models=available_cell_volume_models(cell)
+        ids=[item["id"] for item in models]
+        for ident in ("geometry:resolved","geometry:nominal","outline:shape_a",
+                      "outline:shape_a:nominal-anchor","outline:shape_a:nominal-height"):
+            self.assertIn(ident,ids)
+        optical=next(model for model in models if model["id"]=="outline:shape_a")
+        self.assertAlmostEqual(optical["capacity_l"],3.42)
+        self.assertIn("x1",optical["reference_ids"])
+        self.assertEqual(models[0]["id"],"outline:shape_a")
+
     def test_validation_preserves_other_saved_calibrations(self):
         saved=self.registry.save_geometric_shapes(self.cell["id"],{"items":[self.item()]})
         self.registry.archive_cell(self.cell["id"])
