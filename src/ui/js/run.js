@@ -283,17 +283,30 @@ function renderCellSelection(state) {
     updateSelectedCellVolume();
 }
 
-function updateSelectedCellVolume() {
+async function updateSelectedCellVolume() {
     const id=ui.select_physical_cell.value,cell=physicalCells.find(c=>String(c.id)===String(id));
     const target=document.getElementById("selected_cell_volume");
     if(!target)return;
     const input=document.getElementById("cell_volume_override");
     if(input && document.activeElement!==input)
         input.value=cell?.working_volume_l==null?"":String(cell.working_volume_l);
-    target.textContent=cell ? (cell.working_volume_l!=null ?
-        "Working cell volume: "+Number(cell.working_volume_l).toLocaleString()+" L (inherited; editable override in Ready)." :
-        "This cell has no stored working volume. Set it in Cells or provide it before Run.") :
-        "Select a cell to inherit its working volume and physical references.";
+    if(!cell){target.textContent="Select a cell to inherit physical references and a volume model.";return;}
+    if(cell.working_volume_l!=null){
+        target.textContent="Registered working volume: "+Number(cell.working_volume_l).toLocaleString()+" L (editable override in Ready).";
+        return;
+    }
+    target.textContent="Checking optical and geometrical capacity estimates…";
+    try{
+        const details=await requestJson("/api/vision/cells/"+encodeURIComponent(id));
+        if(ui.select_physical_cell.value!==id)return;
+        const info=details.volume_models||{},items=info.models||[];
+        const selected=items.find(m=>m.id===info.selected_id&&m.capacity_l!=null);
+        const estimate=selected||items.find(m=>m.capacity_l!=null);
+        target.textContent=estimate?
+            "Automatic capacity estimate: "+Number(estimate.capacity_l).toLocaleString(undefined,{maximumFractionDigits:3})+
+            " L · "+estimate.label+" (approximate, not measured working volume). You can override it in Ready.":
+            "No complete capacity estimate. Measure a valid cross-section and cell height in Cells, or provide working volume in Ready.";
+    }catch(error){if(ui.select_physical_cell.value===id)target.textContent="Cell capacity estimate unavailable: "+error.message;}
 }
 
 function renderCameraCalibration(state) {
