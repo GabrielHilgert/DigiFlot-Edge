@@ -2,7 +2,7 @@
 import math
 from lib.vision.reference import resolve_vertical_reference
 
-HIFIE_CHANNELS = ("froth_surface_cm", "pulp_froth_interface_cm", "froth_thickness_cm")
+HIFIE_CHANNELS = ("froth_surface_cm", "pulp_froth_interface_cm", "interface_mean_cm", "froth_thickness_cm")
 
 
 def geometric_area_cm2(cell):
@@ -54,7 +54,12 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
         raise ValueError("Invalid HIFIE interface or output quantity.")
     if not sensor.get("reading_valid"):
         raise ValueError("HIFIE does not have a valid current interface sample.")
-    raw = (sensor.get("channels") or {}).get(channel)
+    channels = sensor.get("channels") or {}
+    if channel == "interface_mean_cm":
+        ends = (channels.get("froth_surface_cm"), channels.get("pulp_froth_interface_cm"))
+        raw = sum(float(v) for v in ends) / 2 if all(v is not None and math.isfinite(float(v)) for v in ends) else None
+    else:
+        raw = channels.get(channel)
     if raw is None:
         raise ValueError("Selected HIFIE interface has no measurement.")
     raw = float(raw)
@@ -80,6 +85,10 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
 
     bottom = refs.get("cell_bottom")
     bottom_height = bottom["y_cm"] - absolute_y if bottom and absolute_y is not None else None
+    if channel != "froth_thickness_cm" and reference_id == "cell_bottom" and output == "height_cm":
+        if value < -0.01:
+            raise ValueError("HIFIE interface is below the configured Cell bottom. Check the physical bottom reference and camera-cell calibration.")
+        value = max(0.0, value)  # Only neutralize floating-point noise.
     area, area_source = available_volume_area(cell)
     used_reference = previous if reference_id == "current" else target
     model = None
