@@ -9,5 +9,7 @@ assert.match(js,/hifie_reference_id=ui\.measurement_hifie_reference\.value/);
 assert.match(js,/hifie_output=ui\.measurement_hifie_output\.value/);
 assert.match(js,/volume_area_cm2/);
 assert.match(js,/volume_area_source==="visual_outline_estimate"/);
+assert.match(js,/interface_mean_cm/);
+assert.match(html,/value="interface_mean_cm"/);
 new vm.Script(js);
 console.log("HIFIE derived measurement UI checks passed.");
