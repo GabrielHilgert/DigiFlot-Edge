@@ -101,6 +101,30 @@ class VolumeCurveTests(unittest.TestCase):
         self.assertEqual(observation["metadata"]["volume_model"],"calibrated_volume_curve")
         self.assertEqual(observation["metadata"]["volume_calibration_revision"],2)
 
+    def test_hifie_uses_visual_area_when_no_geometric_area_is_available(self):
+        self.cell["resolved_dimensions"].update({
+            "geometric_area_cm2": None, "visual_area_cm2": 125.,
+            "visual_area_source": "visual_outline_estimate"})
+        sensor={"reading_valid":True,"reference":{"direction":"up","y_cm":12.},
+                "channels":{"pulp_froth_interface_cm":5.}}
+        options={"references":[{"id":"current","name":"Current"},
+                               {"id":"cell_bottom","name":"Bottom","direction":"up","y_cm":12.}]}
+        from lib.vision.derived_measurements import available_volume_area
+        area, source=available_volume_area(self.cell)
+        self.assertEqual((area,source),(125.,"visual_outline_estimate"))
+        observation=derive_hifie_value(sensor,self.cell,options,"pulp_froth_interface_cm",
+                                       "cell_bottom","volume_l")
+        self.assertAlmostEqual(observation["value"],.625)
+        self.assertEqual(observation["metadata"]["volume_model"],"visual_outline_area")
+        self.assertEqual(observation["metadata"]["area_source"],"visual_outline_estimate")
+
+    def test_geometric_area_keeps_priority_over_visual_fallback(self):
+        self.cell["resolved_dimensions"].update({
+            "geometric_area_cm2":100., "geometric_area_source":"measured_geometry",
+            "visual_area_cm2":125., "visual_area_source":"visual_outline_estimate"})
+        from lib.vision.derived_measurements import available_volume_area
+        self.assertEqual(available_volume_area(self.cell),(100.,"measured_geometry"))
+
 
 if __name__=="__main__":
     unittest.main()
