@@ -60,6 +60,24 @@ class HifieMeasurementTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"below the configured Cell bottom"):
             derive_hifie_value(self.sensor,self.cell,self.options,"pulp_froth_interface_cm","cell_bottom")
 
+    def test_explicit_volume_model_alternatives_and_auditable_selection(self):
+        self.cell["volume_models"]={"selected_id":"geometry:low","models":[
+            {"id":"geometry:low","label":"Measured section","kind":"geometric","area_cm2":100.,
+             "area_source":"measured_geometry","score":750,"height_mm":200},
+            {"id":"outline:shape_a","label":"Optical section","kind":"visual_outline","area_cm2":125.,
+             "area_source":"visual_outline_estimate","score":800,"height_mm":200}]}
+        default=derive_hifie_value(self.sensor,self.cell,self.options,"pulp_froth_interface_cm",
+                                   "cell_bottom","volume_l")
+        selected=derive_hifie_value(self.sensor,self.cell,self.options,"pulp_froth_interface_cm",
+                                    "cell_bottom","volume_l",volume_model_id="outline:shape_a")
+        self.assertAlmostEqual(default["value"],.8)
+        self.assertAlmostEqual(selected["value"],1.)
+        self.assertEqual(selected["metadata"]["volume_model_id"],"outline:shape_a")
+        self.assertEqual(selected["metadata"]["volume_model"],"visual_outline_area")
+        with self.assertRaisesRegex(ValueError,"no longer valid"):
+            derive_hifie_value(self.sensor,self.cell,self.options,"pulp_froth_interface_cm",
+                               "cell_bottom","volume_l",volume_model_id="outline:expired")
+
     def test_rectangular_area(self):
         self.assertEqual(geometric_area_cm2({"geometry": {"shape": "rectangular",
                          "width_mm": 100, "depth_mm": 80}}), 80)
