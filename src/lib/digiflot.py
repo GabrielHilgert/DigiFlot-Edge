@@ -21,7 +21,7 @@ from lib.camera import Camera
 from lib.scale import Scale
 from lib.serial_identity import serial_inventory, resolve_runtime_ports
 from lib.pulp_preparation import planned_inputs, derived_metrics
-from lib.vision.derived_measurements import geometric_area_cm2, reference_choices, derive_hifie_value
+from lib.vision.derived_measurements import geometric_area_cm2, available_volume_area, reference_choices, derive_hifie_value
 from lib.storage_estimator import StorageEstimator
 from lib.scraping_gpio import ScrapingGPIO, ALLOWED_GPIO_PINS, validate_gpio_pin
 try:
@@ -940,7 +940,8 @@ class DigiFlot:
 
     def _hifie_measurement_options_unlocked(self):
         default = {"references": [{"id": "current", "name": "HIFIE configured reference"}],
-                   "geometric_area_cm2": None, "volume_curve": None, "cell_id": None}
+                   "geometric_area_cm2": None, "volume_area_cm2": None, "volume_area_source": None,
+                   "volume_curve": None, "cell_id": None}
         cell_id = (self.cell_profile or {}).get("physical_cell_id")
         if not cell_id or self.vision is None:
             return default
@@ -949,8 +950,10 @@ class DigiFlot:
             cell = registry.get_cell(cell_id)
             association = registry.association(self.virtual_camera_id, cell_id) if self.virtual_camera_id is not None else None
             curve = cell.get("volume_calibration") or {}
+            area, area_source = available_volume_area(cell)
             return {"references": reference_choices(registry, cell_id, association),
                     "geometric_area_cm2": geometric_area_cm2(cell),
+                    "volume_area_cm2": area, "volume_area_source": area_source,
                     "volume_curve": ({"points": curve["points"], "revision": curve["revision"]}
                                      if curve.get("valid") else None),
                     "cell_id": cell_id}
