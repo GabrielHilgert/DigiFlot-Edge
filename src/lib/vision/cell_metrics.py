@@ -301,7 +301,7 @@ def available_cell_volume_models(cell):
     sources = {"measured_geometry": 730, "mixed_geometry": 570,
                "relative_geometry": 480, "nominal_geometry": 280}
     fields = ("width_mm",) if shape == "cylindrical" else ("width_mm", "depth_mm")
-    if shape in ("cylindrical", "rectangular") and area is not None:
+    if area is not None:
         refs = [ref for field in fields for ref in (dimensions.get(field) or {}).get("references", [])]
         add("geometry:resolved", "Resolved " + shape + " section", area,
             resolved.get("geometric_area_source"), sources.get(resolved.get("geometric_area_source"), 500),
