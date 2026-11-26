@@ -12,6 +12,21 @@ def geometric_area_cm2(cell):
     from lib.vision.cell_metrics import resolve_cell_dimensions
     return resolve_cell_dimensions(cell)["geometric_area_cm2"]
 
+def available_volume_area(cell):
+    """Choose a finite area: resolved geometry first, valid visual outline second."""
+    resolved = (cell or {}).get("resolved_dimensions") or {}
+    candidates = ((geometric_area_cm2(cell), resolved.get("geometric_area_source") or "geometric_area"),
+                  (resolved.get("visual_area_cm2"), resolved.get("visual_area_source") or "visual_outline_estimate"))
+    for candidate, source in candidates:
+        try:
+            area = float(candidate)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(area) and area > 0:
+            return area, source
+    return None, None
+
+
 def reference_choices(registry, cell_id, association):
     refs = [{"id": "current", "name": "HIFIE configured reference"}]
     if association is None:
@@ -65,7 +80,7 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
 
     bottom = refs.get("cell_bottom")
     bottom_height = bottom["y_cm"] - absolute_y if bottom and absolute_y is not None else None
-    area = geometric_area_cm2(cell)
+    area, area_source = available_volume_area(cell)
     used_reference = previous if reference_id == "current" else target
     model = None
     curve = cell.get("volume_calibration") or {}
@@ -74,7 +89,7 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
         if bottom is None:
             raise ValueError("Cell bottom is not calibrated. Define it in Cells.")
         if area is None and not curve.get("valid"):
-            raise ValueError("Cell has no current volume calibration or geometric area; record height instead.")
+            raise ValueError("Cell has no current volume calibration or valid geometric/visual area; record height instead.")
         if bottom_height is None or bottom_height < -0.01:
             raise ValueError("Interface is below cell bottom; check physical references.")
         height_mm = (((cell.get("resolved_dimensions") or {}).get("dimensions") or {})
@@ -91,13 +106,12 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
             model = "calibrated_volume_curve"
         else:
             value = max(0.0, bottom_height) * area / 1000.0
-            model = "geometric_area"
+            model = "visual_outline_area" if area_source == "visual_outline_estimate" else "geometric_area"
         used_reference = bottom
     metadata = {"channel": channel, "output": output, "reference_id": used_reference.get("id", reference_id),
                 "reference": used_reference, "sensor_reference": previous, "absolute_y_cm": absolute_y,
                 "height_from_bottom_cm": bottom_height, "area_cm2": area, "volume_model": model,
-                "area_source": ("volume_calibration" if curve_result else
-                                (cell.get("resolved_dimensions") or {}).get("geometric_area_source")),
+                "area_source": "volume_calibration" if curve_result else area_source,
                 "dimension_revision": (cell.get("resolved_dimensions") or {}).get("dimension_revision"),
                 "volume_calibration_revision": curve.get("revision") if curve_result else None,
                 "volume_extrapolated": curve_result["extrapolated"] if curve_result else False,
