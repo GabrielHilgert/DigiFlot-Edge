@@ -37,3 +37,11 @@ vm.runInNewContext(flow+"\npickRelativeSource()",flowContext).then(()=>{
   assert.equal(flowState.relativeDestinationCameraId,"2");
   console.log("Cells point editor, shape constraints and unmarked camera fallback passed.");
 }).catch(err=>{console.error(err);process.exitCode=1;});
+
+/* Ranked volume models keep manual selection distinct from a measured fill calibration. */
+const volumeJs=require("node:fs").readFileSync("src/ui/js/cells.js","utf8");
+const volumeHtml=require("node:fs").readFileSync("src/ui/html/cells.html","utf8");
+for(const id of ["cv_volume_model","cv_volume_model_preview","cv_volume_model_save","cv_volume_apply_capacity"])
+    require("node:assert/strict").match(volumeHtml,new RegExp('id="'+id+'"'));
+require("node:assert/strict").match(volumeJs,/saveVolumeModelPreference/);
+require("node:assert/strict").match(volumeJs,/volume-model/);
