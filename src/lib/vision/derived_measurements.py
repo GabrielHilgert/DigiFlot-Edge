@@ -56,6 +56,22 @@ def reference_choices(registry, cell_id, association):
     height = (((cell.get("resolved_dimensions") or {}).get("dimensions") or {})
               .get("height_mm") or {}).get("value_mm")
     mapped = {item["id"]: item for item in refs}
+    height_pair = ((cell.get("dimension_measurements") or {}).get("pairs") or {}).get("height_mm") or {}
+    if height_pair.get("axis") == "vertical":
+        from lib.vision.cell_metrics import _position
+        library = {point["id"]: point for point in (cell.get("reference_points") or {}).get("points", [])}
+        high, _ = _position(library, height_pair.get("from_id"), cell.get("marker_layout"))
+        low, _ = _position(library, height_pair.get("to_id"), cell.get("marker_layout"))
+        if high is not None and low is not None and abs(high[1]-low[1]) > 1e-6:
+            top_y, bottom_y = sorted((high[1], low[1]))
+            if "cell_top" not in mapped:
+                refs.append({"id":"cell_top","name":"Cell top · measured height pair",
+                             "direction":"down","y_cm":top_y,"source":"measured_height_pair"})
+                mapped["cell_top"] = refs[-1]
+            if "cell_bottom" not in mapped:
+                refs.append({"id":"cell_bottom","name":"Cell bottom · measured height pair",
+                             "direction":"up","y_cm":bottom_y,"source":"measured_height_pair"})
+                mapped["cell_bottom"] = refs[-1]
     if height is not None and math.isfinite(float(height)) and float(height) > 0:
         height_cm = float(height) / 10
         if "cell_bottom" not in mapped and "cell_top" in mapped:
