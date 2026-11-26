@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
     <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261126stagevars1">
     <script defer src="{{ url_for('static', path='js/plugin-displays.js') }}?v=20261120plugins1"></script>
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261126stagevars1"></script>
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261126volumemodels1"></script>
 </head>
 <body data-run-layout="compact">
     {% include "_navbar.html" %}
@@ -196,6 +196,10 @@
                                 <option value="height_cm">Height / depth (cm)</option>
                                 <option value="volume_l">Volume from cell bottom (L)</option>
                             </select>
+                            <div id="measurement_hifie_model_field" class="form-field" hidden>
+                                <label for="measurement_hifie_model">Volume calculation model</label>
+                                <select id="measurement_hifie_model"></select>
+                            </div>
                             <label for="measurement_hifie_reference">Physical reference</label>
                             <select id="measurement_hifie_reference"><option value="current">HIFIE configured reference</option></select>
                             <small id="measurement_hifie_note">The last detected frame is reused; no extra camera read.</small>
