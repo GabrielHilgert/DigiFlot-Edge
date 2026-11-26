@@ -7,7 +7,7 @@ let audioContext = null;
 const sensorPlotHistory = new Map();
 const hiddenSensorPlots = new Set();
 const lastSensorPlotTimestamp = new Map();
-let measurementData = { revision: 0, count: 0, variables: [], observations: [], hifie_options: null };
+let measurementData = { revision: 0, count: 0, variables: [], observations: [], hifie_options: null, stage_variables: null };
 let measurementFetchInFlight = false;
 let measurementSourceSignature = null;
 let requiredInputsSignature = null;
@@ -51,6 +51,7 @@ function cacheUi() {
         "measurement_sensor_age", "measurement_manual_fields", "measurement_manual_value", "measurement_manual_text",
         "measurement_manual_unit", "capture_measurement_button", "measurement_form_hint", "required_inputs_panel",
         "measurement_count", "measurement_summary_body", "measurement_history_body",
+        "stage_variables_panel", "stage_variables_title", "stage_variables_body",
         "calibration_review_panel", "calibration_review_list", "run_stage_overview", "run_stage_timeline", "run_stage_position",
         "stage_technical_details", "stage_technical_grid",
         "run_workspace", "ready_acquisition_edit", "transition_acquisition_edit",
@@ -802,10 +803,22 @@ function measurementContext(record) {
 }
 
 function renderMeasurementTables() {
-    const variables = measurementData.variables || [];
+    const stage = measurementData.stage_variables || {};
+    const stageVars = stage.items || [];
+    const variables = (measurementData.variables || []).filter(item =>
+        !stageVars.some(v => v.id === item.id));
     const observations = measurementData.observations || [];
+    ui.stage_variables_panel.hidden = !stageVars.length;
+    ui.stage_variables_title.textContent = stage.stage?.name ?
+        "Stage Variables · " + stage.stage.name : "Stage Variables";
+    ui.stage_variables_body.innerHTML = stageVars.map(item =>
+        `<tr class="measurement-variable-row" data-stage-variable-id="${escapeHtml(item.id)}" tabindex="0"
+            role="button" aria-label="Capture ${escapeHtml(item.name)}">
+            <td><strong>${escapeHtml(item.name)}</strong>${item.required ? ' <small>Required</small>' : ''}</td>
+            <td>${escapeHtml(measurementValueText(item.latest))}</td>
+            <td>${escapeHtml(item.points)}</td></tr>`).join("");
     ui.measurement_count.textContent = `${measurementData.count || observations.length} point${(measurementData.count || observations.length) === 1 ? "" : "s"}`;
-    ui.measurement_variable_names.innerHTML = variables
+    ui.measurement_variable_names.innerHTML = [...stageVars, ...variables]
         .map((item) => `<option value="${escapeHtml(item.name)}"></option>`).join("");
 
     ui.measurement_summary_body.innerHTML = variables.length
@@ -834,7 +847,8 @@ function renderMeasurementTables() {
 }
 
 function selectMeasurementVariable(variableId) {
-    const variable = (measurementData.variables || []).find(item => String(item.id) === String(variableId));
+    const variable = [...(measurementData.stage_variables?.items || []), ...(measurementData.variables || [])]
+        .find(item => String(item.id) === String(variableId));
     if (!variable) return;
     ui.measurement_variable_name.value = variable.name || "";
     const input = (latestState?.execution_inputs?.items || []).find(item => item.id === variable.id);
@@ -899,7 +913,11 @@ function syncHifieMeasurementControls() {
 }
 
 function hifieMeasurementPreview(sensor) {
-    const channel=ui.measurement_hifie_channel.value,raw=sensor?.channels?.[channel];
+    const channel=ui.measurement_hifie_channel.value,channels=sensor?.channels||{};
+    const endpoints=[channels.froth_surface_cm,channels.pulp_froth_interface_cm];
+    const raw=channel==="interface_mean_cm" ?
+        (endpoints.every(v=>v!=null&&Number.isFinite(Number(v))) ?
+            (Number(endpoints[0])+Number(endpoints[1]))/2 : null) : channels[channel];
     if(raw==null||!Number.isFinite(Number(raw)))return null;
     const reference=ui.measurement_hifie_reference.value;
     const refs=measurementData.hifie_options?.references || [];
@@ -912,6 +930,8 @@ function hifieMeasurementPreview(sensor) {
         const target=selected;
         if(target?.y_cm==null)return null;
         value=target.direction==="down"?absolute-Number(target.y_cm):Number(target.y_cm)-absolute;
+        if(reference==="cell_bottom"&&value<-.01)return null;
+        if(reference==="cell_bottom")value=Math.max(0,value);
     }
     if(ui.measurement_hifie_output.value==="volume_l"){
         if(value<0)return null;
@@ -1002,6 +1022,7 @@ async function loadMeasurements() {
             variables: payload.variables || [],
             observations: payload.observations || [],
             hifie_options: payload.hifie_options || null,
+            stage_variables: payload.stage_variables || null,
         };
         renderMeasurementTables();
         updateMeasurementSourcePreview();
@@ -1665,11 +1686,22 @@ function bindActions() {
         selectMeasurementVariable(row.dataset.variableId);
     };
     ui.measurement_variable_name.addEventListener("change", () => {
-        const match=(measurementData.variables||[]).find(v =>
-            v.name.toLowerCase()===ui.measurement_variable_name.value.trim().toLowerCase());
+        const match=[...(measurementData.stage_variables?.items||[]), ...(measurementData.variables||[])]
+            .find(v=>v.name.toLowerCase()===ui.measurement_variable_name.value.trim().toLowerCase());
         if(match)selectMeasurementVariable(match.id);
     });
     ui.measurement_summary_body.addEventListener("click", chooseMeasurementVariable);
+    const chooseStageVariable = (event) => {
+        const row = event.target.closest("[data-stage-variable-id]");
+        if(row)selectMeasurementVariable(row.dataset.stageVariableId);
+    };
+    ui.stage_variables_body.addEventListener("click",chooseStageVariable);
+    ui.stage_variables_body.addEventListener("keydown",event=>{
+        if(event.key!=="Enter"&&event.key!==" ")return;
+        if(event.target.closest("[data-stage-variable-id]")){
+            event.preventDefault();chooseStageVariable(event);
+        }
+    });
     ui.measurement_summary_body.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         const row = event.target.closest("[data-variable-id]");
@@ -1805,6 +1837,7 @@ function bindActions() {
             measurementData.revision = result.measurements?.revision || measurementData.revision;
             measurementData.count = result.measurements?.count || measurementData.observations.length;
             measurementData.variables = result.measurements?.variables || measurementData.variables;
+            await loadMeasurements();
             if (latestState && result.execution_inputs) latestState.execution_inputs = result.execution_inputs;
             renderMeasurementTables();
             ui.measurement_manual_value.value = "";
