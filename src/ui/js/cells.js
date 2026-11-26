@@ -353,7 +353,7 @@
     state.dimensionMeasurements=cell?.dimension_measurements||{revision:0,pairs:{}};
     state.visualShapes=cell?.geometric_shapes||{revision:0,items:[]};
     state.shapePoints=[];state.activeShapeId=null;state.shapeDone=false;state.shapeCapture=null;
-    renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();renderShapeList();
+    renderCellDimensionPairs();renderCellResolvedDimensions();renderVolumeEditor();renderVolumeModels();renderShapeList();
     $('cell_name').value = cell?.name || '';
     $('cell_volume').value = cell?.working_volume_l ?? '';
     const g = cell?.geometry || {};
@@ -390,6 +390,8 @@
       return '<div class="cv-metric"><span>'+label+'</span><strong>'+(item?fmt(item.value_mm)+' mm':'—')+
         '</strong><small>'+(item?sources[item.source]||item.source:'No dimension available')+'</small></div>';
     });
+    if(data.estimated_capacity_l!=null)rows.push('<div class="cv-metric"><span>Recommended capacity estimate</span><strong>'+
+      fmt(data.estimated_capacity_l,3)+' L</strong><small>Computed · '+esc(data.estimated_capacity_source||'automatic')+' · not experimental working volume</small></div>');
     rows.push('<div class="cv-metric"><span>Geometric cross-section</span><strong>'+
       (data.geometric_area_cm2!=null?fmt(data.geometric_area_cm2,2)+' cm²':'—')+
       '</strong><small>'+(sources[data.geometric_area_source]||'Not available · effective area uncalibrated')+'</small></div>');
@@ -554,6 +556,50 @@
     state.dimensionMeasurements=state.cell.dimension_measurements;
     renderCellDimensionPairs();renderCellResolvedDimensions();
     toast('Measured geometry updated independently from nominal parameters.');
+  }
+
+  function selectedCellVolumeModel(){
+    const available=state.cell?.volume_models||{},items=available.models||[];
+    const id=$('cv_volume_model').value==='auto'?available.recommended_id:$('cv_volume_model').value;
+    return items.find(item=>item.id===id)||null;
+  }
+  function renderVolumeModelPreview(){
+    const model=selectedCellVolumeModel(),available=state.cell?.volume_models||{};
+    const preferred=$('cv_volume_model').value==='auto'?'Automatic ranking':'Manual override';
+    const capacity=model?.capacity_l==null?'Full capacity unavailable (height unknown or curve is not a full-fill calibration)':
+      fmtVolume(model.capacity_l)+' L approximate capacity';
+    text('cv_volume_model_preview',model?
+      model.label+' · '+preferred+' · '+capacity+' · '+
+      (model.area_cm2==null?'Experimental V(h)':'Section '+fmtVolume(model.area_cm2)+' cm²')+
+      ' · '+(model.detail||model.area_source||'')+
+      (model.reference_ids?.length?' · References: '+model.reference_ids.join(', '):''):
+      'No valid geometric area or experimental V(h) exists. Measure dimensions and outline, or record known fills.');
+    $('cv_volume_apply_capacity').disabled=!model?.capacity_l;
+    text('cv_volume_model_status',available.preference_stale?
+      'Saved model is unavailable after a calibration change; automatic ranking is in use.':
+      (available.models?.length||0)+' valid relation(s). Model preference does not change cell geometry revisions.');
+  }
+  function fmtVolume(value){return Number(value).toLocaleString(undefined,{maximumFractionDigits:4});}
+  function renderVolumeModels(){
+    const info=state.cell?.volume_models||{},items=info.models||[];
+    const select=$('cv_volume_model');
+    select.innerHTML='<option value="auto">Auto · highest-quality valid source</option>'+
+      items.map(item=>'<option value="'+esc(item.id)+'">'+esc(item.label)+' · '+
+        (item.capacity_l==null?'area / curve only':fmtVolume(item.capacity_l)+' L')+
+        '</option>').join('');
+    select.value=info.preferred_id&&items.some(item=>item.id===info.preferred_id)?info.preferred_id:'auto';
+    select.disabled=!state.cellId||!items.length;
+    $('cv_volume_model_save').disabled=!state.cellId;
+    renderVolumeModelPreview();
+  }
+  async function saveVolumeModelPreference(){
+    if(!state.cellId)throw new Error('Save the cell first.');
+    const modelId=$('cv_volume_model').value||'auto';
+    await api('/cells/'+encodeURIComponent(state.cellId)+'/volume-model',{
+      method:'PUT',body:{model_id:modelId}});
+    state.cell=await api('/cells/'+encodeURIComponent(state.cellId));
+    renderCellResolvedDimensions();renderVolumeModels();
+    toast(modelId==='auto'?'Automatic volume ranking restored.':'Preferred cell volume model saved.');
   }
 
   function volumePointRow(point={}){
@@ -1873,6 +1919,14 @@
   $('save_dimension_pairs').addEventListener('click',action(saveCellDimensionPairs));
   $('add_volume_point').addEventListener('click',()=>{$('cell_volume_points').insertAdjacentHTML('beforeend',volumePointRow());});
   $('save_volume_curve').addEventListener('click',action(saveVolumeCurve));
+  $('cv_volume_model').addEventListener('change',renderVolumeModelPreview);
+  $('cv_volume_model_save').addEventListener('click',action(saveVolumeModelPreference));
+  $('cv_volume_apply_capacity').addEventListener('click',()=>{
+    const model=selectedCellVolumeModel();
+    if(!model?.capacity_l)return;
+    $('cell_volume').value=Number(model.capacity_l).toFixed(4);
+    toast('Estimated capacity copied. Save Cell to use it as working volume; this is not a measured fill volume.');
+  });
   $('cell_volume_points').addEventListener('click',event=>{
     if(event.target.closest('[data-volume-remove]')){
       event.target.closest('.cv-volume-point').remove();
