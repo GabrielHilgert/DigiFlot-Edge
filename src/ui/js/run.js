@@ -10,6 +10,7 @@ const lastSensorPlotTimestamp = new Map();
 let measurementData = { revision: 0, count: 0, variables: [], observations: [], hifie_options: null, stage_variables: null };
 let measurementFetchInFlight = false;
 let measurementSourceSignature = null;
+let measurementStageSignature = null;
 let requiredInputsSignature = null;
 let stageTimelineSignature = null;
 let readyViewSignature = null;
@@ -1168,6 +1169,9 @@ function renderRequiredInputs(state, {force = false, savedField = null} = {}) {
 }
 
 function renderMeasurements(state) {
+    const stageSignature=JSON.stringify([state.state,state.current_stage_index,state.stage_attempt,state.current_stage?.uid]);
+    const stageChanged=stageSignature!==measurementStageSignature;
+    measurementStageSignature=stageSignature;
     const description = ui.measurement_launcher.querySelector?.(".measurement-accordion-description");
     if (description) {
         const fallback = "Feed mass, water volume, sensor readings and notes";
@@ -1190,7 +1194,7 @@ function renderMeasurements(state) {
     if (!available || !measurementOpen) return;
     updateMeasurementSources(state);
     const remoteRevision = Number(state.measurements?.revision || 0);
-    if (remoteRevision !== Number(measurementData.revision || 0)) loadMeasurements();
+    if (stageChanged || remoteRevision !== Number(measurementData.revision || 0)) loadMeasurements();
 }
 
 if(typeof window.setInterval==="function")window.setInterval(pollRunMonitor,2500);
