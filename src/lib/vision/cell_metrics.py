@@ -255,3 +255,112 @@ def evaluate_volume_curve(curve, height_cm):
     return {"volume_l": volume, "effective_area_cm2": slope*1000,
             "extrapolated": height > points[-1]["height_cm"]+1e-8,
             "calibration_revision": curve.get("revision")}
+
+
+def available_cell_volume_models(cell):
+    """Enumerate current volume relationships without modifying experimental calibration."""
+    resolved = cell.get("resolved_dimensions") or {}
+    dimensions = resolved.get("dimensions") or {}
+    geometry = cell.get("geometry") or {}
+    models = []
+    height = dimensions.get("height_mm") or {}
+    nominal_height = geometry.get("height_mm")
+
+    def positive(value):
+        try:
+            number = float(value)
+            return number if math.isfinite(number) and number > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    def height_variants():
+        primary = positive(height.get("value_mm"))
+        nominal = positive(nominal_height)
+        result = [("", primary, height.get("source") or "unknown")]
+        if nominal is not None and (primary is None or abs(nominal - primary) > 1e-6):
+            result.append((":nominal-height", nominal, "nominal"))
+        return result
+
+    def add(model_id, label, area, area_source, score, *, source_kind, dimensions_used=(),
+            reference_ids=(), detail="", visual_id=None):
+        area = positive(area)
+        if area is None:
+            return
+        for suffix, height_mm, height_source in height_variants():
+            h_score = {"measured": 30, "derived": 20, "relative_estimate": 10, "nominal": 0}.get(height_source, 0)
+            capacity = area * height_mm / 10000 if height_mm is not None else None
+            models.append({"id": model_id + suffix, "label": label + (" · nominal height" if suffix else ""),
+                           "kind": source_kind, "area_cm2": area, "capacity_l": capacity,
+                           "height_mm": height_mm, "height_source": height_source, "area_source": area_source,
+                           "score": score + h_score, "reference_ids": sorted(set(reference_ids)),
+                           "dimensions_used": list(dimensions_used), "detail": detail,
+                           "visual_id": visual_id, "estimated": True})
+
+    shape = geometry.get("shape", "custom")
+    area = positive(resolved.get("geometric_area_cm2"))
+    sources = {"measured_geometry": 730, "mixed_geometry": 570,
+               "relative_geometry": 480, "nominal_geometry": 280}
+    fields = ("width_mm",) if shape == "cylindrical" else ("width_mm", "depth_mm")
+    if shape in ("cylindrical", "rectangular") and area is not None:
+        refs = [ref for field in fields for ref in (dimensions.get(field) or {}).get("references", [])]
+        add("geometry:resolved", "Resolved " + shape + " section", area,
+            resolved.get("geometric_area_source"), sources.get(resolved.get("geometric_area_source"), 500),
+            source_kind="geometric", dimensions_used=fields, reference_ids=refs,
+            detail="Uses the best available measured, derived, relative or nominal dimensions")
+
+    nominal_width = positive(geometry.get("width_mm"))
+    nominal_depth = positive(geometry.get("depth_mm"))
+    nominal_area = (math.pi * (nominal_width / 20) ** 2 if shape == "cylindrical" and nominal_width
+                    else nominal_width * nominal_depth / 100 if shape == "rectangular"
+                    and nominal_width and nominal_depth else None)
+    if nominal_area is not None and (area is None or abs(area - nominal_area) > 1e-8):
+        add("geometry:nominal", "Nominal " + shape + " section", nominal_area, "nominal_geometry", 250,
+            source_kind="geometric", dimensions_used=fields,
+            detail="Uses only the nominal width / diameter and depth")
+
+    anchor_rank = {"measured": 4, "derived": 3, "relative_estimate": 2, "nominal": 1}
+    from .shapes import estimate_area
+    for outline in cell.get("visual_area_estimates") or []:
+        if not outline.get("valid") or positive(outline.get("area_cm2")) is None:
+            continue
+        anchor_field = outline.get("anchor_field")
+        anchor = dimensions.get(anchor_field) or {}
+        anchor_source = outline.get("anchor_source") or anchor.get("source", "nominal")
+        corrected = bool(outline.get("optically_corrected"))
+        rank = anchor_rank.get(anchor_source, 1)
+        confidence = (565 if corrected else 405) + rank * 47
+        if outline.get("kind") == "polygon": confidence += 8
+        ident = str(outline["id"])
+        refs = anchor.get("references") or []
+        add("outline:" + ident, str(outline.get("name") or ident) + " · camera outline",
+            outline["area_cm2"], "visual_outline_estimate", confidence, source_kind="visual_outline",
+            dimensions_used=[anchor_field], reference_ids=refs, visual_id=ident,
+            detail=("Optically corrected" if corrected else "Perspective/optics not fully corrected")
+                   + " · anchor " + str(anchor_source))
+        nominal_anchor = positive(geometry.get(anchor_field))
+        resolved_anchor = positive(anchor.get("value_mm"))
+        if nominal_anchor is not None and (resolved_anchor is None or abs(nominal_anchor - resolved_anchor) > 1e-6):
+            try:
+                alternative = estimate_area(outline, {anchor_field: {"value_mm": nominal_anchor,
+                    "source": "nominal"}}, outline["camera_revision"])
+                if alternative.get("valid"):
+                    add("outline:" + ident + ":nominal-anchor", str(outline.get("name") or ident)
+                        + " · nominal anchor", alternative["area_cm2"], "visual_outline_nominal",
+                        285 if corrected else 220, source_kind="visual_outline",
+                        dimensions_used=[anchor_field], visual_id=ident,
+                        detail="Visual outline scaled from nominal " + str(anchor_field))
+            except (KeyError, ValueError, TypeError):
+                continue
+
+    curve = cell.get("volume_calibration") or {}
+    if curve.get("valid") and len(curve.get("points") or []) >= 2:
+        models.append({"id": "experimental", "label": "Experimental fill curve V(h)",
+                       "kind": "experimental_curve", "area_cm2": None, "capacity_l": None,
+                       "height_mm": positive(height.get("value_mm")),
+                       "height_source": height.get("source"), "area_source": "volume_calibration",
+                       "score": 1000, "reference_ids": [curve.get("datum_reference_id") or "cell_bottom"],
+                       "dimensions_used": [], "detail": "Known fill volumes; piecewise linear interpolation",
+                       "visual_id": None, "estimated": False})
+
+    models.sort(key=lambda model: (-model["score"], model["id"]))
+    return models
