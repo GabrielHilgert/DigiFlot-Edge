@@ -678,6 +678,7 @@ def capture_measurement(request: Request, payload: dict | None = None):
             hifie_channel=payload.get("hifie_channel"),
             hifie_reference_id=payload.get("hifie_reference_id", "current"),
             hifie_output=payload.get("hifie_output", "height_cm"),
+            hifie_volume_model_id=payload.get("hifie_volume_model_id"),
         )
     except Exception as error:
         raise api_error(error) from error
