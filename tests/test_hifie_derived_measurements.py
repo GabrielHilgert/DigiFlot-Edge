@@ -46,6 +46,20 @@ class HifieMeasurementTests(unittest.TestCase):
             derive_hifie_value(self.sensor, self.cell, self.options, "froth_thickness_cm",
                                "cell_bottom", "volume_l")
 
+    def test_interface_mean_is_derived_from_both_channels(self):
+        got=derive_hifie_value(self.sensor,self.cell,self.options,"interface_mean_cm","cell_bottom","height_cm")
+        self.assertAlmostEqual(got["value"],9.)
+        self.assertEqual(got["metadata"]["channel"],"interface_mean_cm")
+        self.assertEqual(got["unit"],"cm")
+        self.sensor["channels"]["pulp_froth_interface_cm"]=None
+        with self.assertRaisesRegex(ValueError,"no measurement"):
+            derive_hifie_value(self.sensor,self.cell,self.options,"interface_mean_cm")
+
+    def test_invalid_negative_bottom_height_is_not_silently_flipped(self):
+        self.sensor["channels"]["pulp_froth_interface_cm"]=30.
+        with self.assertRaisesRegex(ValueError,"below the configured Cell bottom"):
+            derive_hifie_value(self.sensor,self.cell,self.options,"pulp_froth_interface_cm","cell_bottom")
+
     def test_rectangular_area(self):
         self.assertEqual(geometric_area_cm2({"geometry": {"shape": "rectangular",
                          "width_mm": 100, "depth_mm": 80}}), 80)
