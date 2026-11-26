@@ -877,7 +877,8 @@ function syncHifieMeasurementControls() {
     }
     const thickness=ui.measurement_hifie_channel.value==="froth_thickness_cm";
     const bottom=references.some(ref=>ref.id==="cell_bottom");
-    const area=Number(measurementData.hifie_options?.geometric_area_cm2);
+    const proposedArea=Number(measurementData.hifie_options?.volume_area_cm2);
+    const area=Number.isFinite(proposedArea)&&proposedArea>0?proposedArea:null;
     const calibrated=Boolean(measurementData.hifie_options?.volume_curve?.points?.length>1);
     const volumePossible=!thickness&&bottom&&(calibrated||(Number.isFinite(area)&&area>0));
     ui.measurement_hifie_output.querySelector('[value="volume_l"]').disabled=!volumePossible;
@@ -888,10 +889,12 @@ function syncHifieMeasurementControls() {
     select.disabled=thickness||volume;
     ui.measurement_hifie_note.textContent=volume ?
         (calibrated ? "Cell V(h) calibration · bulk volume below this interface (not net water volume)." :
-        "Geometric bulk volume below this interface (not net water volume in a slurry).") :
+        (measurementData.hifie_options?.volume_area_source==="visual_outline_estimate" ?
+            "Visual cross-section estimate · bulk volume below this interface (not net water volume in a slurry)." :
+            "Geometric bulk volume below this interface (not net water volume in a slurry).")) :
         thickness ? "Thickness is independent of the selected reference." :
         !bottom ? "Height only · calibrate the cell bottom in Cells for a future volume conversion." :
-        !area ? "Height only · enter cell geometry or calibrate effective area to estimate volume." :
+        !area ? "Height only · add a valid geometric/visual cross-section or calibrate V(h) in Cells." :
         "Height is relative to the selected physical reference.";
 }
 
@@ -919,7 +922,7 @@ function hifieMeasurementPreview(sensor) {
             const a=points[i-1],b=points[i],slope=(b.volume_l-a.volume_l)/(b.height_cm-a.height_cm);
             value=a.volume_l+slope*(value-a.height_cm);
         } else {
-            const area=Number(measurementData.hifie_options?.geometric_area_cm2);
+            const area=Number(measurementData.hifie_options?.volume_area_cm2);
             if(!Number.isFinite(area)||area<=0)return null;
             value=value*area/1000;
         }
