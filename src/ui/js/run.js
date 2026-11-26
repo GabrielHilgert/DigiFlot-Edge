@@ -807,7 +807,7 @@ function renderMeasurementTables() {
     const stage = measurementData.stage_variables || {};
     const stageVars = stage.items || [];
     const variables = (measurementData.variables || []).filter(item =>
-        !stageVars.some(v => v.id === item.id));
+        !stageVars.some(v => v.id === item.id || v.name.toLowerCase() === String(item.name || "").toLowerCase()));
     const observations = measurementData.observations || [];
     ui.stage_variables_panel.hidden = !stageVars.length;
     ui.stage_variables_title.textContent = stage.stage?.name ?
