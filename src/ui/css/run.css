@@ -673,3 +673,5 @@ body[data-run-layout="compact"] #run_panel .run-actions .button { flex:1 1 auto;
 /* Form grid styles must not override state-driven hidden fields. */
 #measurement_hifie_fields[hidden], #stage_variables_panel[hidden], #measurement_sensor_value[hidden],
 #measurement_manual_fields[hidden], #measurement_manual_value[hidden], #measurement_manual_text[hidden] { display:none !important; }
+
+#measurement_hifie_model_field[hidden] { display:none !important; }
