@@ -259,7 +259,7 @@ def evaluate_volume_curve(curve, height_cm):
 
 def available_cell_volume_models(cell):
     """Enumerate current volume relationships without modifying experimental calibration."""
-    resolved = cell.get("resolved_dimensions") or {}
+    resolved = cell.get("resolved_dimensions") or resolve_cell_dimensions(cell)
     dimensions = resolved.get("dimensions") or {}
     geometry = cell.get("geometry") or {}
     models = []
@@ -351,6 +351,13 @@ def available_cell_volume_models(cell):
                         detail="Visual outline scaled from nominal " + str(anchor_field))
             except (KeyError, ValueError, TypeError):
                 continue
+
+    if not any(model["kind"] == "visual_outline" for model in models):
+        legacy_area = positive(resolved.get("visual_area_cm2"))
+        if legacy_area is not None:
+            add("outline:legacy", "Visual section estimate", legacy_area,
+                "visual_outline_estimate", 450, source_kind="visual_outline",
+                detail="Legacy camera section without individual outline metadata")
 
     curve = cell.get("volume_calibration") or {}
     if curve.get("valid") and len(curve.get("points") or []) >= 2:
