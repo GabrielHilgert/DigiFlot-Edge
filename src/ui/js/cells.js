@@ -411,6 +411,7 @@
         '<small>Experimental V(h) · varies by height</small></div>');
     }
     $('cell_resolved_dimensions').innerHTML=rows.join('');
+    renderVolumeModels();
     renderShapeList();
   }
 
