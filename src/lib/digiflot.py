@@ -970,6 +970,7 @@ class DigiFlot:
     def _hifie_measurement_options_unlocked(self):
         default = {"references": [{"id": "current", "name": "HIFIE configured reference"}],
                    "geometric_area_cm2": None, "volume_area_cm2": None, "volume_area_source": None,
+                   "volume_models": [], "selected_volume_model_id": None,
                    "volume_curve": None, "cell_id": None}
         cell_id = (self.cell_profile or {}).get("physical_cell_id")
         if not cell_id or self.vision is None:
@@ -980,9 +981,12 @@ class DigiFlot:
             association = registry.association(self.virtual_camera_id, cell_id) if self.virtual_camera_id is not None else None
             curve = cell.get("volume_calibration") or {}
             area, area_source = available_volume_area(cell)
+            volume_models = cell.get("volume_models") or {}
             return {"references": reference_choices(registry, cell_id, association),
                     "geometric_area_cm2": geometric_area_cm2(cell),
                     "volume_area_cm2": area, "volume_area_source": area_source,
+                    "volume_models": volume_models.get("models") or [],
+                    "selected_volume_model_id": volume_models.get("selected_id"),
                     "volume_curve": ({"points": curve["points"], "revision": curve["revision"]}
                                      if curve.get("valid") else None),
                     "cell_id": cell_id}
@@ -1044,6 +1048,7 @@ class DigiFlot:
         hifie_channel=None,
         hifie_reference_id="current",
         hifie_output="height_cm",
+        hifie_volume_model_id=None,
     ):
         with self.lock:
             if self.run_directory is None or self.experiment is None:
@@ -1103,7 +1108,8 @@ class DigiFlot:
                         raise ValueError("Select a calibrated physical cell for HIFIE measurements.")
                     derived = derive_hifie_value(
                         snapshot, self.vision.registry.get_cell(cell_id), options,
-                        channel=hifie_channel, reference_id=hifie_reference_id, output=hifie_output)
+                        channel=hifie_channel, reference_id=hifie_reference_id, output=hifie_output,
+                        volume_model_id=hifie_volume_model_id)
                     captured_value = derived["value"]
                     hifie_metadata = derived["metadata"]
                 else:
@@ -1598,11 +1604,25 @@ class DigiFlot:
             # Keep an operator-confirmed measurement/override if one already exists.
             cell_volume = cell.get("working_volume_l")
             item = self.execution_inputs.get("working_cell_volume")
-            if item is not None and cell_volume is not None and item.get("source") not in (
-                    "manual", "sensor", "operator", "execution"):
-                item.update({"value": float(cell_volume), "source": "physical_cell",
-                             "cell_revision": cell.get("revision"), "updated_at": _utc_now()})
-                profile["working_volume_l"] = float(cell_volume)
+            models = (cell.get("volume_models") or {}).get("models") or []
+            selected_model_id = (cell.get("volume_models") or {}).get("selected_id")
+            selected_model = next((model for model in models if model["id"] == selected_model_id
+                                   and model.get("capacity_l") is not None), None)
+            capacity_model = selected_model or next((model for model in models
+                                                      if model.get("capacity_l") is not None), None)
+            estimate = capacity_model.get("capacity_l") if capacity_model else None
+            if item is not None and item.get("source") not in ("manual", "sensor", "operator", "execution"):
+                if cell_volume is not None:
+                    item.update({"value": float(cell_volume), "source": "physical_cell",
+                                 "cell_revision": cell.get("revision"), "updated_at": _utc_now()})
+                    profile["working_volume_l"] = float(cell_volume)
+                elif item.get("value") is None and estimate is not None:
+                    # Explicitly flag the approximation; do not overwrite registered working volume.
+                    item.update({"value": float(estimate), "source": "estimated_cell_capacity",
+                                 "volume_model_id": capacity_model["id"], "updated_at": _utc_now()})
+                    profile.update({"working_volume_l": float(estimate),
+                                    "working_volume_source": "estimated_cell_capacity",
+                                    "volume_model_id": capacity_model["id"]})
             if working_volume_l is not None:
                 import math
                 volume = float(working_volume_l)
