@@ -12,19 +12,24 @@ def geometric_area_cm2(cell):
     from lib.vision.cell_metrics import resolve_cell_dimensions
     return resolve_cell_dimensions(cell)["geometric_area_cm2"]
 
+def resolve_volume_model(cell, model_id=None):
+    """Return one current model; reject explicit stale operator choices."""
+    from lib.vision.cell_metrics import available_cell_volume_models
+    info = (cell or {}).get("volume_models") or {}
+    models = info.get("models")
+    if models is None: models = available_cell_volume_models(cell or {})
+    requested = model_id or info.get("selected_id") or (models[0]["id"] if models else None)
+    selected = next((model for model in models if model["id"] == requested), None)
+    if requested and selected is None:
+        raise ValueError("Selected volume model is no longer valid for this cell; refresh Cells.")
+    return selected
+
+
 def available_volume_area(cell):
-    """Choose a finite area: resolved geometry first, valid visual outline second."""
-    resolved = (cell or {}).get("resolved_dimensions") or {}
-    candidates = ((geometric_area_cm2(cell), resolved.get("geometric_area_source") or "geometric_area"),
-                  (resolved.get("visual_area_cm2"), resolved.get("visual_area_source") or "visual_outline_estimate"))
-    for candidate, source in candidates:
-        try:
-            area = float(candidate)
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(area) and area > 0:
-            return area, source
-    return None, None
+    """Return selected valid area for legacy callers, excluding experimental V(h)."""
+    selected = resolve_volume_model(cell)
+    return ((selected["area_cm2"], selected["area_source"]) if selected and selected.get("area_cm2") else
+            (None, None))
 
 
 def reference_choices(registry, cell_id, association):
@@ -48,7 +53,7 @@ def reference_choices(registry, cell_id, association):
     return refs
 
 
-def derive_hifie_value(sensor, cell, options, channel, reference_id="current", output="height_cm"):
+def derive_hifie_value(sensor, cell, options, channel, reference_id="current", output="height_cm", volume_model_id=None):
     """Read an existing sample only; do not capture another camera frame."""
     if channel not in HIFIE_CHANNELS or output not in ("height_cm", "volume_l"):
         raise ValueError("Invalid HIFIE interface or output quantity.")
@@ -89,7 +94,9 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
         if value < -0.01:
             raise ValueError("HIFIE interface is below the configured Cell bottom. Check the physical bottom reference and camera-cell calibration.")
         value = max(0.0, value)  # Only neutralize floating-point noise.
-    area, area_source = available_volume_area(cell)
+    selected_model = resolve_volume_model(cell, volume_model_id) if output == "volume_l" else None
+    area = selected_model.get("area_cm2") if selected_model else None
+    area_source = selected_model.get("area_source") if selected_model else None
     used_reference = previous if reference_id == "current" else target
     model = None
     curve = cell.get("volume_calibration") or {}
@@ -97,17 +104,19 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
     if output == "volume_l":
         if bottom is None:
             raise ValueError("Cell bottom is not calibrated. Define it in Cells.")
-        if area is None and not curve.get("valid"):
+        if selected_model is None:
             raise ValueError("Cell has no current volume calibration or valid geometric/visual area; record height instead.")
         if bottom_height is None or bottom_height < -0.01:
             raise ValueError("Interface is below cell bottom; check physical references.")
-        height_mm = (((cell.get("resolved_dimensions") or {}).get("dimensions") or {})
-                     .get("height_mm") or {}).get("value_mm")
+        height_mm = selected_model.get("height_mm")
         if height_mm is None:
-            height_mm = (cell.get("geometry") or {}).get("height_mm")
+            height_mm = (((cell.get("resolved_dimensions") or {}).get("dimensions") or {})
+                         .get("height_mm") or {}).get("value_mm")
         if height_mm not in (None, "") and bottom_height > float(height_mm) / 10.0 + 0.01:
             raise ValueError("Interface is above the cell's physical height.")
-        if curve.get("valid"):
+        if selected_model["kind"] == "experimental_curve":
+            if not curve.get("valid"):
+                raise ValueError("Experimental V(h) calibration has expired; revalidate it in Cells.")
             from lib.vision.cell_metrics import evaluate_volume_curve
             curve_result = evaluate_volume_curve(curve, bottom_height)
             value = curve_result["volume_l"]
@@ -115,11 +124,14 @@ def derive_hifie_value(sensor, cell, options, channel, reference_id="current", o
             model = "calibrated_volume_curve"
         else:
             value = max(0.0, bottom_height) * area / 1000.0
-            model = "visual_outline_area" if area_source == "visual_outline_estimate" else "geometric_area"
+            model = "visual_outline_area" if selected_model["kind"] == "visual_outline" else "geometric_area"
         used_reference = bottom
     metadata = {"channel": channel, "output": output, "reference_id": used_reference.get("id", reference_id),
                 "reference": used_reference, "sensor_reference": previous, "absolute_y_cm": absolute_y,
                 "height_from_bottom_cm": bottom_height, "area_cm2": area, "volume_model": model,
+                "volume_model_id": selected_model["id"] if selected_model else None,
+                "volume_model_label": selected_model["label"] if selected_model else None,
+                "volume_model_score": selected_model["score"] if selected_model else None,
                 "area_source": "volume_calibration" if curve_result else area_source,
                 "dimension_revision": (cell.get("resolved_dimensions") or {}).get("dimension_revision"),
                 "volume_calibration_revision": curve.get("revision") if curve_result else None,
