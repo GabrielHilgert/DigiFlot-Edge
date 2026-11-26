@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DigiFlot | Experiment Run</title>
     <link rel="stylesheet" href="{{ url_for('static', path='css/common.css') }}?v=20261114icons1">
-    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261123stage1">
+    <link rel="stylesheet" href="{{ url_for('static', path='css/run.css') }}?v=20261126stagevars1">
     <script defer src="{{ url_for('static', path='js/plugin-displays.js') }}?v=20261120plugins1"></script>
-    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261126visualvolume1"></script>
+    <script defer src="{{ url_for('static', path='js/run.js') }}?v=20261126stagevars1"></script>
 </head>
 <body data-run-layout="compact">
     {% include "_navbar.html" %}
@@ -188,6 +188,7 @@
                             <select id="measurement_hifie_channel">
                                 <option value="froth_surface_cm">Froth surface</option>
                                 <option value="pulp_froth_interface_cm">Pulp–froth interface</option>
+                                <option value="interface_mean_cm">Mean of both interfaces</option>
                                 <option value="froth_thickness_cm">Froth thickness</option>
                             </select>
                             <label for="measurement_hifie_output">Quantity</label>
@@ -223,6 +224,13 @@
                     </form>
     
                     <div class="measurement-data">
+                        <div id="stage_variables_panel" hidden>
+                            <div class="measurement-table-heading"><h3 id="stage_variables_title">Stage Variables</h3><span>Planned · current stage</span></div>
+                            <div class="table-scroll"><table class="measurement-table">
+                                <thead><tr><th>Variable</th><th>Latest</th><th>Points</th></tr></thead>
+                                <tbody id="stage_variables_body"></tbody>
+                            </table></div>
+                        </div>
                         <div>
                             <div class="measurement-table-heading">
                                 <h3>Variables</h3>
