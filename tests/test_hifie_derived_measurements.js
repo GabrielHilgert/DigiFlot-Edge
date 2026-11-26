@@ -7,8 +7,8 @@ for(const id of ["measurement_hifie_channel","measurement_hifie_output","measure
 assert.match(js,/hifie_channel=ui\.measurement_hifie_channel\.value/);
 assert.match(js,/hifie_reference_id=ui\.measurement_hifie_reference\.value/);
 assert.match(js,/hifie_output=ui\.measurement_hifie_output\.value/);
-assert.match(js,/volume_area_cm2/);
-assert.match(js,/volume_area_source==="visual_outline_estimate"/);
+assert.match(js,/volume_models/);
+assert.match(js,/model\.area_cm2/);
 assert.match(js,/interface_mean_cm/);
 assert.match(html,/value="interface_mean_cm"/);
 assert.match(html,/id="measurement_hifie_model"/);
